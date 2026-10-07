@@ -26,13 +26,20 @@ await db.exec(`
   grant usage on schema public, app, auth to authenticated;
   grant select, insert, update, delete on all tables in schema public to authenticated;
   grant usage on all sequences in schema public to authenticated;
-  grant execute on all functions in schema app, auth to authenticated;
+  grant execute on all functions in schema app, auth, public to authenticated;
 `);
 console.log('スキーマ適用: OK');
 
 const C = id();
-await db.query(`insert into circles (id, name) values ($1, 'テストサークル')`, [C]);
-await db.query(`insert into circle_members (circle_id, user_id, role) values ($1, $2, 'owner')`, [C, U1]);
+await as(U1, async () => {
+  await db.query(`select create_circle($1, 'テストサークル')`, [C]);
+  await db.query(`select create_circle($1, 'テストサークル')`, [C]);
+  const m = await db.query(`select role from circle_members where circle_id = $1`, [C]);
+  ok(m.rows.length === 1 && m.rows[0].role === 'owner', 'create_circle でサークル主になる(2回呼んでも1行)');
+});
+await as(U2, async () => {
+  await expectError(db.query(`select create_circle($1, '乗っ取り')`, [C]), '他人のサークルIDでは create_circle できない');
+});
 
 const SELF = id(), OB = id(), A = id(), B = id(), AB = id(), FB = id(), HOME = id(), EV = id(), EVL = id();
 const now = new Date().toISOString();
@@ -68,7 +75,7 @@ const T1 = id(), T2 = id(), T3 = id();
 await as(U2, async () => {
   const before = await db.query(`select count(*)::int n from items`);
   ok(before.rows[0].n === 0, '招待を受ける前の売り子は品目を見られない');
-  await db.query(`select app.redeem_invite('tok123')`);
+  await db.query(`select redeem_invite('tok123')`);
   const r = await db.query(`select name from items order by name`);
   ok(r.rows.length === 4, '招待を受けた売り子はイベントの品目4件を見られる: ' + r.rows.map(x => x.name).join(','));
 

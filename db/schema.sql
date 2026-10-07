@@ -565,8 +565,31 @@ language sql stable security definer set search_path = public as $$
   )
 $$;
 
+-- ---------------------------------------------------------------------
+-- アプリから呼ぶ関数(PostgREST の rpc で呼べるよう public に置く)
+-- ---------------------------------------------------------------------
+
+-- サークルを作り、呼んだ人をサークル主にする(F-1009)。
+-- 端末で先に作ったサークルを後から同期するため、同じ id で何度呼んでもよい
+create function public.create_circle(p_id uuid, p_name text) returns uuid
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then
+    raise exception 'ログインが必要です' using errcode = 'P0004';
+  end if;
+  if exists (select 1 from circles where id = p_id) then
+    if not app.is_owner(p_id) then
+      raise exception 'このサークルのサークル主ではありません' using errcode = 'P0006';
+    end if;
+    return p_id;
+  end if;
+  insert into circles (id, name) values (p_id, p_name);
+  insert into circle_members (circle_id, user_id, role) values (p_id, auth.uid(), 'owner');
+  return p_id;
+end $$;
+
 -- 招待の受け取り(F-1005)。売り子は匿名ログインしてから呼ぶ
-create function app.redeem_invite(token text) returns uuid
+create function public.redeem_invite(token text) returns uuid
 language plpgsql security definer set search_path = public as $$
 declare inv invites;
 begin

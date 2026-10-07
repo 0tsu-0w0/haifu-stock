@@ -4,34 +4,54 @@
 
 サークル主と売り子が別々のスマホで同じデータに記録でき、会場で電波がなくても動くことを前提にしています。
 
-## 今あるもの
+## 動かす
 
-| パス | 内容 |
-|---|---|
-| [docs/要件定義書.md](docs/要件定義書.md) | 要件定義書(v1.1) |
-| [db/データベース設計.md](db/データベース設計.md) | データベース設計書 |
-| [db/schema.sql](db/schema.sql) | Supabase(PostgreSQL)用のスキーマ。テーブル、RLS、集計ビュー |
-| [db/test-schema.mjs](db/test-schema.mjs) | スキーマの検証スクリプト |
-| [prototype/register.html](prototype/register.html) | レジ画面と終了処理の試作品(1ファイルで動く) |
-
-## 試作品を動かす
-
-`prototype/register.html` をスマホかPCのブラウザで開きます。見本データ入りで、記録はそのブラウザにだけ保存されます。
-
-## スキーマを検証する
-
-Node.js 20 以上が必要です。ブラウザ用の PostgreSQL(PGlite)にスキーマを流し、権限・集計・追記専用の台帳などを確かめます。
+Node.js 20 以上が必要です。
 
 ```bash
 npm install
 ```
 
 ```bash
-npm run test:db
+npm run dev
 ```
 
-## 技術構成(予定)
+ブラウザで http://localhost:5173 を開き、「見本データ入りで試す」を押すと、見本のイベントのレジを触れます。
 
-- PWA(React + Vite + TypeScript)
-- 端末内の保存: IndexedDB(Dexie.js)
-- 同期: Supabase(Postgres + Auth + Realtime)
+同期先(Supabase)を使う場合は `.env.example` を `.env` にコピーして接続先を入れ、`db/schema.sql` を Supabase に適用します。設定しなければ、端末の中だけで動きます。
+
+## 確認する
+
+| コマンド | 内容 |
+|---|---|
+| `npm test` | 記録・集計・同期のテスト(端末2台のオフライン記録、ファイルでの取り込みなど) |
+| `npm run test:db` | `db/schema.sql` の検証(権限、追記専用の台帳、集計ビューなど) |
+| `npm run typecheck` | 型チェック |
+| `npm run build` | 本番用のビルド(PWA) |
+
+## 構成
+
+```
+src/
+  db/          端末内のデータベース(IndexedDB / Dexie)。列名は db/schema.sql と同じ
+  domain/      記録(販売・無償出庫・取り消し・在庫移動)と集計。画面に依存しない
+  sync/        同期(送信待ち → サーバー、サーバー → 端末)とファイルでの取り込み
+  app/         データベースと同期を画面につなぐ部分
+  pages/       画面(最初の設定、ホーム、レジ)
+  components/  画面の部品
+db/            Supabase 用のスキーマと検証
+docs/          要件定義書
+prototype/     レジと終了処理の試作品(1ファイルで動く)
+```
+
+### しくみの要点
+
+- 端末のデータベースを常に正として動き、サーバーは端末どうしで記録を受け渡す中継として使う
+- 販売・取り消し・在庫移動は追記だけ。主キーは端末で発行する UUID v7 なので、2台がオフラインで記録しても衝突しない
+- 記録はすべて送信待ち(`outbox`)に積み、通信できるときに親テーブルから順に送る。受け取るときは `server_seq` の続きから取る
+- 残数・売上・完売時刻は保存せず、台帳から計算する(`src/domain/ledger.ts`)
+
+## ドキュメント
+
+- [要件定義書](docs/要件定義書.md)
+- [データベース設計](db/データベース設計.md)
