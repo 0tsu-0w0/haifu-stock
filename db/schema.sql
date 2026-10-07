@@ -44,7 +44,7 @@ create sequence sync_seq;
 -- ---------------------------------------------------------------------
 
 -- 差分同期の番号と更新時刻を振る
-create function app.touch_sync() returns trigger language plpgsql as $$
+create function app.touch_sync() returns trigger language plpgsql set search_path = public as $$
 begin
   new.server_seq := nextval('sync_seq');
   if tg_op = 'UPDATE' then
@@ -54,7 +54,7 @@ begin
 end $$;
 
 -- マスタの後勝ち: 端末で編集した時刻が古い更新は捨てる
-create function app.last_write_wins() returns trigger language plpgsql as $$
+create function app.last_write_wins() returns trigger language plpgsql set search_path = public as $$
 begin
   if new.client_updated_at < old.client_updated_at then
     return null;
@@ -63,7 +63,7 @@ begin
 end $$;
 
 -- 台帳は追記だけ
-create function app.forbid_change() returns trigger language plpgsql as $$
+create function app.forbid_change() returns trigger language plpgsql set search_path = public as $$
 begin
   raise exception '% は追記専用です。取り消しは void の取引を追加してください', tg_table_name
     using errcode = 'P0001';
@@ -497,7 +497,7 @@ language sql stable security definer set search_path = public as $$
   select exists (select 1 from event_closings where event_id = e and reopened_at is null)
 $$;
 
-create function app.guard_closed_event() returns trigger language plpgsql as $$
+create function app.guard_closed_event() returns trigger language plpgsql set search_path = public as $$
 declare corr boolean := false;
 begin
   if tg_table_name = 'transactions' then
@@ -519,7 +519,7 @@ create trigger stock_movements_guard_closed before insert on stock_movements
   for each row execute function app.guard_closed_event();
 
 -- 取り消しは同じイベントの販売・無償出庫だけを対象にできる
-create function app.check_void_target() returns trigger language plpgsql as $$
+create function app.check_void_target() returns trigger language plpgsql set search_path = public as $$
 begin
   if new.type = 'void' and not exists (
     select 1 from transactions t
@@ -700,6 +700,18 @@ create policy stock_movements_staff_insert on stock_movements for insert to auth
               and reason in ('sale', 'giveaway')
               and exists (select 1 from transactions t
                           where t.id = transaction_id and t.recorded_by = auth.uid()));
+
+-- ---------------------------------------------------------------------
+-- 関数の実行権限
+--   RLS のポリシーとトリガーから app スキーマの関数を呼ぶので、ログインしたユーザーに使わせる。
+--   アプリから呼ぶ関数は、ログインしたユーザーだけが呼べるようにする
+-- ---------------------------------------------------------------------
+grant usage on schema app to authenticated;
+grant execute on all functions in schema app to authenticated;
+revoke execute on function public.create_circle(uuid, text) from public, anon;
+revoke execute on function public.redeem_invite(text) from public, anon;
+grant execute on function public.create_circle(uuid, text) to authenticated;
+grant execute on function public.redeem_invite(text) to authenticated;
 
 -- ---------------------------------------------------------------------
 -- 集計ビュー(すべて呼び出したユーザーの権限で動く)
