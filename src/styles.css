@@ -59,6 +59,19 @@ a { color: inherit; text-decoration: none; }
 .row-link b { display: block; }
 .row-link small { color: var(--ink-2); font-size: 12px; }
 .go-label { color: var(--accent); font-size: 13px; font-weight: 700; white-space: nowrap; }
+.row-link.wide { width: 100%; text-align: left; }
+.btn.center { display: grid; place-items: center; }
+.link-btn { color: var(--accent); font-size: 14px; align-self: center; padding: 8px; text-decoration: underline; text-underline-offset: 3px; }
+.event-row { display: flex; flex-direction: column; gap: 4px; }
+.sub-link { align-self: flex-end; color: var(--accent); font-size: 13px; padding: 2px 4px; }
+.account { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; }
+.account .k { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.code-input { font-size: 24px !important; letter-spacing: .4em; text-align: center; }
+.invite { align-items: center; text-align: center; }
+.qr { width: min(280px, 100%); aspect-ratio: 1; border-radius: 12px; background: #FFFFFF; padding: 8px; }
+.invite-url { font: 12px var(--f-num); color: var(--ink-2); word-break: break-all; background: var(--sunk); border-radius: 8px; padding: 6px 8px; max-width: 100%; }
+.section { font-size: 13px; color: var(--ink-2); margin: 6px 0 -2px; letter-spacing: .04em; }
+.sbtn.danger { color: var(--danger); border-color: var(--danger-line); }
 
 .bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .ev { min-width: 0; }

@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
 import { addSampleData, createCircle } from '../domain/setup';
 
@@ -7,6 +9,7 @@ export function SetupPage() {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const { configured } = useAuth();
 
   async function start(withSample: boolean) {
     setError('');
@@ -52,6 +55,12 @@ export function SetupPage() {
       </form>
       <button className="btn" onClick={() => void start(true)} disabled={busy}>見本データ入りで試す</button>
       <p className="note">データはこの端末に保存されます。あとからログインすると、売り子の端末と同期できます。</p>
+      {configured && (
+        <div className="card">
+          <p className="note">ほかの端末でサークルを作ってある場合は、ログインするとそのデータを使えます。売り子として参加する場合は、サークル主が出すQRコードを読んでください。</p>
+          <Link className="btn center" to="/login">ログインして始める</Link>
+        </div>
+      )}
     </main>
   );
 }

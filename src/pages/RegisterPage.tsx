@@ -1,5 +1,6 @@
 import { useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
 import { useCtx } from '../app/useCtx';
 import { SyncPill } from '../components/SyncPill';
@@ -20,6 +21,7 @@ export function RegisterPage() {
   const { eventId = '' } = useParams();
   const navigate = useNavigate();
   const ctx = useCtx();
+  const { role } = useAuth();
   const data = useEventData(eventId);
   const toast = useToast();
   const [sheetItem, setSheetItem] = useState<Item | null>(null);
@@ -165,9 +167,9 @@ export function RegisterPage() {
             <span>{event.space_no ?? event.held_on}</span>
           </Link>
           <SyncPill />
-          <Link className="icon-btn" to={`/events/${eventId}/closing`} aria-label="終了処理">
+          {role === 'owner' && <Link className="icon-btn" to={`/events/${eventId}/closing`} aria-label="終了処理">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 21V4" /><path d="M5 4h11l-2 4 2 4H5" /></svg>
-          </Link>
+          </Link>}
         </div>
         <div className="sum">
           <div><small>売上</small><strong className="num">{yen(totals.amount)}</strong></div>

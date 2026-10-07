@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { getMeta } from '../db/local';
 import { syncOnce } from '../sync/engine';
 import { SupabaseRemote, supabase } from '../sync/supabaseRemote';
+import { useAuth } from './AuthProvider';
 import { db } from './db';
 
 type SyncState =
@@ -50,8 +51,11 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // ログイン・ログアウトしたら、すぐに同期し直す
+  const { session } = useAuth();
+  const uid = session?.user.id;
   useEffect(() => {
-    if (!remote) return;
+    if (!remote || session === undefined) return;
     void syncNow();
     const timer = setInterval(() => void syncNow(), INTERVAL_MS);
     const online = () => void syncNow();
@@ -60,7 +64,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       clearInterval(timer);
       window.removeEventListener('online', online);
     };
-  }, [syncNow]);
+  }, [syncNow, uid, session === undefined]); // ユーザーが変わったときだけ張り直す
 
   const value = useMemo(() => ({ state, pending, syncNow }), [state, pending, syncNow]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

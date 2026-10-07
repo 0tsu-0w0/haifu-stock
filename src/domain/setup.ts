@@ -58,6 +58,7 @@ export async function createCircle(db: HaifuDB, name: string): Promise<Ctx> {
       id: uuidv7(), circle_id: circleId, kind: 'storage', name: '自宅', event_id: null, archived_at: null, ...masterStamp(),
     } satisfies Location);
     await setMeta(db, 'circle_id', circleId);
+    await setMeta(db, 'role', 'owner');
   });
   return { circleId, deviceId: await deviceId(db), userId: await userId(db) };
 }

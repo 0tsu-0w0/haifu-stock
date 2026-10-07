@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
 import { useSync } from '../app/SyncProvider';
 import { useCtx } from '../app/useCtx';
@@ -27,6 +28,7 @@ type Data = NonNullable<ReturnType<typeof useEventData>>;
 export function ClosingPage() {
   const { eventId = '' } = useParams();
   const ctx = useCtx();
+  const { role } = useAuth();
   const data = useEventData(eventId);
   const navigate = useNavigate();
   const toast = useToast();
@@ -39,6 +41,14 @@ export function ClosingPage() {
   const money = useMemo(() => (data ? computeMoney(data, rows) : null), [data, rows]);
 
   if (data === undefined || ctx === undefined) return <main className="page" />;
+  if (role === 'staff') {
+    return (
+      <main className="page">
+        <p className="lead">終了処理はサークル主が行います。</p>
+        <Link className="link-btn" to={`/events/${eventId}/register`}>レジに戻る</Link>
+      </main>
+    );
+  }
   if (data === null || ctx === null || !money) {
     return (
       <main className="page">
