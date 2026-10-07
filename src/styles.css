@@ -220,3 +220,15 @@ select { height: 38px; border-radius: 8px; border: 1px solid var(--line-2); back
 .metric { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
 .metric small { display: block; font-size: 12px; color: var(--ink-2); }
 .metric strong { font-size: 20px; }
+
+/* 記録の履歴 */
+.hist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.hr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "time what amt" ". undo undo"; gap: 4px 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.hr time { grid-area: time; font-size: 12px; color: var(--ink-2); }
+.hr .what { grid-area: what; min-width: 0; line-height: 1.4; }
+.hr .what small { display: block; font-size: 11px; color: var(--ink-3); }
+.hr .amt { grid-area: amt; }
+.hr .undo { grid-area: undo; justify-self: end; font-size: 12px; color: var(--accent); padding: 4px 10px; border-radius: 999px; border: 1px solid transparent; }
+.hr .undo.armed { color: var(--danger); border-color: var(--danger-line); background: var(--danger-bg); font-weight: 700; }
+.hr.void .label, .hr.void .amt { text-decoration: line-through; color: var(--ink-3); }
+.top .bar .icon-btn + .icon-btn { margin-left: -2px; }

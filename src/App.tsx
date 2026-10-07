@@ -4,6 +4,7 @@ import { SyncProvider } from './app/SyncProvider';
 import { useCtx } from './app/useCtx';
 import { ToastProvider } from './components/Toast';
 import { ClosingPage } from './pages/ClosingPage';
+import { HistoryPage } from './pages/HistoryPage';
 import { HomePage } from './pages/HomePage';
 import { InvitePage } from './pages/InvitePage';
 import { JoinPage } from './pages/JoinPage';
@@ -26,6 +27,7 @@ function Routed() {
           <Route path="/" element={<HomePage />} />
           <Route path="/events/:eventId/register" element={<RegisterPage />} />
           <Route path="/events/:eventId/closing" element={<ClosingPage />} />
+          <Route path="/events/:eventId/history" element={<HistoryPage />} />
           <Route path="/events/:eventId/invite" element={<InvitePage />} />
           <Route path="*" element={<HomePage />} />
         </>

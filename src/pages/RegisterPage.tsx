@@ -6,12 +6,12 @@ import { useCtx } from '../app/useCtx';
 import { SyncPill } from '../components/SyncPill';
 import { useToast } from '../components/Toast';
 import type { GiveawayKind, Item, Txn } from '../db/types';
+import { GIVE_LABEL, describeTxn } from '../domain/history';
 import { recordGiveaway, recordSale, voidTransaction } from '../domain/record';
 import { hhmm, yen } from '../lib/format';
 import { useEventData } from './useEventData';
 
 const LONG_PRESS_MS = 550;
-export const GIVE_LABEL: Record<GiveawayKind, string> = { sample: '見本誌', gift: '献本', damage: '汚損・破損', lost: '紛失' };
 const PAID_CHOICES = [1000, 5000, 10000] as const;
 
 type Paid = number | 'exact' | null;
@@ -54,12 +54,7 @@ export function RegisterPage() {
     return comps.length ? Math.min(...comps.map((c) => Math.floor(atClose(c.component_item_id) / c.qty))) : 0;
   };
 
-  const describe = (t: Txn) => {
-    const names = (linesByTxn.get(t.id) ?? [])
-      .map((l) => `${itemById.get(l.item_id)?.name ?? '?'}${l.qty > 1 ? ` ×${l.qty}` : ''}`)
-      .join('・');
-    return t.type === 'giveaway' ? `${GIVE_LABEL[t.giveaway_kind!]}: ${names}` : names;
-  };
+  const describe = (t: Txn) => describeTxn(t, linesByTxn.get(t.id) ?? [], itemById);
 
   const vibrate = (ms: number) => {
     try {
@@ -167,6 +162,9 @@ export function RegisterPage() {
             <span>{event.space_no ?? event.held_on}</span>
           </Link>
           <SyncPill />
+          <Link className="icon-btn" to={`/events/${eventId}/history`} aria-label="記録の履歴">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 8v4l3 2" /><path d="M3.05 11a9 9 0 1 1 .5 4" /><path d="M3 4v5h5" /></svg>
+          </Link>
           {role === 'owner' && <Link className="icon-btn" to={`/events/${eventId}/closing`} aria-label="終了処理">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 21V4" /><path d="M5 4h11l-2 4 2 4H5" /></svg>
           </Link>}
