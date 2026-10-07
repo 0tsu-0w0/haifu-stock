@@ -1,0 +1,11 @@
+{
+  "name": "haifu-stock",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:db": "node db/test-schema.mjs db/schema.sql"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.2.0"
+  }
+}
