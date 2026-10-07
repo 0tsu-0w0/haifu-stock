@@ -14,7 +14,14 @@ export interface Ctx {
 
 const nowIso = (ctx: Ctx) => (ctx.now ? ctx.now() : new Date()).toISOString();
 
-const LEDGER_TABLES = ['transactions', 'transaction_lines', 'stock_movements', 'outbox'] as const;
+/** 終了処理を確定したイベントには、終了処理そのもの以外から記録させない(F-506) */
+async function assertOpenForRegister(db: HaifuDB, eventId: string, source: 'register' | 'closing') {
+  if (source === 'closing') return;
+  const closed = await db.event_closings.where('event_id').equals(eventId).filter((c) => !c.reopened_at).count();
+  if (closed > 0) throw new Error('このイベントは終了処理を確定済みです');
+}
+
+const LEDGER_TABLES = ['transactions', 'transaction_lines', 'stock_movements', 'outbox', 'event_closings'] as const;
 const READ_TABLES = ['locations', 'items', 'set_components', 'event_items'] as const;
 
 export async function eventLocationId(db: HaifuDB, eventId: string): Promise<string> {
@@ -71,6 +78,7 @@ export async function recordSale(db: HaifuDB, ctx: Ctx, input: SaleInput): Promi
   if (input.lines.some((l) => !Number.isInteger(l.qty) || l.qty <= 0)) throw new Error('部数が正しくありません');
 
   return db.transaction('rw', [...LEDGER_TABLES, ...READ_TABLES], async () => {
+    await assertOpenForRegister(db, input.eventId, input.source ?? 'register');
     const at = nowIso(ctx);
     const loc = await eventLocationId(db, input.eventId);
     const t = txn(ctx, at, {
@@ -118,6 +126,7 @@ export async function recordGiveaway(
 ): Promise<Txn> {
   if (!Number.isInteger(input.qty) || input.qty <= 0) throw new Error('部数が正しくありません');
   return db.transaction('rw', [...LEDGER_TABLES, ...READ_TABLES], async () => {
+    await assertOpenForRegister(db, input.eventId, input.source ?? 'register');
     const at = nowIso(ctx);
     const item = await db.items.get(input.itemId);
     if (!item) throw new Error('品目が見つかりません');
@@ -143,6 +152,7 @@ export async function voidTransaction(db: HaifuDB, ctx: Ctx, txnId: string): Pro
   return db.transaction('rw', LEDGER_TABLES, async () => {
     const target = await db.transactions.get(txnId);
     if (!target || target.type === 'void') throw new Error('取り消せる取引が見つかりません');
+    await assertOpenForRegister(db, target.event_id, 'register');
     const already = await db.transactions.where('voids_txn_id').equals(txnId).count();
     if (already > 0) throw new Error('この取引はすでに取り消されています');
     const t = txn(ctx, nowIso(ctx), { event_id: target.event_id, type: 'void', voids_txn_id: txnId });

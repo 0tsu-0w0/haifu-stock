@@ -1,5 +1,5 @@
 import { getMeta, putAndQueue, setMeta, type HaifuDB } from '../db/local';
-import type { CashCount, EventItem, EventRow, Item, Location, Owner, PrintRun, SetComponent } from '../db/types';
+import type { CashCount, EventItem, EventRow, Expense, Item, Location, Owner, PrintRun, SetComponent } from '../db/types';
 import { uuidv7 } from '../lib/uuid';
 import { moveStock, type Ctx } from './record';
 
@@ -106,7 +106,7 @@ export async function addSampleData(db: HaifuDB, ctx: Ctx): Promise<EventRow> {
   const ev = await createEvent(db, ctx, { name: 'コミティア(見本)', heldOn, spaceNo: 'A12a', startsAt });
   const evLoc = (await db.locations.where('event_id').equals(ev.id).first())!;
 
-  await db.transaction('rw', ['owners', 'items', 'set_components', 'print_runs', 'event_items', 'cash_counts', 'outbox'], async () => {
+  await db.transaction('rw', ['owners', 'items', 'set_components', 'print_runs', 'event_items', 'cash_counts', 'expenses', 'outbox'], async () => {
     for (const [k, name, rate] of [['B', 'サークルB', 0], ['C', 'サークルC', 0.1]] as const) {
       owners[k] = { id: uuidv7(), circle_id: ctx.circleId, name, is_self: false, default_fee_rate: rate, archived_at: null, ...masterStamp() };
       await putAndQueue(db, 'owners', owners[k]);
@@ -136,6 +136,12 @@ export async function addSampleData(db: HaifuDB, ctx: Ctx): Promise<EventRow> {
         id: uuidv7(), circle_id: ctx.circleId, item_id: ids[s.key], edition: 1,
         printed_on: heldOn, qty: s.stock! + 5, total_cost: s.printCost!, printer: null, ...masterStamp(),
       } satisfies PrintRun);
+    }
+    for (const [category, label, amount] of [['booth_fee', '出展費', 7000], ['transport', '交通費', 1280]] as const) {
+      await putAndQueue(db, 'expenses', {
+        id: uuidv7(), circle_id: ctx.circleId, event_id: ev.id, category, label,
+        planned_amount: amount, actual_amount: amount, ...masterStamp(),
+      } satisfies Expense);
     }
     for (const [denomination, count] of [[1000, 10], [500, 6], [100, 20]] as const) {
       await putAndQueue(db, 'cash_counts', {

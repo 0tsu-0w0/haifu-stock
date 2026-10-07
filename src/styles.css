@@ -134,3 +134,76 @@ a { color: inherit; text-decoration: none; }
 .cancel { height: 40px; color: var(--ink-2); font-size: 14px; }
 
 @media (prefers-reduced-motion: reduce) { *, *::after { transition: none !important; animation: none !important; } }
+
+/* レジ: カートと確定後の表示 */
+.icon-btn { width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--line); display: grid; place-items: center; background: var(--surface); flex: none; }
+.cart-on { color: var(--accent); font-weight: 700; }
+.closed-banner { background: var(--ok-bg); color: var(--ok); border-radius: 10px; padding: 8px 12px; font-size: 13px; text-align: left; }
+.item .incart { position: absolute; top: 8px; right: 8px; min-width: 24px; height: 24px; border-radius: 12px; background: var(--accent); color: var(--accent-ink); font-size: 13px; font-weight: 700; display: grid; place-items: center; padding: 0 6px; }
+.cart { border-top: 1px solid var(--line); background: var(--surface); padding: 10px 16px; display: flex; flex-direction: column; gap: 8px; }
+.cart-lines { max-height: 22vh; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.cl { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; font-size: 14px; }
+.empty-cart { font-size: 13px; color: var(--ink-3); text-align: center; padding: 6px 0; margin: 0; }
+.total { display: flex; justify-content: space-between; align-items: baseline; border-top: 1px solid var(--line); padding-top: 6px; }
+.total strong { font-size: 26px; }
+.paid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.paid button { height: 40px; border-radius: 10px; border: 1px solid var(--line-2); font-size: 14px; background: var(--surface); }
+.paid button[aria-pressed="true"] { border: 2px solid var(--accent); color: var(--accent); font-weight: 700; background: var(--accent-soft); }
+.change { display: flex; justify-content: space-between; align-items: baseline; background: var(--accent-soft); color: var(--accent); border-radius: 10px; padding: 6px 12px; }
+.change strong { font-size: 24px; }
+.change.short { background: var(--danger-bg); color: var(--danger); }
+.fbtn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.fbtn.primary small { color: var(--accent-ink); opacity: .85; }
+.fbtn:disabled { opacity: .6; }
+.qty.small button { width: 30px; height: 30px; font-size: 16px; }
+.qty.small span { min-width: 20px; font-size: 15px; }
+.qty input { width: 56px; height: 36px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); text-align: center; font: 500 16px var(--f-num); }
+.qty.small input { width: 48px; height: 30px; font-size: 15px; }
+
+/* 終了処理 */
+.closing { height: 100%; display: flex; flex-direction: column; }
+.c-top { display: flex; align-items: center; gap: 12px; padding: 10px 16px 8px; }
+.c-title b { display: block; font-size: 16px; }
+.c-title span { font-size: 12px; color: var(--ink-2); }
+.c-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 0 16px 10px; border-bottom: 1px solid var(--line); }
+.c-steps span { height: 4px; border-radius: 2px; background: var(--line-2); }
+.c-steps span.on { background: var(--accent); }
+.c-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+.c-body > *, .page > * { flex-shrink: 0; }
+.c-body h3 { font-size: 13px; color: var(--ink-2); margin: 6px 0 -2px; letter-spacing: .04em; }
+.card.warn { background: var(--warn-bg); border-color: var(--warn-line); }
+.card.warn .dev small, .card.warn .dev b { color: var(--warn); }
+.card.bad { border: 1.5px solid var(--danger-line); }
+.card.good { background: var(--ok-bg); border-color: transparent; color: var(--ok); }
+.rowx { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.k { color: var(--ink-2); font-size: 13px; }
+.dev { display: flex; flex-direction: column; }
+.dev small { font-size: 12px; color: var(--ink-2); }
+.btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.sbtn { min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface); font-size: 14px; }
+.sbtn.acc { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { min-height: 34px; padding: 4px 11px; border-radius: 999px; border: 1px solid var(--line-2); font-size: 13px; background: var(--surface); }
+.chip[aria-pressed="true"] { border: 2px solid var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.msg { font-size: 12px; line-height: 1.6; color: var(--danger); margin: 0; }
+.ctag { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--consign-bg); color: var(--consign); margin-left: 6px; white-space: nowrap; }
+.neg-num { color: var(--danger); }
+.pos { color: var(--ok); }
+.dn { display: grid; grid-template-columns: 64px 1fr auto; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line); }
+.dn .sub { min-width: 84px; text-align: right; font-size: 14px; }
+.bigdiff { display: flex; justify-content: space-between; align-items: baseline; border-radius: 12px; padding: 10px 14px; }
+.bigdiff strong { font-size: 26px; }
+.bigdiff.ok { background: var(--ok-bg); color: var(--ok); }
+.bigdiff.ng { background: var(--danger-bg); color: var(--danger); }
+.cands { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; color: var(--ink-2); }
+.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tbl td { padding: 4px 0; }
+.tbl td + td { text-align: right; }
+.tbl tr.sum td { border-top: 1px solid var(--line); padding-top: 7px; font-weight: 700; }
+.sub-tbl { font-size: 13px; color: var(--ink-2); }
+.copyfallback { width: 100%; min-height: 120px; font: 13px/1.6 var(--f-body); border: 1px solid var(--line-2); border-radius: 8px; background: var(--sunk); color: var(--ink); padding: 8px; }
+select { height: 38px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font: inherit; padding: 0 8px; }
+.metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.metric { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.metric small { display: block; font-size: 12px; color: var(--ink-2); }
+.metric strong { font-size: 20px; }

@@ -161,7 +161,68 @@ export interface EventDevice extends FromServer {
   pending_count: number;
 }
 
-// 終了処理などで使うテーブルは、画面を作る段階で型を詰める
+export type ExpenseCategory = 'booth_fee' | 'transport' | 'lodging' | 'shipping' | 'supplies' | 'other';
+
+export interface Expense extends FromServer {
+  id: Uuid;
+  circle_id: Uuid;
+  event_id: Uuid;
+  category: ExpenseCategory;
+  label: string | null;
+  planned_amount: number | null;
+  actual_amount: number | null;
+  client_updated_at: Iso;
+}
+
+export type CountHandling = 'add_sale' | 'lost' | 'fix_bring' | 'keep';
+
+/** 撤収時に数えた残数と、差異の扱い(F-501) */
+export interface ClosingCount extends FromServer {
+  event_id: Uuid;
+  item_id: Uuid;
+  circle_id: Uuid;
+  counted_qty: number;
+  handling: CountHandling;
+  client_updated_at: Iso;
+}
+
+export interface EventClosing extends FromServer {
+  id: Uuid;
+  circle_id: Uuid;
+  event_id: Uuid;
+  closed_at: Iso;
+  closed_by: Uuid;
+  cash_diff: number | null;
+  return_location_id: Uuid | null;
+  summary: ClosingSummary;
+  reopened_at: Iso | null;
+  reopened_by: Uuid | null;
+}
+
+/** 確定時点の集計のスナップショット */
+export interface ClosingSummary {
+  sales: number;
+  count: number;
+  profit: number;
+  fixes: { item_id: Uuid; name: string; handling: CountHandling; qty: number }[];
+  payouts: { owner_id: Uuid; name: string; amount: number }[];
+}
+
+export interface ConsignmentSettlement extends FromServer {
+  id: Uuid;
+  circle_id: Uuid;
+  event_closing_id: Uuid;
+  owner_id: Uuid;
+  sold_qty: number;
+  sales_amount: number;
+  fee_rate: number;
+  fee_amount: number;
+  payout_amount: number;
+  returned_qty: number;
+  lines: { item_id: Uuid; name: string; sold_qty: number; amount: number; returned_qty: number }[];
+}
+
+// まだ画面で使っていないテーブル
 export type LooseRow = Record<string, unknown> & FromServer;
 
 export interface OutboxEntry {

@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import type {
-  CashCount, Circle, EventDevice, EventItem, EventRow, Item, Location, LooseRow, MetaEntry,
+  CashCount, Circle, ClosingCount, ConsignmentSettlement, EventClosing, EventDevice, EventItem, EventRow, Expense,
+  Item, Location, LooseRow, MetaEntry,
   Movement, OutboxEntry, Owner, PrintRun, SetComponent, Txn, TxnLine,
 } from './types';
 import { dexieStores, outboxKey } from './tables';
@@ -19,15 +20,15 @@ export class HaifuDB extends Dexie {
   locations!: Table<Location, string>;
   event_items!: Table<EventItem, [string, string]>;
   event_breaks!: Table<LooseRow, string>;
-  expenses!: Table<LooseRow, string>;
+  expenses!: Table<Expense, string>;
   event_devices!: Table<EventDevice, string>;
   cash_counts!: Table<CashCount, [string, string, number]>;
   transactions!: Table<Txn, string>;
   transaction_lines!: Table<TxnLine, string>;
   stock_movements!: Table<Movement, string>;
-  closing_counts!: Table<LooseRow, [string, string]>;
-  event_closings!: Table<LooseRow, string>;
-  consignment_settlements!: Table<LooseRow, string>;
+  closing_counts!: Table<ClosingCount, [string, string]>;
+  event_closings!: Table<EventClosing, string>;
+  consignment_settlements!: Table<ConsignmentSettlement, string>;
   outbox!: Table<OutboxEntry, number>;
   meta!: Table<MetaEntry, string>;
 
