@@ -203,6 +203,9 @@ export function ItemEditPage() {
             {data.runs.length > 0 && be !== null && (
               <p className="note">印刷費の合計 {yen(fixedCost)}(1部あたり {yen(Math.round(fixedCost / printed))})。{yen(item.price)}で {be}部売ると回収できます。</p>
             )}
+            {data.runs.length > 0 && (
+              <Link className="sub-link" to={`/analysis?tab=item&item=${item.id}`}>損益分岐のグラフを見る</Link>
+            )}
           </div>
 
           <form className="card form" onSubmit={(e) => { e.preventDefault(); void addRun(); }}>

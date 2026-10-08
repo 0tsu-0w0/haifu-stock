@@ -346,7 +346,7 @@ function SettleStep(props: {
                 <tr key={l.item.id}><td>{l.item.name}</td><td>{l.soldQty}部 {yen(l.amount)}・返却 {l.returnedQty}部</td></tr>
               ))}
               <tr><td>受託手数料({Math.round(x.feeRate * 100)}%)</td><td>−{yen(x.fee)}</td></tr>
-              <tr className="sum"><td>お支払い</td><td>{yen(x.payout)}</td></tr>
+              <tr className="total-row"><td>お支払い</td><td>{yen(x.payout)}</td></tr>
             </tbody>
           </table>
           {fallback?.owner === x.ownerId && (
@@ -377,7 +377,7 @@ function SettleStep(props: {
             <tr><td>受託手数料</td><td>+{yen(money.fee)}</td></tr>
             <tr><td>経費</td><td>−{yen(money.expenses)}</td></tr>
             <tr><td>頒布分の原価</td><td>−{yen(money.cost)}</td></tr>
-            <tr className="sum"><td>収支</td><td className={money.profit >= 0 ? 'pos' : 'neg-num'}>{money.profit >= 0 ? '+' : ''}{yen(money.profit)}</td></tr>
+            <tr className="total-row"><td>収支</td><td className={money.profit >= 0 ? 'pos' : 'neg-num'}>{money.profit >= 0 ? '+' : ''}{yen(money.profit)}</td></tr>
           </tbody>
         </table>
       </div>
@@ -426,6 +426,7 @@ function DoneView({ data }: { data: Data }) {
         ))}
       </div>
       <p className="lead">自分の分の残りは「{data.storages.find((l) => l.id === c.return_location_id)?.name ?? '戻し先'}」に戻しました。</p>
+      <Link className="sub-link" to={`/analysis?tab=event&event=${data.event.id}`}>このイベントの損益分岐のグラフを見る</Link>
     </>
   );
 }

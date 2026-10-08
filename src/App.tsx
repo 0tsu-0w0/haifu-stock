@@ -3,6 +3,7 @@ import { AuthProvider } from './app/AuthProvider';
 import { SyncProvider } from './app/SyncProvider';
 import { useCtx } from './app/useCtx';
 import { ToastProvider } from './components/Toast';
+import { AnalysisPage } from './pages/AnalysisPage';
 import { ClosingPage } from './pages/ClosingPage';
 import { EventPreparePage } from './pages/EventPreparePage';
 import { HistoryPage } from './pages/HistoryPage';
@@ -34,6 +35,7 @@ function Routed() {
           <Route path="/events/new" element={<EventPreparePage />} />
           <Route path="/events/:eventId/prepare" element={<EventPreparePage />} />
           <Route path="/items" element={<ItemsPage />} />
+          <Route path="/analysis" element={<AnalysisPage />} />
           <Route path="/items/new" element={<ItemEditPage />} />
           <Route path="/items/:itemId" element={<ItemEditPage />} />
           <Route path="/events/:eventId/invite" element={<InvitePage />} />
