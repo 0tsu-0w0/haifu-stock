@@ -6,3 +6,5 @@ Thumbs.db
 dist/
 dev-dist/
 !.env.example
+
+.vercel
