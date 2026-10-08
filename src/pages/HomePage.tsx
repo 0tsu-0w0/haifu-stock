@@ -30,19 +30,26 @@ export function HomePage() {
       </header>
       <AccountBar />
 
+      {owner && (
+        <div className="home-actions">
+          <Link className="btn primary center" to="/events/new">イベントを作る</Link>
+          <Link className="btn center" to="/items">品目</Link>
+        </div>
+      )}
+
       {events && events.length === 0 && (
         owner ? (
           <div className="card">
-            <p>まだイベントがありません。</p>
+            <p>まだイベントがありません。品目を登録してから、イベントを作ってください。</p>
             <button
-              className="btn"
+              className="link-btn"
               onClick={async () => {
                 if (!ctx) return;
                 await addSampleData(db, ctx);
                 toast('見本のイベントを追加しました');
               }}
             >
-              見本のイベントを追加
+              見本のイベントで試す
             </button>
           </div>
         ) : (
@@ -60,13 +67,15 @@ export function HomePage() {
               </span>
               <span className="go-label">レジを開く</span>
             </Link>
-            {owner && configured && (
-              <Link className="sub-link" to={`/events/${ev.id}/invite`}>売り子を招待</Link>
+            {owner && (
+              <span className="sub-links">
+                <Link className="sub-link" to={`/events/${ev.id}/prepare`}>準備(持ち込み・釣り銭・経費)</Link>
+                {configured && <Link className="sub-link" to={`/events/${ev.id}/invite`}>売り子を招待</Link>}
+              </span>
             )}
           </li>
         ))}
       </ul>
-      <p className="note">イベントの作成・品目の登録の画面は、この土台の上に追加していきます。</p>
     </main>
   );
 }

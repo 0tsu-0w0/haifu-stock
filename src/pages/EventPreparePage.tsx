@@ -1,0 +1,295 @@
+import { useLiveQuery } from 'dexie-react-hooks';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { db } from '../app/db';
+import { useCtx } from '../app/useCtx';
+import { NewItemForEvent } from '../components/NewItemForEvent';
+import { NumberField } from '../components/NumberField';
+import { useToast } from '../components/Toast';
+import type { ExpenseCategory } from '../db/types';
+import {
+  EXPENSE_LABEL, prepareEvent, preparedQty, saveEventInfo, saveExpense, saveFloat, type PrepareLine,
+} from '../domain/catalog';
+import { DENOMINATIONS } from '../domain/closing';
+import { stockByLocation } from '../domain/ledger';
+import { yen } from '../lib/format';
+
+const toLocalTime = (iso: string | null) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+const fromLocalTime = (date: string, time: string) => (time ? new Date(`${date}T${time}:00`).toISOString() : null);
+
+// イベントの作成(F-301)と準備: 持ち込み(F-302)、受託品(F-307)、釣り銭(F-305)、経費(F-309)
+export function EventPreparePage() {
+  const { eventId } = useParams();
+  const isNew = !eventId;
+  const ctx = useCtx();
+  const navigate = useNavigate();
+  const toast = useToast();
+
+  const data = useLiveQuery(async () => {
+    if (!ctx) return null;
+    const [event, items, owners, storages, eventItems, prepared, cash, expenses, closings, movements, txns] = await Promise.all([
+      isNew ? undefined : db.events.get(eventId!),
+      db.items.where('circle_id').equals(ctx.circleId).toArray(),
+      db.owners.where('circle_id').equals(ctx.circleId).toArray(),
+      db.locations.where('circle_id').equals(ctx.circleId).filter((l) => l.kind === 'storage').toArray(),
+      isNew ? [] : db.event_items.where('event_id').equals(eventId!).toArray(),
+      isNew ? new Map<string, number>() : preparedQty(db, eventId!),
+      isNew ? [] : db.cash_counts.where('event_id').equals(eventId!).toArray(),
+      isNew ? [] : db.expenses.where('event_id').equals(eventId!).toArray(),
+      isNew ? [] : db.event_closings.where('event_id').equals(eventId!).toArray(),
+      db.stock_movements.toArray(),
+      db.transactions.toArray(),
+    ]);
+    return {
+      event, items, owners, storages, eventItems, prepared, cash, expenses,
+      closed: closings.some((c) => !c.reopened_at), stock: stockByLocation(movements, txns),
+    };
+  }, [ctx?.circleId, eventId]);
+
+  const [info, setInfo] = useState({ name: '', date: new Date().toISOString().slice(0, 10), space: '', venue: '', time: '' });
+  const [lines, setLines] = useState<Map<string, PrepareLine> | null>(null);
+  const [newExp, setNewExp] = useState<{ category: ExpenseCategory; amount: string }>({ category: 'booth_fee', amount: '' });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // 読み込んだ値でフォームを初期化する(その後はフォームの値を正とする)
+  useEffect(() => {
+    if (!data?.event) return;
+    setInfo({
+      name: data.event.name, date: data.event.held_on, space: data.event.space_no ?? '', venue: data.event.venue ?? '',
+      time: toLocalTime(data.event.starts_at),
+    });
+  }, [data?.event?.id]); // イベントが変わったときだけ入れ直す(編集中の値を上書きしない)
+  useEffect(() => {
+    if (!data || isNew || lines) return;
+    const m = new Map<string, PrepareLine>();
+    for (const i of data.items) {
+      const ei = data.eventItems.find((e) => e.item_id === i.id);
+      m.set(i.id, { itemId: i.id, included: !!ei && !ei.removed_at, bring: data.prepared.get(i.id) ?? 0, priceOverride: ei?.price_override ?? null });
+    }
+    setLines(m);
+  }, [data, isNew, lines]);
+
+  const ordered = useMemo(() => {
+    if (!data) return [];
+    const order = new Map(data.eventItems.map((e) => [e.item_id, e.sort_order]));
+    const self = data.owners.find((o) => o.is_self)?.id;
+    return data.items
+      .filter((i) => !i.archived_at || order.has(i.id))
+      .sort((a, b) =>
+        (order.get(a.id) ?? 1e6) - (order.get(b.id) ?? 1e6)
+        || Number(b.owner_id === self) - Number(a.owner_id === self)
+        || a.name.localeCompare(b.name, 'ja'));
+  }, [data]);
+
+  if (!ctx || !data) return <main className="page" />;
+  if (!isNew && !data.event) return <main className="page"><p>イベントが見つかりません。</p><Link to="/">ホームに戻る</Link></main>;
+  const home = data.storages[0];
+  const locked = data.closed;
+
+  async function saveInfo() {
+    setError('');
+    try {
+      const ev = await saveEventInfo(db, ctx!, {
+        id: data!.event?.id, name: info.name, heldOn: info.date, spaceNo: info.space, venue: info.venue,
+        startsAt: fromLocalTime(info.date, info.time),
+      });
+      toast(isNew ? 'イベントを作りました。持ち込む品目を選んでください' : '保存しました');
+      if (isNew) navigate(`/events/${ev.id}/prepare`, { replace: true });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const setLine = (id: string, patch: Partial<PrepareLine>) =>
+    setLines((m) => new Map(m ?? []).set(id, { ...(m?.get(id) ?? lineOf(id)), ...patch }));
+
+  async function applyBring() {
+    if (!lines || !home) return;
+    setBusy(true);
+    try {
+      const list = ordered.map((i) => lineOf(i.id)).filter((l) => (l.included || data!.eventItems.some((e) => e.item_id === l.itemId)));
+      const { moved } = await prepareEvent(db, ctx!, eventId!, list, { storageId: home.id });
+      toast(moved ? `持ち込みを反映しました(${moved}部を移動)` : '持ち込みを反映しました');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // フォームでまだ触っていない品目(あとから増えた品目も含む)は、保存済みの状態をそのまま使う
+  const lineOf = (id: string): PrepareLine => {
+    const l = lines?.get(id);
+    if (l) return l;
+    const ei = data.eventItems.find((e) => e.item_id === id);
+    return { itemId: id, included: !!ei && !ei.removed_at, bring: data.prepared.get(id) ?? 0, priceOverride: ei?.price_override ?? null };
+  };
+
+  const floatCounts = new Map(data.cash.filter((c) => c.phase === 'float').map((c) => [c.denomination, c.count]));
+  const floatTotal = [...floatCounts].reduce((a, [d, c]) => a + d * c, 0);
+  const shownExpenses = data.expenses.filter((e) => (e.planned_amount ?? 0) > 0 || (e.actual_amount ?? 0) > 0);
+  const owner = (id: string) => data.owners.find((o) => o.id === id);
+  const changed = lines && ordered.some((i) => {
+    const l = lineOf(i.id);
+    const ei = data.eventItems.find((e) => e.item_id === i.id);
+    return l && ((l.included !== (!!ei && !ei.removed_at)) || (l.included && i.kind !== 'set' && l.bring !== (data.prepared.get(i.id) ?? 0))
+      || (l.included && (l.priceOverride ?? null) !== (ei?.price_override ?? null)));
+  });
+
+  return (
+    <main className="page">
+      <header className="bar">
+        <Link className="ev" to="/"><b>{isNew ? 'イベントを作る' : 'イベントの準備'}</b><span>ホームに戻る</span></Link>
+        {!isNew && <Link className="sbtn" to={`/events/${eventId}/register`}>レジを開く</Link>}
+      </header>
+      {locked && <p className="note">このイベントは終了処理を確定済みです。準備の内容は変えられません。</p>}
+
+      <form className="card form" onSubmit={(e) => { e.preventDefault(); void saveInfo(); }}>
+        <label htmlFor="ev-name">イベント名</label>
+        <input id="ev-name" value={info.name} onChange={(e) => setInfo({ ...info, name: e.target.value })} placeholder="コミティア150" />
+        <div className="two">
+          <span>
+            <label htmlFor="ev-date">開催日</label>
+            <input id="ev-date" type="date" value={info.date} onChange={(e) => setInfo({ ...info, date: e.target.value })} />
+          </span>
+          <span>
+            <label htmlFor="ev-time">開始時刻</label>
+            <input id="ev-time" type="time" value={info.time} onChange={(e) => setInfo({ ...info, time: e.target.value })} />
+          </span>
+        </div>
+        <div className="two">
+          <span>
+            <label htmlFor="ev-space">スペース番号</label>
+            <input id="ev-space" value={info.space} onChange={(e) => setInfo({ ...info, space: e.target.value })} placeholder="A12a" />
+          </span>
+          <span>
+            <label htmlFor="ev-venue">会場</label>
+            <input id="ev-venue" value={info.venue} onChange={(e) => setInfo({ ...info, venue: e.target.value })} placeholder="任意" />
+          </span>
+        </div>
+        <p className="note">開始時刻は、完売したときの需要の補正に使います。</p>
+        {error && <p className="error">{error}</p>}
+        <button className="btn primary">{isNew ? '作って準備に進む' : '保存する'}</button>
+      </form>
+
+      {!isNew && lines && (
+        <>
+          <h3 className="section">持ち込む品目</h3>
+          {data.items.length === 0 && (
+            <div className="card"><p className="note">品目がまだありません。</p><Link className="btn center" to="/items/new">品目を追加</Link></div>
+          )}
+          <div className="card prep">
+            {ordered.map((i) => {
+              const l = lineOf(i.id);
+              const o = owner(i.owner_id);
+              const own = o?.is_self ?? true;
+              const atHome = home ? data.stock.get(`${i.id}|${home.id}`) ?? 0 : 0;
+              const prepared = data.prepared.get(i.id) ?? 0;
+              return (
+                <div key={i.id} className={`prep-row${l.included ? '' : ' off'}`}>
+                  <label className="check">
+                    <input type="checkbox" checked={l.included} disabled={locked} onChange={(e) => setLine(i.id, { included: e.target.checked })} />
+                    <span>
+                      <b>{i.name}</b>
+                      <small className="k">
+                        {yen(i.price)}{o && !own ? `・受託: ${o.name}` : ''}
+                        {i.kind === 'set' ? '・構成品の数で決まる' : own ? `・${home?.name ?? '自宅'}に ${atHome}部` : ''}
+                      </small>
+                    </span>
+                  </label>
+                  {l.included && i.kind !== 'set' && (
+                    <div className="rowx">
+                      <span className="k">{own ? '持ち込み' : '預かり'}{prepared ? `(いま ${prepared})` : ''}</span>
+                      <NumberField id={`bring-${i.id}`} label={`${i.name}の${own ? '持ち込み' : '預かり'}数`} value={l.bring} onCommit={(v) => setLine(i.id, { bring: v })} />
+                    </div>
+                  )}
+                  {l.included && (
+                    <div className="rowx">
+                      <label className="k" htmlFor={`price-${i.id}`}>イベント価格</label>
+                      <input
+                        id={`price-${i.id}`} className="price-in" inputMode="numeric" placeholder={String(i.price)}
+                        value={l.priceOverride ?? ''} disabled={locked}
+                        onChange={(e) => setLine(i.id, { priceOverride: e.target.value === '' ? null : Number(e.target.value.replace(/\D/g, '')) })}
+                      />
+                    </div>
+                  )}
+                  {own && l.included && i.kind !== 'set' && l.bring - prepared > atHome && (
+                    <p className="msg">{home?.name ?? '自宅'}の在庫より多く持ち込もうとしています。刷り記録が未入力でないか確かめてください。</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {!locked && home && (
+            <NewItemForEvent
+              ctx={ctx} eventId={eventId!} storageId={home.id} storageName={home.name} owners={data.owners.filter((o) => !o.archived_at)}
+              onCreated={(id, bring) => setLines((m) => new Map(m ?? []).set(id, { itemId: id, included: true, bring, priceOverride: null }))}
+            />
+          )}
+          <button className="btn primary" disabled={busy || locked || !changed} onClick={() => void applyBring()}>
+            {changed ? '持ち込みを反映する' : '持ち込みは反映済みです'}
+          </button>
+          <p className="note">反映すると、自分の品目は{home?.name ?? '自宅'}からイベントへ、受託品は預かりとして在庫が動きます。あとで数を変えると、差の分だけ動きます。</p>
+
+          <h3 className="section">釣り銭準備金 {yen(floatTotal)}</h3>
+          <div className="card">
+            {DENOMINATIONS.filter((d) => d <= 5000).map((d) => (
+              <div className="dn" key={d}>
+                <span className="num">{d.toLocaleString('ja-JP')}円</span>
+                <NumberField
+                  id={`float-${d}`} label={`${d}円の枚数`} value={floatCounts.get(d) ?? 0}
+                  onCommit={(v) => void saveFloat(db, ctx, eventId!, d, v).catch((e: Error) => toast(e.message))}
+                />
+                <span className="sub num">{yen(d * (floatCounts.get(d) ?? 0))}</span>
+              </div>
+            ))}
+          </div>
+
+          <h3 className="section">経費</h3>
+          <div className="card">
+            {shownExpenses.length === 0 && <span className="k">まだありません。出展費や交通費を入れると、収支と損益分岐に使います。</span>}
+            {shownExpenses.map((e) => (
+              <div className="rowx" key={e.id}>
+                <span>{e.label}</span>
+                <span className="exp-amount">
+                  <input
+                    className="price-in" inputMode="numeric" aria-label={`${e.label}の金額`} disabled={locked}
+                    defaultValue={e.actual_amount ?? e.planned_amount ?? ''}
+                    onBlur={(ev) => {
+                      const v = ev.target.value === '' ? 0 : Number(ev.target.value.replace(/\D/g, ''));
+                      void saveExpense(db, ctx, { id: e.id, eventId: eventId!, category: e.category, label: e.label ?? undefined, planned: v ? e.planned_amount : 0, actual: v })
+                        .then(() => toast(v ? '経費を保存しました' : '経費を消しました'));
+                    }}
+                  />
+                  <small className="k">円</small>
+                </span>
+              </div>
+            ))}
+            <form
+              className="exp-add"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const v = Number(newExp.amount);
+                if (!newExp.amount || !Number.isInteger(v) || v <= 0) return toast('金額を入れてください');
+                await saveExpense(db, ctx, { eventId: eventId!, category: newExp.category, planned: v, actual: null });
+                setNewExp({ ...newExp, amount: '' });
+              }}
+            >
+              <select aria-label="経費の種類" value={newExp.category} onChange={(e) => setNewExp({ ...newExp, category: e.target.value as ExpenseCategory })}>
+                {(Object.keys(EXPENSE_LABEL) as ExpenseCategory[]).map((k) => <option key={k} value={k}>{EXPENSE_LABEL[k]}</option>)}
+              </select>
+              <input className="price-in" inputMode="numeric" aria-label="金額" placeholder="7000" value={newExp.amount} onChange={(e) => setNewExp({ ...newExp, amount: e.target.value.replace(/\D/g, '') })} />
+              <button className="sbtn" disabled={locked}>追加</button>
+            </form>
+            <p className="note">金額を空にすると、その経費を消します。</p>
+          </div>
+        </>
+      )}
+    </main>
+  );
+}

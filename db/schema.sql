@@ -244,6 +244,7 @@ create table event_items (
   price_override    int check (price_override >= 0),   -- F-105
   planned_qty       int check (planned_qty >= 0),      -- 準備時の予定
   sort_order        int not null default 0,            -- レジのボタンの並び(F-401)
+  removed_at        timestamptz,                       -- イベントから外した時刻(行は消さない)
   updated_at        timestamptz not null default now(),
   client_updated_at timestamptz not null default now(),
   server_seq        bigint not null default 0,

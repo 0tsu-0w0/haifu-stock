@@ -8,7 +8,7 @@ export async function loadEventSnapshot(db: HaifuDB, eventId: string) {
   const event = await db.events.get(eventId);
   if (!event) return null;
   const c = event.circle_id;
-  const [location, storages, eventItems, items, owners, setComponents, txns, movements, cash, closingCounts, closings, expenses, printRuns] =
+  const [location, storages, allEventItems, items, owners, setComponents, txns, movements, cash, closingCounts, closings, expenses, printRuns] =
     await Promise.all([
       db.locations.where('event_id').equals(eventId).first(),
       db.locations.where('circle_id').equals(c).filter((l) => l.kind === 'storage' && !l.archived_at).toArray(),
@@ -26,7 +26,11 @@ export async function loadEventSnapshot(db: HaifuDB, eventId: string) {
     ]);
   const lines = await db.transaction_lines.where('transaction_id').anyOf(txns.map((t) => t.id)).toArray();
   return {
-    event, location, storages, eventItems, items, owners, setComponents, txns, movements, lines,
+    event, location, storages, items,
+    /** レジに並べる品目(イベントから外したものを除く) */
+    eventItems: allEventItems.filter((e) => !e.removed_at),
+    /** 外したものも含む(終了処理で在庫が残っていないか確かめるため) */
+    allEventItems, owners, setComponents, txns, movements, lines,
     cash, closingCounts, expenses, printRuns,
     closing: closings.find((x) => !x.reopened_at) ?? null as EventClosing | null,
   };
@@ -45,7 +49,7 @@ export function deriveEvent(s: EventSnapshot) {
   const ownerById = new Map(s.owners.map((o) => [o.id, o]));
   const linesByTxn = new Map<string, typeof s.lines>();
   for (const l of s.lines) linesByTxn.set(l.transaction_id, [...(linesByTxn.get(l.transaction_id) ?? []), l]);
-  const priceOf = (item: Item) => s.eventItems.find((e) => e.item_id === item.id)?.price_override ?? item.price;
+  const priceOf = (item: Item) => s.allEventItems.find((e) => e.item_id === item.id)?.price_override ?? item.price;
   return {
     summary, totals, itemById, ownerById, linesByTxn, priceOf,
     float: sumCash('float'),

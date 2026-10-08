@@ -90,6 +90,8 @@ export interface EventItem extends FromServer {
   price_override: number | null;
   planned_qty: number | null;
   sort_order: number;
+  /** イベントから外した時刻(行は消さずに残す。同期では行を消せないため) */
+  removed_at?: Iso | null;
   client_updated_at: Iso;
 }
 

@@ -232,3 +232,30 @@ select { height: 38px; border-radius: 8px; border: 1px solid var(--line-2); back
 .hr .undo.armed { color: var(--danger); border-color: var(--danger-line); background: var(--danger-bg); font-weight: 700; }
 .hr.void .label, .hr.void .amt { text-decoration: line-through; color: var(--ink-3); }
 .top .bar .icon-btn + .icon-btn { margin-left: -2px; }
+
+/* 品目・イベントの準備 */
+.home-actions { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; }
+.sub-links { display: flex; justify-content: flex-end; gap: 14px; flex-wrap: wrap; }
+.label-like { font-size: 13px; color: var(--ink-2); }
+.subform { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 10px; background: var(--sunk); }
+.subform input { background: var(--surface); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.two > span { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.two input { width: 100%; }
+.form input[type="date"], .form input[type="time"] { height: 44px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font: inherit; padding: 0 10px; }
+.plain { margin: 0; padding-left: 18px; line-height: 1.8; }
+.comp-list { display: flex; flex-direction: column; gap: 6px; }
+.chip:disabled { opacity: .4; }
+.row-link.archived { opacity: .6; }
+.group { display: flex; flex-direction: column; gap: 8px; }
+.prep { gap: 0; padding: 4px 14px; }
+.prep-row { display: flex; flex-direction: column; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.prep-row:last-child { border-bottom: 0; }
+.prep-row.off .check b { color: var(--ink-3); }
+.check { display: flex; gap: 10px; align-items: flex-start; }
+.check input { width: 22px; height: 22px; margin: 1px 0 0; accent-color: var(--accent); flex: none; }
+.check small { display: block; }
+.price-in { width: 96px; height: 34px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); text-align: right; font: 500 15px var(--f-num); padding: 0 8px; }
+.exp-amount { display: flex; align-items: center; gap: 4px; }
+.exp-add { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; padding-top: 6px; border-top: 1px solid var(--line); }
+.add-item { border-style: dashed; color: var(--accent); }

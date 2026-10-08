@@ -26,7 +26,9 @@ export interface CountRow {
 export function planCounts(s: EventSnapshot): CountRow[] {
   const { summary, itemById } = deriveEvent(s);
   const saved = new Map(s.closingCounts.map((c) => [c.item_id, c]));
-  return s.eventItems
+  // イベントから外した品目も、在庫や数えた記録が残っていれば対象にする
+  return s.allEventItems
+    .filter((ei) => !ei.removed_at || (summary.get(ei.item_id)?.remaining ?? 0) !== 0 || saved.has(ei.item_id))
     .map((ei) => itemById.get(ei.item_id))
     .filter((i): i is Item => !!i && i.kind !== 'set')
     .map((item) => {
@@ -87,7 +89,7 @@ export function computeMoney(s: EventSnapshot, rows: CountRow[]): Money {
   const counted = new Map(rows.map((r) => [r.item.id, r.counted]));
   const settlements: Settlement[] = [];
   for (const owner of s.owners.filter((o) => !o.is_self)) {
-    const items = s.items.filter((i) => i.owner_id === owner.id && s.eventItems.some((e) => e.item_id === i.id));
+    const items = s.items.filter((i) => i.owner_id === owner.id && s.allEventItems.some((e) => e.item_id === i.id));
     if (items.length === 0) continue;
     const lines = items.map((item) => ({
       item, soldQty: sold.get(item.id)?.qty ?? 0, amount: sold.get(item.id)?.amount ?? 0, returnedQty: counted.get(item.id) ?? 0,
