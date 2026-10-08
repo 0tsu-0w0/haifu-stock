@@ -31,8 +31,25 @@ export async function pushOutbox(db: HaifuDB, remote: Remote): Promise<number> {
   if (entries.length === 0) return 0;
 
   let pushed = 0;
+  // 終了処理のやり直し(reopened_at を入れた確定の記録)は、ほかより先に送る。
+  // サーバーは確定中のイベントへの追記を拒むので、先に解除しておかないと、
+  // やり直しの取り消しや、確定し直したときの記録が受け付けられない
+  const reopenKeys = new Set<string>();
+  for (const e of entries.filter((x) => x.table === 'event_closings')) {
+    const row = await db.event_closings.get(keyFromOutbox('event_closings', e.key) as string);
+    if (row?.reopened_at) reopenKeys.add(e.key);
+  }
+  if (reopenKeys.size > 0) {
+    const rows = (await Promise.all([...reopenKeys].map((k) => db.event_closings.get(keyFromOutbox('event_closings', k) as string))))
+      .filter((r): r is NonNullable<typeof r> => r != null)
+      .map((r) => stripServerColumns(r as unknown as Row));
+    await remote.push('event_closings', rows);
+    await db.outbox.bulkDelete(entries.filter((e) => e.table === 'event_closings' && reopenKeys.has(e.key)).map((e) => e.seq!));
+    pushed += rows.length;
+  }
+
   for (const spec of TABLES) {
-    const mine = entries.filter((e) => e.table === spec.name);
+    const mine = entries.filter((e) => e.table === spec.name && !(spec.name === 'event_closings' && reopenKeys.has(e.key)));
     if (mine.length === 0) continue;
     // 同じ行が何度も積まれていても、送るのは最新の内容を1回だけ
     const keys = [...new Set(mine.map((e) => e.key))];

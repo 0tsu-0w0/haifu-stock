@@ -150,6 +150,18 @@ await as(U1, async () => {
   ok(true, '確定後もサークル主の訂正(is_correction)は追加できる');
 });
 
+// 終了処理のやり直し: サークル主が確定を解除すると、売り子も記録を追加できるようになる
+await as(U1, async () => {
+  const r = await db.query(`update event_closings set reopened_at = now(), reopened_by = $2 where event_id = $1 and reopened_at is null`, [EV, U1]);
+  ok(r.affectedRows === 1, 'サークル主は確定を解除(reopened_at を入れる)できる');
+});
+await as(U2, async () => {
+  await db.query(`insert into transactions (id, circle_id, event_id, type, device_id, recorded_by, recorded_at) values ($1,$2,$3,'sale',$4,$5,now())`, [id(), C, EV, DEV2, U2]);
+  ok(true, '確定を解除したあとは、売り子が販売を追加できる');
+  const r = await db.query(`update event_closings set reopened_at = null where event_id = $1`, [EV]);
+  ok(r.affectedRows === 0, '売り子は確定の記録を変えられない');
+});
+
 await expectError(db.query(`update transactions set paid_amount = 0 where id=$1`, [T1]), 'RLSを通らない管理者でもトリガーで更新を拒否');
 await expectError(db.query(`delete from stock_movements where transaction_id=$1`, [T1]), 'RLSを通らない管理者でもトリガーで削除を拒否');
 

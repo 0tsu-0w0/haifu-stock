@@ -301,3 +301,5 @@ details[open] summary { margin-bottom: 6px; }
 .chart .hover-dot { stroke: var(--surface); stroke-width: 2; }
 .chart-tip { position: absolute; top: 4px; transform: translateX(-50%); background: var(--ink); color: var(--bg); border-radius: 8px; padding: 6px 8px; font-size: 11px; pointer-events: none; min-width: 110px; }
 .chart-tip div { display: flex; justify-content: space-between; gap: 10px; }
+.reopen { border-style: dashed; }
+.btn.danger { color: var(--danger); border-color: var(--danger-line); background: var(--danger-bg); }

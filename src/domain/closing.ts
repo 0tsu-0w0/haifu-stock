@@ -1,6 +1,6 @@
 import { putAndQueue, type HaifuDB } from '../db/local';
 import type {
-  CashCount, ClosingCount, ClosingSummary, ConsignmentSettlement, CountHandling, EventClosing, Item,
+  CashCount, ClosingCount, ClosingSummary, ConsignmentSettlement, CountHandling, EventClosing, Item, Movement, Txn,
 } from '../db/types';
 import { uuidv7 } from '../lib/uuid';
 import { activeTxnIds } from './ledger';
@@ -216,16 +216,19 @@ export async function confirmClosing(
     if (!before?.location) throw new Error('イベントが見つかりません');
     const rows = planCounts(before);
     const evLoc = before.location.id;
+    // やり直し(reopenClosing)で打ち消せるよう、確定で書いた取引と在庫移動を覚えておく
+    const txnIds: string[] = [];
+    const movementIds: string[] = [];
 
     for (const r of rows) {
       if (r.handling === 'add_sale') {
-        await recordSale(db, ctx, { eventId, lines: [{ itemId: r.item.id, qty: -r.diff }], source: 'closing' });
+        txnIds.push((await recordSale(db, ctx, { eventId, lines: [{ itemId: r.item.id, qty: -r.diff }], source: 'closing' })).id);
       } else if (r.handling === 'lost') {
-        await recordGiveaway(db, ctx, { eventId, itemId: r.item.id, qty: -r.diff, kind: 'lost', source: 'closing' });
+        txnIds.push((await recordGiveaway(db, ctx, { eventId, itemId: r.item.id, qty: -r.diff, kind: 'lost', source: 'closing' })).id);
       } else if (r.handling === 'fix_bring') {
-        await moveStock(db, ctx, {
+        movementIds.push((await moveStock(db, ctx, {
           itemId: r.item.id, qty: r.diff, from: opts.returnLocationId, to: evLoc, reason: 'adjust', note: '終了処理: 持ち込み数の修正',
-        });
+        })).id);
       }
     }
 
@@ -233,9 +236,10 @@ export async function confirmClosing(
     for (const r of rows) {
       if (r.counted <= 0) continue;
       const own = ownerById.get(r.item.owner_id)?.is_self ?? true;
-      await moveStock(db, ctx, own
+      const m = await moveStock(db, ctx, own
         ? { itemId: r.item.id, qty: r.counted, from: evLoc, to: opts.returnLocationId, reason: 'transfer', note: '終了処理: 持ち帰り' }
         : { itemId: r.item.id, qty: r.counted, from: evLoc, to: null, reason: 'return_to_owner', note: '終了処理: 持ち主に返却' });
+      movementIds.push(m.id);
     }
 
     const after = (await loadEventSnapshot(db, eventId))!;
@@ -259,6 +263,8 @@ export async function confirmClosing(
         fixes: rows.filter((r) => r.handling && r.handling !== 'keep')
           .map((r) => ({ item_id: r.item.id, name: r.item.name, handling: r.handling!, qty: Math.abs(r.diff) })),
         payouts: money.settlements.map((x) => ({ owner_id: x.ownerId, name: x.name, amount: x.payout })),
+        txn_ids: txnIds,
+        movement_ids: movementIds,
       } satisfies ClosingSummary,
       reopened_at: null,
       reopened_by: null,
@@ -273,6 +279,72 @@ export async function confirmClosing(
       } satisfies ConsignmentSettlement);
     }
     return closing;
+  });
+}
+
+const REVERSE_REASON: Record<string, Movement['reason']> = {
+  transfer: 'transfer',          // 持ち帰り(イベント → 保管場所)を戻す
+  return_to_owner: 'consign_in', // 持ち主への返却を戻す(また預かる)
+  adjust: 'adjust',              // 持ち込み数の修正を戻す
+};
+
+/**
+ * 終了処理の確定をやり直す(F-506)。確定で書いた記録は消さず、打ち消す記録を追記する:
+ * - 確定で追加した販売・紛失は、取り消しの取引を追加する
+ * - 持ち帰り・返却・持ち込み数の修正は、逆向きの在庫移動を追加する
+ * - 確定の記録には「やり直した時刻」を付ける(精算書のスナップショットは履歴として残す)
+ * 数えた残数と現金はそのまま残るので、直して確定し直せる
+ */
+export async function reopenClosing(db: HaifuDB, ctx: Ctx, eventId: string): Promise<{ voided: number; reversed: number }> {
+  return db.transaction('rw', ['event_closings', 'transactions', 'stock_movements', 'locations', 'outbox'], async () => {
+    const all = await db.event_closings.where('event_id').equals(eventId).toArray();
+    const closing = all.find((c) => !c.reopened_at);
+    if (!closing) throw new Error('確定済みの終了処理がありません');
+    const at = stamp();
+
+    // 先に確定を解除する(取り消しの取引は、確定中のイベントには書けないため)
+    await putAndQueue(db, 'event_closings', { ...closing, reopened_at: at, reopened_by: ctx.userId });
+
+    // 古い版で確定したもの(ID を覚えていない)は、確定の前後の時刻と「終了処理:」のメモで見分ける
+    const since = all.filter((c) => c.id !== closing.id && c.reopened_at).map((c) => c.reopened_at!).sort().pop() ?? '';
+    const txns = await db.transactions.where('event_id').equals(eventId).toArray();
+    const movements = await db.stock_movements.where('event_id').equals(eventId).toArray();
+    const txnIds = closing.summary.txn_ids
+      ?? txns.filter((t) => t.source === 'closing' && t.type !== 'void' && t.recorded_at > since && t.recorded_at <= closing.closed_at).map((t) => t.id);
+    const movementIds = closing.summary.movement_ids
+      ?? movements.filter((m) => !m.transaction_id && m.note?.startsWith('終了処理:') && m.recorded_at > since && m.recorded_at <= closing.closed_at).map((m) => m.id);
+
+    const voidedAlready = new Set(txns.filter((t) => t.type === 'void').map((t) => t.voids_txn_id));
+    let voided = 0;
+    for (const id of txnIds) {
+      if (voidedAlready.has(id)) continue;
+      await putAndQueue(db, 'transactions', {
+        id: uuidv7(), circle_id: ctx.circleId, event_id: eventId, type: 'void', source: 'register',
+        giveaway_kind: null, voids_txn_id: id, paid_amount: null, zero_stock_override: false, is_correction: false,
+        device_id: ctx.deviceId, recorded_by: ctx.userId, recorded_at: at,
+      } satisfies Txn);
+      voided++;
+    }
+
+    let reversed = 0;
+    for (const id of movementIds) {
+      const m = movements.find((x) => x.id === id);
+      if (!m) continue;
+      await putAndQueue(db, 'stock_movements', {
+        ...m,
+        id: uuidv7(),
+        from_location_id: m.to_location_id,
+        to_location_id: m.from_location_id,
+        reason: REVERSE_REASON[m.reason] ?? 'adjust',
+        note: `終了処理のやり直し: ${m.note?.replace(/^終了処理: /, '') ?? ''}を戻す`,
+        device_id: ctx.deviceId,
+        recorded_by: ctx.userId,
+        recorded_at: at,
+        server_seq: undefined,
+      } satisfies Movement);
+      reversed++;
+    }
+    return { voided, reversed };
   });
 }
 

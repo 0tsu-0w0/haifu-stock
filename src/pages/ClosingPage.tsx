@@ -9,7 +9,7 @@ import { NumberField } from '../components/NumberField';
 import { useToast } from '../components/Toast';
 import type { CountHandling } from '../db/types';
 import {
-  DENOMINATIONS, cashDiffHints, computeMoney, confirmClosing, planCounts, plannedExtraSales, saveCash, saveCount,
+  DENOMINATIONS, cashDiffHints, computeMoney, confirmClosing, planCounts, plannedExtraSales, reopenClosing, saveCash, saveCount,
   saveCountFrom, settlementText, type CountRow,
 } from '../domain/closing';
 import type { Ctx } from '../domain/record';
@@ -92,7 +92,7 @@ export function ClosingPage() {
       <div className="c-steps">{STEPS.map((s, i) => <span key={s} className={done || i <= step ? 'on' : ''} />)}</div>
 
       <main className="c-body" ref={body}>
-        {done ? <DoneView data={data} />
+        {done ? <DoneView data={data} ctx={ctx} onReopened={() => go(1)} />
           : step === 0 ? <SyncStep data={data} ctx={ctx} />
           : step === 1 ? <CountStep data={data} ctx={ctx} rows={rows} />
           : step === 2 ? <CashStep data={data} ctx={ctx} rows={rows} money={money} />
@@ -386,7 +386,7 @@ function SettleStep(props: {
   );
 }
 
-function DoneView({ data }: { data: Data }) {
+function DoneView({ data, ctx, onReopened }: { data: Data; ctx: Ctx; onReopened: () => void }) {
   const c = data.closing!;
   const settlements = useLiveQuery(() => db.consignment_settlements.filter((x) => x.event_closing_id === c.id).toArray(), [c.id]);
   return (
@@ -427,6 +427,44 @@ function DoneView({ data }: { data: Data }) {
       </div>
       <p className="lead">自分の分の残りは「{data.storages.find((l) => l.id === c.return_location_id)?.name ?? '戻し先'}」に戻しました。</p>
       <Link className="sub-link" to={`/analysis?tab=event&event=${data.event.id}`}>このイベントの損益分岐のグラフを見る</Link>
+      <ReopenCard ctx={ctx} eventId={data.event.id} onReopened={onReopened} />
     </>
+  );
+}
+
+// 確定のやり直し(F-506)。押し間違えないよう、説明を読んでから2回押して実行する
+function ReopenCard({ ctx, eventId, onReopened }: { ctx: Ctx; eventId: string; onReopened: () => void }) {
+  const toast = useToast();
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="card reopen">
+      <b>確定をやり直す</b>
+      <p className="note">
+        数え間違いや、記録し忘れた販売に気づいたときに使います。確定で追加した販売・紛失は取り消され、持ち帰り・返却した在庫はイベントに戻ります。
+        数えた残数と現金はそのまま残るので、直してから確定し直してください。受託先にすでに精算書を送っていた場合は、確定し直したあとの精算書を送り直してください。
+      </p>
+      <button
+        className={`btn${armed ? ' danger' : ''}`}
+        disabled={busy}
+        onClick={async () => {
+          if (!armed) return setArmed(true);
+          setBusy(true);
+          try {
+            const r = await reopenClosing(db, ctx, eventId);
+            toast(`確定を取り消しました(取り消した記録 ${r.voided}件・戻した在庫の動き ${r.reversed}件)`);
+            onReopened();
+          } catch (e) {
+            toast(e instanceof Error ? e.message : String(e));
+            setArmed(false);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {armed ? 'もう一度押すと、確定を取り消します' : '確定を取り消してやり直す'}
+      </button>
+      {armed && <button className="link-btn" onClick={() => setArmed(false)}>やめる</button>}
+    </div>
   );
 }

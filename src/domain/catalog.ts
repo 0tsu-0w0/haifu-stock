@@ -139,7 +139,7 @@ export async function preparedQty(db: HaifuDB, eventId: string): Promise<Map<str
   for (const m of await db.stock_movements.where('event_id').equals(eventId).toArray()) {
     if (m.transaction_id && voided.has(m.transaction_id)) continue;
     const d = m.to_location_id === loc.id ? m.qty
-      : m.from_location_id === loc.id && (m.reason === 'transfer' || m.reason === 'return_to_owner') ? -m.qty
+      : m.from_location_id === loc.id && (m.reason === 'transfer' || m.reason === 'return_to_owner' || m.reason === 'adjust') ? -m.qty
       : 0;
     if (d) out.set(m.item_id, (out.get(m.item_id) ?? 0) + d);
   }

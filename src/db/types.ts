@@ -208,6 +208,9 @@ export interface ClosingSummary {
   profit: number;
   fixes: { item_id: Uuid; name: string; handling: CountHandling; qty: number }[];
   payouts: { owner_id: Uuid; name: string; amount: number }[];
+  /** 確定で書いた取引と在庫移動(やり直しで打ち消すため) */
+  txn_ids?: Uuid[];
+  movement_ids?: Uuid[];
 }
 
 export interface ConsignmentSettlement extends FromServer {
