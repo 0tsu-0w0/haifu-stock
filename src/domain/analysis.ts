@@ -333,19 +333,37 @@ export interface ItemBreakEven {
   cannotRecover: boolean;
 }
 
-/** 頒布物別の損益分岐(F-1101、F-1102)。MVPは変動費0なので、固定費 = 印刷費 + 制作費 */
-export function itemBreakEven(data: AnalysisData, item: Item): ItemBreakEven {
-  const runs = data.printRuns.filter((r) => r.item_id === item.id);
-  const fixedCost = runs.reduce((a, r) => a + r.total_cost, 0) + (data.productionCosts.get(item.id) ?? 0);
-  const printed = runs.reduce((a, r) => a + r.qty, 0);
+/**
+ * 頒布物別の損益分岐(F-1101、F-1102)。MVPは変動費0なので、固定費 = 印刷費 + 制作費。
+ * edition を渡すと「その版だけ」で見る(F-1107): 費用はその版の印刷費(制作費は初版だけに含める)、
+ * 販売は古い版から順に売れたものとして、その版に当たる部数だけを数える
+ */
+export function itemBreakEven(data: AnalysisData, item: Item, edition?: number): ItemBreakEven {
+  const runs = data.printRuns.filter((r) => r.item_id === item.id).sort((a, b) => a.edition - b.edition);
   const sold = data.soldTotals.get(item.id) ?? { qty: 0, amount: 0 };
   const unitRevenue = sold.qty > 0 ? sold.amount / sold.qty : item.price;
+  const firstEdition = runs[0]?.edition;
+  const scoped = edition === undefined ? runs : runs.filter((r) => r.edition === edition);
+  const fixedCost = scoped.reduce((a, r) => a + r.total_cost, 0)
+    + (edition === undefined || edition === firstEdition ? data.productionCosts.get(item.id) ?? 0 : 0);
+  const printed = scoped.reduce((a, r) => a + r.qty, 0);
+  let soldQty = sold.qty;
+  if (edition !== undefined) {
+    const before = runs.filter((r) => r.edition < edition).reduce((a, r) => a + r.qty, 0);
+    soldQty = Math.min(Math.max(sold.qty - before, 0), printed);
+  }
+  const soldAmount = edition === undefined ? sold.amount : soldQty * unitRevenue;
   const breakEvenQty = unitRevenue > 0 ? Math.ceil(fixedCost / unitRevenue) : null;
   return {
-    item, fixedCost, printed, breakEvenQty, soldQty: sold.qty, soldAmount: Math.round(sold.amount), unitRevenue,
-    remainingAmount: Math.max(Math.round(fixedCost - sold.amount), 0),
+    item, fixedCost, printed, breakEvenQty, soldQty, soldAmount: Math.round(soldAmount), unitRevenue,
+    remainingAmount: Math.max(Math.round(fixedCost - soldAmount), 0),
     cannotRecover: breakEvenQty !== null && printed > 0 && breakEvenQty > printed,
   };
+}
+
+/** 版の一覧(F-1107 の切り替え用) */
+export function editionsOf(data: AnalysisData, itemId: string): number[] {
+  return [...new Set(data.printRuns.filter((r) => r.item_id === itemId).map((r) => r.edition))].sort((a, b) => a - b);
 }
 
 export interface EventBreakEven {

@@ -1,28 +1,52 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './app/AuthProvider';
 import { SyncProvider } from './app/SyncProvider';
 import { useCtx } from './app/useCtx';
 import { ToastProvider } from './components/Toast';
-import { AnalysisPage } from './pages/AnalysisPage';
-import { ClosingPage } from './pages/ClosingPage';
-import { EventPreparePage } from './pages/EventPreparePage';
-import { HistoryPage } from './pages/HistoryPage';
-import { ItemEditPage } from './pages/ItemEditPage';
-import { ItemsPage } from './pages/ItemsPage';
 import { HomePage } from './pages/HomePage';
-import { InvitePage } from './pages/InvitePage';
-import { JoinPage } from './pages/JoinPage';
-import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
-import { ReportPage } from './pages/ReportPage';
-import { SettingsPage } from './pages/SettingsPage';
 import { SetupPage } from './pages/SetupPage';
-import { StocktakePage } from './pages/StocktakePage';
+
+/** 画面のファイルを読む。新しい版の公開で古いファイルが消えていたら、1回だけページを読み直して新しい版にする */
+function retry<T>(load: () => Promise<T>): Promise<T> {
+  return load().catch((e: unknown) => {
+    const key = 'chunk-reloaded';
+    let reloaded = false;
+    try {
+      reloaded = sessionStorage.getItem(key) === '1';
+      sessionStorage.setItem(key, '1');
+    } catch {
+      /* 保存できなくても続ける */
+    }
+    if (!reloaded) {
+      window.location.reload();
+      return new Promise<T>(() => {});
+    }
+    throw e;
+  });
+}
+
+// ホーム・レジ・最初の設定以外の画面は、開いたときに読み込む(最初の起動を軽くする)。
+// PWA は全部を端末に保存しているので、オフラインでも開ける
+const AnalysisPage = lazy(() => retry(() => import('./pages/AnalysisPage').then((m) => ({ default: m.AnalysisPage }))));
+const ClosingPage = lazy(() => retry(() => import('./pages/ClosingPage').then((m) => ({ default: m.ClosingPage }))));
+const EventPreparePage = lazy(() => retry(() => import('./pages/EventPreparePage').then((m) => ({ default: m.EventPreparePage }))));
+const HistoryPage = lazy(() => retry(() => import('./pages/HistoryPage').then((m) => ({ default: m.HistoryPage }))));
+const ItemEditPage = lazy(() => retry(() => import('./pages/ItemEditPage').then((m) => ({ default: m.ItemEditPage }))));
+const ItemsPage = lazy(() => retry(() => import('./pages/ItemsPage').then((m) => ({ default: m.ItemsPage }))));
+const InvitePage = lazy(() => retry(() => import('./pages/InvitePage').then((m) => ({ default: m.InvitePage }))));
+const JoinPage = lazy(() => retry(() => import('./pages/JoinPage').then((m) => ({ default: m.JoinPage }))));
+const LoginPage = lazy(() => retry(() => import('./pages/LoginPage').then((m) => ({ default: m.LoginPage }))));
+const ReportPage = lazy(() => retry(() => import('./pages/ReportPage').then((m) => ({ default: m.ReportPage }))));
+const SettingsPage = lazy(() => retry(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage }))));
+const StocktakePage = lazy(() => retry(() => import('./pages/StocktakePage').then((m) => ({ default: m.StocktakePage }))));
 
 function Routed() {
   const ctx = useCtx();
   if (ctx === undefined) return null; // 端末のデータベースを読み込み中
   return (
+    <Suspense fallback={<main className="page" />}>
     <Routes>
       {/* ログインと参加は、この端末にサークルがなくても開ける */}
       <Route path="/login" element={<LoginPage />} />
@@ -49,6 +73,7 @@ function Routed() {
         </>
       )}
     </Routes>
+    </Suspense>
   );
 }
 

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
+import { usePref } from '../app/prefs';
 import { useCtx } from '../app/useCtx';
 import { AccountBar } from '../components/AccountBar';
 import { DataExport } from '../components/DataExport';
@@ -28,6 +29,7 @@ export function SettingsPage() {
   const [circleName, setCircleName] = useState('');
   const [newOwner, setNewOwner] = useState({ name: '', fee: '' });
   const [showArchived, setShowArchived] = useState(false);
+  const [showBE, setShowBE] = usePref('showBreakEven');
 
   useEffect(() => {
     if (data?.circle) setCircleName(data.circle.name);
@@ -112,6 +114,17 @@ export function SettingsPage() {
           <button className="sbtn" disabled={!newOwner.name.trim()}>追加</button>
         </form>
         <p className="note">受託手数料は、売上から差し引いて自分の収入にする割合です。しまった受託元は、品目の登録で選べなくなります。過去の記録と精算は残ります。</p>
+      </div>
+
+      <h3 className="section">表示(この端末だけ)</h3>
+      <div className="card">
+        <label className="check">
+          <input type="checkbox" checked={showBE} onChange={(e) => setShowBE(e.target.checked)} />
+          <span>
+            <b>レジに黒字までの残り金額を出す</b>
+            <small className="k">経費を入れたイベントで、レジの上に「黒字まで あと◯円」を小さく出します。サークル主の端末だけに出ます。</small>
+          </span>
+        </label>
       </div>
 
       <h3 className="section">データ</h3>

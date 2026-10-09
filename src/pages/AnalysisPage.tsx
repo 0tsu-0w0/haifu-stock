@@ -6,7 +6,7 @@ import { useCtx } from '../app/useCtx';
 import { LineChart } from '../components/LineChart';
 import { PageHeader } from '../components/PageHeader';
 import {
-  DEFAULT_FORECAST, SCENARIO_LABEL, decayRates, eventBreakEven, itemBreakEven, loadAnalysis, newBookPlan, reprintPlans,
+  DEFAULT_FORECAST, SCENARIO_LABEL, decayRates, editionsOf, eventBreakEven, itemBreakEven, loadAnalysis, newBookPlan, reprintPlans,
   type AnalysisData, type ForecastOptions, type ReprintPlan,
 } from '../domain/analysis';
 import { computeMoney, planCounts } from '../domain/closing';
@@ -177,8 +177,13 @@ function ReprintCard({ plan, opts }: { plan: ReprintPlan; opts: ForecastOptions 
 
 function ItemBreakEvens({ data, selected, onSelect }: { data: AnalysisData; selected: string | null; onSelect: (id: string) => void }) {
   const list = useMemo(() => data.ownItems.filter((i) => !i.archived_at).map((i) => itemBreakEven(data, i)), [data]);
-  const cur = list.find((b) => b.item.id === selected) ?? list.find((b) => b.fixedCost > 0) ?? list[0];
-  if (!cur) return <div className="card"><p className="note">自分の品目がまだありません。</p></div>;
+  const [edition, setEdition] = useState<number | undefined>(undefined);
+  const total = list.find((b) => b.item.id === selected) ?? list.find((b) => b.fixedCost > 0) ?? list[0];
+  if (!total) return <div className="card"><p className="note">自分の品目がまだありません。</p></div>;
+  // 再版した品目は「初版から通算」と「その版だけ」を切り替えられる(F-1107)
+  const editions = editionsOf(data, total.item.id);
+  const ed = edition !== undefined && editions.includes(edition) ? edition : undefined;
+  const cur = ed === undefined ? total : itemBreakEven(data, total.item, ed);
 
   const missing = cur.fixedCost === 0;
   const be = cur.breakEvenQty ?? 0;
@@ -189,9 +194,17 @@ function ItemBreakEvens({ data, selected, onSelect }: { data: AnalysisData; sele
   return (
     <>
       <label className="label-like" htmlFor="be-item">頒布物</label>
-      <select id="be-item" value={cur.item.id} onChange={(e) => onSelect(e.target.value)}>
+      <select id="be-item" value={cur.item.id} onChange={(e) => { setEdition(undefined); onSelect(e.target.value); }}>
         {list.map((b) => <option key={b.item.id} value={b.item.id}>{b.item.name}{b.fixedCost === 0 ? '(印刷費が未入力)' : ''}</option>)}
       </select>
+      {editions.length > 1 && (
+        <div className="chips" role="group" aria-label="版の見方">
+          <button className="chip" aria-pressed={ed === undefined} onClick={() => setEdition(undefined)}>初版から通算</button>
+          {editions.map((n) => (
+            <button key={n} className="chip" aria-pressed={ed === n} onClick={() => setEdition(n)}>{n === editions[0] ? '初版' : `第${n}版`}だけ</button>
+          ))}
+        </div>
+      )}
 
       {missing ? (
         <div className="card">
@@ -209,7 +222,7 @@ function ItemBreakEvens({ data, selected, onSelect }: { data: AnalysisData; sele
             </div>
           </div>
           <LineChart
-            title={`${cur.item.name} の損益分岐`}
+            title={`${cur.item.name}${ed === undefined ? '' : ed === editions[0] ? '(初版)' : `(第${ed}版)`} の損益分岐`}
             xMax={xMax}
             yMax={yMax}
             xLabel="販売部数"
@@ -233,10 +246,10 @@ function ItemBreakEvens({ data, selected, onSelect }: { data: AnalysisData; sele
           />
           <table className="tbl small">
             <tbody>
-              <tr><td>費用(印刷費 + 制作費)</td><td className="num">{yen(cur.fixedCost)}</td></tr>
+              <tr><td>{ed === undefined || ed === editions[0] ? '費用(印刷費 + 制作費)' : '費用(この版の印刷費)'}</td><td className="num">{yen(cur.fixedCost)}</td></tr>
               <tr><td>1部あたりの売上{cur.soldQty ? '(実績の平均)' : '(定価)'}</td><td className="num">{yen(Math.round(cur.unitRevenue))}</td></tr>
-              <tr><td>これまでの販売</td><td className="num">{cur.soldQty}部 {yen(cur.soldAmount)}</td></tr>
-              <tr><td>刷った部数</td><td className="num">{cur.printed}部</td></tr>
+              <tr><td>{ed === undefined ? 'これまでの販売' : 'この版の販売(古い版から売れた順に数える)'}</td><td className="num">{cur.soldQty}部 {yen(cur.soldAmount)}</td></tr>
+              <tr><td>{ed === undefined ? '刷った部数(全版)' : '刷った部数(この版)'}</td><td className="num">{cur.printed}部</td></tr>
             </tbody>
           </table>
           {cur.cannotRecover && <p className="msg">刷った{cur.printed}部をすべて売っても、費用を回収できません。</p>}

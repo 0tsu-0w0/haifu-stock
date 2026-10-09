@@ -48,7 +48,10 @@ export async function importBackup(db: HaifuDB, file: BackupFile): Promise<{ add
   let updated = 0;
   await db.transaction('rw', [...TABLES.map((t) => t.name), 'outbox', 'meta'], async () => {
     for (const t of TABLES) {
-      const rows = file.tables[t.name] ?? [];
+      // ファイルの中のほかのサークルの行は読み込まない(手で書き換えたファイルなどに備える)
+      const rows = (Array.isArray(file.tables?.[t.name]) ? file.tables[t.name] : [])
+        .filter((r) => r && typeof r === 'object' && (t.name === 'circles' ? r.id === file.circle_id : r.circle_id === file.circle_id))
+        .filter((r) => t.pk.every((k) => typeof r[k] === 'string' || typeof r[k] === 'number'));
       if (rows.length === 0) continue;
       const keys = rows.map((r) => (t.pk.length === 1 ? r[t.pk[0]] : t.pk.map((k) => r[k])));
       const existing = (await db.table(t.name).bulkGet(keys as never[])) as (Row | undefined)[];
@@ -80,7 +83,9 @@ export async function importBackup(db: HaifuDB, file: BackupFile): Promise<{ add
 
 export function toCsv(rows: (string | number | null | undefined)[][]): string {
   const cell = (v: string | number | null | undefined) => {
-    const s = v === null || v === undefined ? '' : String(v);
+    let s = v === null || v === undefined ? '' : String(v);
+    // 表計算ソフトが数式として実行しないよう、= + - @ などで始まる文字列の前に ' を付ける(CSV インジェクション対策)
+    if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return rows.map((r) => r.map(cell).join(',')).join('\r\n');

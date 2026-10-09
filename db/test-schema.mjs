@@ -20,6 +20,7 @@ await db.exec(`
   create role authenticated nologin; create role anon nologin;
   create schema auth;
   create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('test.uid', true), '')::uuid $$;
+  create function auth.jwt() returns jsonb language sql stable as $$ select jsonb_build_object('is_anonymous', coalesce(nullif(current_setting('test.anon', true), ''), 'false')::boolean) $$;
 `);
 await db.exec(readFileSync(schemaPath, 'utf8'));
 await db.exec(`
@@ -174,6 +175,13 @@ await as(U2, async () => {
   const sl = await db.query(`select amount from v_sale_lines where transaction_id=$1`, [T4]);
   ok(sl.rows[0].amount === 600, '値引き200円の明細は 800 − 200 = 600円で集計される');
   await expectError(db.query(`insert into transaction_lines (id, circle_id, transaction_id, item_id, qty, unit_price, discount) values ($1,$2,$3,$4,1,800,801)`, [id(), C, T4, A]), '明細の金額を超える値引きは入れられない');
+});
+
+// 売り子の匿名ログインでは、サークルを作れない
+await as(U2, async () => {
+  await db.exec(`select set_config('test.anon', 'true', false)`);
+  await expectError(db.query(`select create_circle($1, '勝手なサークル')`, [id()]), '匿名ログイン(売り子)はサークルを作れない');
+  await db.exec(`select set_config('test.anon', '', false)`);
 });
 
 await expectError(db.query(`update transactions set paid_amount = 0 where id=$1`, [T1]), 'RLSを通らない管理者でもトリガーで更新を拒否');

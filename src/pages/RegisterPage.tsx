@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
+import { usePref } from '../app/prefs';
 import { useCtx } from '../app/useCtx';
 import { EventNav } from '../components/EventNav';
 import { SyncPill } from '../components/SyncPill';
@@ -8,6 +10,7 @@ import { useToast } from '../components/Toast';
 import type { GiveawayKind, Item, Txn } from '../db/types';
 import { GIVE_LABEL, describeTxn } from '../domain/history';
 import { recordGiveaway, recordSale, voidTransaction } from '../domain/record';
+import { profitTimeline } from '../domain/report';
 import { hhmm, yen } from '../lib/format';
 import { useWakeLock } from '../app/useWakeLock';
 import { useEventData } from './useEventData';
@@ -41,6 +44,8 @@ export function RegisterPage() {
   const { eventId = '' } = useParams();
   const navigate = useNavigate();
   const ctx = useCtx();
+  const { role } = useAuth();
+  const [showBE] = usePref('showBreakEven');
   const data = useEventData(eventId);
   const toast = useToast();
   const [sheetItem, setSheetItem] = useState<Item | null>(null);
@@ -54,6 +59,8 @@ export function RegisterPage() {
   useEffect(() => writeLock(eventId, screenLock), [eventId, screenLock]);
   // レジを開いている間は画面を消さない(確定後は記録しないので不要)
   const awake = useWakeLock(!!data && !data.closing);
+  // 黒字化までの残り(サークル主だけ)。記録が変わったときだけ計算し直す(ボタンを押すたびには計算しない)
+  const be = useMemo(() => (data && role === 'owner' && showBE ? profitTimeline(data) : null), [data, role, showBE]);
   const press = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout>; fired: boolean } | null>(null);
   const [pressing, setPressing] = useState<string | null>(null);
 
@@ -206,6 +213,11 @@ export function RegisterPage() {
           <div><small>部数</small><strong className="num">{totals.count}</strong></div>
           <div><small>現金(理論)</small><strong className="num">{yen(float + totals.amount)}</strong></div>
         </div>
+        {be && be.fixed > 0 && (
+          <div className={`be-line${be.current >= 0 ? ' black' : ''}`}>
+            {be.current >= 0 ? `黒字 +${yen(be.current)}${be.blackAt ? `(${hhmm(be.blackAt)}に達成)` : ''}` : `黒字まで あと${yen(-be.current)}`}
+          </div>
+        )}
         <div className="mode">
           {cart ? <span className="cart-on">カートモード:タップで追加</span> : <span>タップで1部記録・長押しでメニュー</span>}
           <span>{awake ? '画面は消えません・' : ''}{eventItems.length}品目</span>

@@ -350,6 +350,7 @@ create table transactions (
   check (type = 'sale' or paid_amount is null)
 );
 create index transactions_event on transactions (event_id, recorded_at);
+create index transactions_seq on transactions (server_seq);  -- 同期の差分取得(server_seq の続きから)
 create index transactions_voids on transactions (voids_txn_id) where voids_txn_id is not null;
 create unique index transactions_one_void on transactions (voids_txn_id) where type = 'void';
 
@@ -366,6 +367,7 @@ create table transaction_lines (
 );
 alter table transaction_lines add constraint transaction_lines_discount check (discount >= 0 and discount <= qty * unit_price);
 create index transaction_lines_txn  on transaction_lines (transaction_id);
+create index transaction_lines_seq  on transaction_lines (server_seq);
 create index transaction_lines_item on transaction_lines (item_id);
 
 -- 在庫移動: 在庫を変えるものはすべてここを通る
@@ -396,6 +398,7 @@ create table stock_movements (
 create index stock_movements_item  on stock_movements (item_id);
 create index stock_movements_event on stock_movements (event_id);
 create index stock_movements_txn   on stock_movements (transaction_id);
+create index stock_movements_seq   on stock_movements (server_seq);
 
 -- ---------------------------------------------------------------------
 -- 終了処理(F-500〜506)
@@ -583,6 +586,10 @@ begin
   if auth.uid() is null then
     raise exception 'ログインが必要です' using errcode = 'P0004';
   end if;
+  -- 売り子の匿名ログインではサークルを作らせない(サークル主はメールなどでログインする)
+  if coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) then
+    raise exception 'サークルを作るにはログインが必要です' using errcode = 'P0004';
+  end if;
   if exists (select 1 from circles where id = p_id) then
     if not app.is_owner(p_id) then
       raise exception 'このサークルのサークル主ではありません' using errcode = 'P0006';
@@ -674,19 +681,19 @@ create policy owners_staff_select on owners for select to authenticated
 create policy locations_staff_select on locations for select to authenticated
   using (event_id is not null and app.is_event_staff(event_id));
 create policy event_staff_self_select on event_staff for select to authenticated
-  using (user_id = auth.uid());
+  using (user_id = (select auth.uid()));
 
 -- 売り子: 自分の端末の行
 create policy event_devices_staff_rw on event_devices for all to authenticated
-  using (user_id = auth.uid() and app.is_event_staff(event_id))
-  with check (user_id = auth.uid() and role = 'staff' and app.is_event_staff(event_id));
+  using (user_id = (select auth.uid()) and app.is_event_staff(event_id))
+  with check (user_id = (select auth.uid()) and role = 'staff' and app.is_event_staff(event_id));
 
 -- 売り子: 販売・無償出庫・取り消しの追記と、そのイベントの台帳の読み取り(F-1004、F-1008)
 create policy transactions_staff_select on transactions for select to authenticated
   using (app.is_event_staff(event_id));
 create policy transactions_staff_insert on transactions for insert to authenticated
   with check (app.is_event_staff(event_id)
-              and recorded_by = auth.uid()
+              and recorded_by = (select auth.uid())
               and source = 'register'
               and not is_correction);
 
@@ -695,17 +702,17 @@ create policy transaction_lines_staff_select on transaction_lines for select to 
                  where t.id = transaction_id and app.is_event_staff(t.event_id)));
 create policy transaction_lines_staff_insert on transaction_lines for insert to authenticated
   with check (exists (select 1 from transactions t
-                      where t.id = transaction_id and t.recorded_by = auth.uid()
+                      where t.id = transaction_id and t.recorded_by = (select auth.uid())
                         and app.is_event_staff(t.event_id)));
 
 create policy stock_movements_staff_select on stock_movements for select to authenticated
   using (event_id is not null and app.is_event_staff(event_id));
 create policy stock_movements_staff_insert on stock_movements for insert to authenticated
   with check (event_id is not null and app.is_event_staff(event_id)
-              and recorded_by = auth.uid()
+              and recorded_by = (select auth.uid())
               and reason in ('sale', 'giveaway')
               and exists (select 1 from transactions t
-                          where t.id = transaction_id and t.recorded_by = auth.uid()));
+                          where t.id = transaction_id and t.recorded_by = (select auth.uid())));
 
 -- ---------------------------------------------------------------------
 -- 関数の実行権限

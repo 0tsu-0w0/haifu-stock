@@ -1,5 +1,5 @@
 /* 片手・縦持ちのスマホを基準にした1カラム。PCでは中央に寄せる。色はすべてトークンから */
-@import url('https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=JetBrains+Mono:wght@500;700&display=swap');
+/* フォントは端末のものを使う(読み込みの通信をなくし、会場で電波がなくても同じ見た目にする) */
 
 :root {
   --bg: #EEF0F3; --surface: #FFFFFF; --sunk: #E3E6EB; --ink: #171B24; --ink-2: #555D6E; --ink-3: #8A91A0;
@@ -12,8 +12,8 @@
   --scrim: rgba(15, 18, 26, .45);
   /* グラフの系列(検証ツールで色覚の違いでも見分けられることを確認済み) */
   --series-1: #2340C8; --series-2: #C2570C;
-  --f-body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", system-ui, sans-serif;
-  --f-num: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --f-body: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Noto Sans JP", "Noto Sans CJK JP", system-ui, sans-serif;
+  --f-num: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, monospace;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -411,3 +411,7 @@ details[open] summary { margin-bottom: 6px; }
 
 /* 設定: データ */
 .csv-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+
+/* レジ: 黒字までの残り(F-1108) */
+.be-line { font-size: 12px; color: var(--ink-2); text-align: right; margin-top: -2px; }
+.be-line.black { color: var(--ok); font-weight: 700; }

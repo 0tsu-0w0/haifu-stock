@@ -12,6 +12,12 @@ registerSW({ immediate: true });
 
 await ensureIdentity(db);
 
+try {
+  sessionStorage.removeItem('chunk-reloaded');
+} catch {
+  /* なくても動く */
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

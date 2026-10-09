@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { EventNav } from '../components/EventNav';
 import { PageHeader } from '../components/PageHeader';
-import { eventReport, SLOT_MIN, type ReportSlot } from '../domain/report';
+import { useCtx } from '../app/useCtx';
+import { deviceBreakdown, eventReport, profitTimeline, SLOT_MIN, type ProfitTimeline, type ReportSlot } from '../domain/report';
 import { hhmm, yen } from '../lib/format';
 import { useEventData } from './useEventData';
 
@@ -12,7 +13,10 @@ const pct = (v: number | null) => (v === null ? '—' : `${Math.round(v * 100)}%
 export function ReportPage() {
   const { eventId = '' } = useParams();
   const data = useEventData(eventId);
+  const ctx = useCtx();
   const r = useMemo(() => (data ? eventReport(data) : null), [data]);
+  const pt = useMemo(() => (data ? profitTimeline(data) : null), [data]);
+  const devices = useMemo(() => (data ? deviceBreakdown(data) : []), [data]);
 
   if (data === undefined) return <main className="page" />;
   if (data === null || !r) return <main className="page"><p>イベントが見つかりません。</p><Link to="/">ホームに戻る</Link></main>;
@@ -33,6 +37,18 @@ export function ReportPage() {
 
         <h3 className="section">時間帯ごとの売上({SLOT_MIN}分ごと)</h3>
         {r.slots.length === 0 ? <div className="card"><p className="note">まだ販売の記録がありません。</p></div> : <SlotChart slots={r.slots} soldOuts={r.soldOuts} />}
+
+        <h3 className="section">黒字になった時刻</h3>
+        {pt && pt.fixed === 0 ? (
+          <div className="card">
+            <p className="note">このイベントの経費が未入力です。出展費や交通費を入れると、何時に経費を取り戻したかを出せます。</p>
+            <Link className="btn center" to={`/events/${eventId}/prepare`}>経費を入れる</Link>
+          </div>
+        ) : pt && pt.points.length > 1 ? (
+          <ProfitChart pt={pt} />
+        ) : (
+          <div className="card"><p className="note">まだ販売の記録がありません。</p></div>
+        )}
 
         <h3 className="section">品目ごと</h3>
         <div className="card table-scroll">
@@ -56,6 +72,30 @@ export function ReportPage() {
           </table>
         </div>
         <p className="note">販売の部数には、セットで売れた分も含みます。セットの行は、セットとして売れた数です。消化率は 販売 ÷ 持ち込み です。</p>
+        {devices.length > 0 && (
+          <>
+            <h3 className="section">記録した端末ごと</h3>
+            <div className="card table-scroll">
+              <table className="tbl small report-tbl">
+                <thead><tr><th>端末</th><th>販売</th><th>部数</th><th>売上</th><th>無償</th><th>取消</th><th>最後</th></tr></thead>
+                <tbody>
+                  {devices.map((d) => (
+                    <tr key={d.deviceId}>
+                      <td>{d.deviceId === ctx?.deviceId ? 'この端末' : `端末 …${d.deviceId.slice(-4)}`}</td>
+                      <td className="num">{d.sales}件</td>
+                      <td className="num">{d.qty}</td>
+                      <td className="num">{yen(d.amount)}</td>
+                      <td className="num">{d.giveaways}</td>
+                      <td className="num">{d.voids}</td>
+                      <td className="num">{d.lastAt ? hhmm(d.lastAt) : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="note">取消は、その端末で取り消しを押した件数です(取り消された販売は、販売に数えません)。ほかの端末の名前は、末尾の4文字で見分けます。</p>
+          </>
+        )}
         <Link className="sub-link" to={`/analysis?tab=event&event=${eventId}`}>このイベントの損益分岐のグラフを見る</Link>
       </main>
       <EventNav eventId={eventId} current="report" />
@@ -145,5 +185,83 @@ function SlotChart({ slots, soldOuts }: { slots: ReportSlot[]; soldOuts: { name:
         </table>
       </details>
     </figure>
+  );
+}
+
+/** 当日の時刻ごとの収支(F-1104)。経費のぶんマイナスから始まり、0 を超えたところが黒字になった時刻 */
+function ProfitChart({ pt }: { pt: ProfitTimeline }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const t0 = Date.parse(pt.points[0].at);
+  const t1 = Math.max(Date.parse(pt.points[pt.points.length - 1].at), t0 + 30 * 60_000);
+  const lo = Math.min(...pt.points.map((p) => p.value), 0);
+  const hi = Math.max(...pt.points.map((p) => p.value), 0);
+  const pad = Math.max((hi - lo) * 0.1, 500);
+  const yMin = lo - pad;
+  const yMax = hi + pad;
+  const iw = W - PAD.l - PAD.r;
+  const ih = H - PAD.t - PAD.b;
+  const x = (iso: string) => PAD.l + ((Date.parse(iso) - t0) / (t1 - t0)) * iw;
+  const y = (v: number) => PAD.t + ih - ((v - yMin) / (yMax - yMin)) * ih;
+  // 販売のたびに階段状に増える
+  const d = pt.points.map((p, i) => (i === 0 ? `M${x(p.at)},${y(p.value)}` : `H${x(p.at)} V${y(p.value)}`)).join(' ');
+  const hourTicks: number[] = [];
+  for (let h = Math.ceil(t0 / 3600_000) * 3600_000; h <= t1; h += 3600_000) hourTicks.push(h);
+  const h = hover !== null ? pt.points[hover] : null;
+  const nearest = (clientX: number, rect: DOMRect) => {
+    const sx = ((clientX - rect.left) / rect.width) * W;
+    let best = 0;
+    pt.points.forEach((p, i) => { if (Math.abs(x(p.at) - sx) < Math.abs(x(pt.points[best].at) - sx)) best = i; });
+    return best;
+  };
+
+  return (
+    <>
+      <div className="metrics">
+        <div className="metric"><small>経費</small><strong className="num">{yen(pt.fixed)}</strong></div>
+        <div className="metric">
+          <small>{pt.blackAt ? '黒字になった時刻' : '黒字まで'}</small>
+          <strong className={`num ${pt.blackAt ? 'pos' : ''}`}>{pt.blackAt ? hhmm(pt.blackAt) : `あと${yen(-pt.current)}`}</strong>
+        </div>
+      </div>
+      <figure className="chart">
+        <figcaption className="chart-title">収支(円)</figcaption>
+        <div className="chart-box">
+          <svg
+            viewBox={`0 0 ${W} ${H}`} role="img" aria-label="時刻ごとの収支の折れ線グラフ"
+            onPointerMove={(e) => setHover(nearest(e.clientX, e.currentTarget.getBoundingClientRect()))}
+            onPointerDown={(e) => setHover(nearest(e.clientX, e.currentTarget.getBoundingClientRect()))}
+            onPointerLeave={() => setHover(null)}
+          >
+            {[yMin, 0, yMax].map((v) => (
+              <g key={v}>
+                <line className={v === 0 ? 'axis-zero' : 'grid'} x1={PAD.l} x2={W - PAD.r} y1={y(v)} y2={y(v)} />
+                <text className="tick" x={PAD.l - 6} y={y(v) + 3} textAnchor="end">{Math.round(v).toLocaleString('ja-JP')}</text>
+              </g>
+            ))}
+            {hourTicks.map((t) => (
+              <text key={t} className="tick" x={x(new Date(t).toISOString())} y={H - 10} textAnchor="middle">{hhmm(new Date(t).toISOString())}</text>
+            ))}
+            <path d={d} fill="none" stroke="var(--series-1)" strokeWidth="2" strokeLinejoin="round" />
+            {pt.blackAt && (
+              <>
+                <line className="vline" x1={x(pt.blackAt)} x2={x(pt.blackAt)} y1={PAD.t} y2={PAD.t + ih} />
+                <circle className="point" cx={x(pt.blackAt)} cy={y(0)} r="4" />
+              </>
+            )}
+            {h && <circle className="hover-dot" cx={x(h.at)} cy={y(h.value)} r="4" fill="var(--series-1)" />}
+          </svg>
+          {h && (
+            <div className="chart-tip" style={{ left: `${(x(h.at) / W) * 100}%` }}>
+              <div><span>{hhmm(h.at)}</span></div>
+              <div><span>収支</span><b className="num">{h.value >= 0 ? '+' : ''}{yen(h.value)}</b></div>
+            </div>
+          )}
+        </div>
+        <p className="note sold-outs">
+          {pt.blackAt ? `点線が黒字になった時刻(${hhmm(pt.blackAt)})です。` : 'まだ経費を取り戻していません。'}
+          収支 = 自分の分の売上 − 原価 + 受託手数料 − 経費。原価は刷り記録の1部あたりの印刷費です。
+        </p>
+      </figure>
+    </>
   );
 }

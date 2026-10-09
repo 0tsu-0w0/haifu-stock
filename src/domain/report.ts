@@ -115,3 +115,101 @@ export function eventReport(s: EventSnapshot): EventReport {
       .sort((a, b) => a.at.localeCompare(b.at)),
   };
 }
+
+export interface ProfitPoint {
+  at: string;
+  /** その時点までの収支(粗利 + 受託手数料 − 経費) */
+  value: number;
+}
+
+export interface ProfitTimeline {
+  /** 固定費(経費) */
+  fixed: number;
+  points: ProfitPoint[];
+  /** 黒字になった時刻(経費を超えた最初の販売)。まだなら null */
+  blackAt: string | null;
+  /** いまの収支 */
+  current: number;
+}
+
+/**
+ * 当日の時刻ごとの収支(F-1104)。経費のぶんマイナスから始め、販売のたびに
+ * 自分の分は「売上 − 原価」、受託分は「売上 × 手数料率」だけ増える。0 を超えた時刻が黒字化の時刻
+ */
+export function profitTimeline(s: EventSnapshot): ProfitTimeline {
+  const { itemById, ownerById } = deriveEvent(s);
+  const unitCost = (id: string) => {
+    const runs = s.printRuns.filter((p) => p.item_id === id);
+    const qty = runs.reduce((a, p) => a + p.qty, 0);
+    return qty ? runs.reduce((a, p) => a + p.total_cost, 0) / qty : 0;
+  };
+  const fixed = s.expenses.reduce((a, e) => a + (e.actual_amount ?? e.planned_amount ?? 0), 0);
+  const active = activeTxnIds(s.txns);
+  const sales = s.txns.filter((t) => t.type === 'sale' && active.has(t.id)).sort((a, b) => a.recorded_at.localeCompare(b.recorded_at));
+  const linesByTxn = new Map<string, typeof s.lines>();
+  for (const l of s.lines) linesByTxn.set(l.transaction_id, [...(linesByTxn.get(l.transaction_id) ?? []), l]);
+
+  // 開始時刻は入力された形のまま保存されているので、時刻として比べてから ISO にそろえる
+  const startMs = s.event.starts_at ? Date.parse(s.event.starts_at) : NaN;
+  const startIso = !Number.isNaN(startMs) && (!sales[0] || startMs <= Date.parse(sales[0].recorded_at))
+    ? new Date(startMs).toISOString()
+    : sales[0]?.recorded_at;
+  let value = -fixed;
+  const points: ProfitPoint[] = startIso ? [{ at: startIso, value }] : [];
+  let blackAt: string | null = fixed === 0 && sales[0] ? sales[0].recorded_at : null;
+  for (const t of sales) {
+    for (const l of linesByTxn.get(t.id) ?? []) {
+      const item = itemById.get(l.item_id);
+      const owner = item && ownerById.get(item.owner_id);
+      if (!item || !owner) continue;
+      if (!owner.is_self) {
+        value += lineAmount(l) * owner.default_fee_rate;
+        continue;
+      }
+      const parts = item.kind === 'set'
+        ? s.setComponents.filter((c) => c.set_item_id === item.id).map((c) => [c.component_item_id, c.qty * l.qty] as const)
+        : [[item.id, l.qty] as const];
+      value += lineAmount(l) - parts.reduce((a, [id, q]) => a + q * unitCost(id), 0);
+    }
+    points.push({ at: t.recorded_at, value: Math.round(value) });
+    if (!blackAt && value >= 0) blackAt = t.recorded_at;
+  }
+  return { fixed, points, blackAt, current: Math.round(value) };
+}
+
+export interface DeviceRow {
+  deviceId: string;
+  sales: number;
+  qty: number;
+  amount: number;
+  giveaways: number;
+  /** その端末で取り消した件数 */
+  voids: number;
+  lastAt: string | null;
+}
+
+/** 記録した端末(誰が売ったか)ごとの内訳(F-710)。取り消された販売は、販売に数えない */
+export function deviceBreakdown(s: EventSnapshot): DeviceRow[] {
+  const active = activeTxnIds(s.txns);
+  const rows = new Map<string, DeviceRow>();
+  const row = (id: string) => {
+    let r = rows.get(id);
+    if (!r) rows.set(id, (r = { deviceId: id, sales: 0, qty: 0, amount: 0, giveaways: 0, voids: 0, lastAt: null }));
+    return r;
+  };
+  const linesByTxn = new Map<string, typeof s.lines>();
+  for (const l of s.lines) linesByTxn.set(l.transaction_id, [...(linesByTxn.get(l.transaction_id) ?? []), l]);
+  for (const t of s.txns) {
+    const r = row(t.device_id);
+    if (!r.lastAt || t.recorded_at > r.lastAt) r.lastAt = t.recorded_at;
+    if (t.type === 'void') r.voids++;
+    if (!active.has(t.id)) continue;
+    if (t.type === 'giveaway') r.giveaways++;
+    if (t.type !== 'sale') continue;
+    const ls = linesByTxn.get(t.id) ?? [];
+    r.sales++;
+    r.qty += ls.reduce((a, l) => a + l.qty, 0);
+    r.amount += ls.reduce((a, l) => a + lineAmount(l), 0);
+  }
+  return [...rows.values()].sort((a, b) => b.amount - a.amount);
+}

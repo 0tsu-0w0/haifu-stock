@@ -34,7 +34,19 @@ export async function exportLedger(db: HaifuDB, eventId: string, deviceId: strin
  * 取り込んだ行は送信待ちにも積み、どちらかの端末がつながればサーバーに届くようにする
  */
 export async function importLedger(db: HaifuDB, file: LedgerFile): Promise<number> {
-  if (file.format !== 'haifu-stock/ledger' || file.version !== 1) throw new Error('このファイルは読み込めません');
+  if (file?.format !== 'haifu-stock/ledger' || file.version !== 1) throw new Error('このファイルは読み込めません');
+  // 取り込めるのは、この端末にあるイベントの記録だけ(ほかのサークル・イベントの行は無視する)
+  const ev = await db.events.get(file.event_id);
+  if (!ev) throw new Error('このイベントはこの端末にありません。先に同期してください');
+  const ok = (r: { circle_id?: string; event_id?: string | null }) => r?.circle_id === ev.circle_id;
+  const txns = (file.transactions ?? []).filter((t) => ok(t) && t.event_id === ev.id);
+  const txnIds = new Set(txns.map((t) => t.id));
+  file = {
+    ...file,
+    transactions: txns,
+    transaction_lines: (file.transaction_lines ?? []).filter((l) => ok(l) && txnIds.has(l.transaction_id)),
+    stock_movements: (file.stock_movements ?? []).filter((m) => ok(m) && m.event_id === ev.id),
+  };
   let added = 0;
   await db.transaction('rw', ['transactions', 'transaction_lines', 'stock_movements', 'outbox'], async () => {
     const parts: [string, { id: string }[]][] = [

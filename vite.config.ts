@@ -27,6 +27,20 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('@supabase')) return 'supabase';
+          if (id.includes('dexie')) return 'dexie';
+          if (id.includes('qrcode')) return 'qrcode';
+          if (/[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) return 'react';
+          return 'vendor';
+        },
+      },
+    },
+  },
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],
