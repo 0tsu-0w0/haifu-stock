@@ -392,3 +392,22 @@ details[open] summary { margin-bottom: 6px; }
 .sub-links { gap: 4px; }
 .discount .link-btn, .cart > .link-btn { min-height: 34px; }
 .small-link { min-height: 36px; }
+
+/* 準備: レジの並び順 */
+.order-list { gap: 0; }
+.order-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) 44px 44px; gap: 6px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.order-row .sbtn { min-height: 40px; padding: 0; font-size: 16px; }
+.order-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.order-list .note { margin-top: 8px; }
+
+/* レポート */
+.table-scroll { overflow-x: auto; padding: 8px 10px; }
+.report-tbl th, .report-tbl td { white-space: nowrap; padding: 6px 4px; }
+.report-tbl td:first-child { white-space: normal; min-width: 7em; }
+.chart .bar { fill: var(--series-1); }
+.chart .bar.on { opacity: .8; }
+.sold-outs { padding: 2px 4px 0; }
+.slot-table { padding: 4px 4px 0; }
+
+/* 設定: データ */
+.csv-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }

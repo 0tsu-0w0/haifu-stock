@@ -425,6 +425,7 @@ function DoneView({ data, ctx, onReopened }: { data: Data; ctx: Ctx; onReopened:
         ))}
       </div>
       <p className="lead">自分の分の残りは「{data.storages.find((l) => l.id === c.return_location_id)?.name ?? '戻し先'}」に戻しました。</p>
+      <Link className="btn center" to={`/events/${data.event.id}/report`}>このイベントのレポートを見る</Link>
       <Link className="sub-link" to={`/analysis?tab=event&event=${data.event.id}`}>このイベントの損益分岐のグラフを見る</Link>
       <ReopenCard ctx={ctx} eventId={data.event.id} onReopened={onReopened} />
     </>

@@ -5,6 +5,7 @@ import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
 import { useCtx } from '../app/useCtx';
 import { AccountBar } from '../components/AccountBar';
+import { DataExport } from '../components/DataExport';
 import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../components/Toast';
 import type { Owner } from '../db/types';
@@ -112,6 +113,9 @@ export function SettingsPage() {
         </form>
         <p className="note">受託手数料は、売上から差し引いて自分の収入にする割合です。しまった受託元は、品目の登録で選べなくなります。過去の記録と精算は残ります。</p>
       </div>
+
+      <h3 className="section">データ</h3>
+      <DataExport ctx={ctx} />
 
       <h3 className="section">ログイン</h3>
       <AccountBar />

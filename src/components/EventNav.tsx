@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '../app/AuthProvider';
 
-export type EventTab = 'register' | 'history' | 'prepare' | 'closing';
+export type EventTab = 'register' | 'history' | 'prepare' | 'closing' | 'report';
 
 const ICON: Record<EventTab | 'home', string[]> = {
   home: ['M3 11l9-7 9 7', 'M5 10v10h14V10'],
@@ -9,6 +9,7 @@ const ICON: Record<EventTab | 'home', string[]> = {
   history: ['M12 8v4l3 2', 'M3.05 11a9 9 0 1 1 .5 4', 'M3 4v5h5'],
   prepare: ['M3 7l9-4 9 4-9 4z', 'M3 7v10l9 4 9-4V7', 'M12 11v10'],
   closing: ['M5 21V4', 'M5 4h11l-2 4 2 4H5'],
+  report: ['M4 20h16', 'M7 16v-5', 'M12 16V6', 'M17 16v-8'],
 };
 
 /** イベントの画面(レジ・履歴・準備・終了処理)を1タップで行き来する下のタブ */
@@ -19,7 +20,7 @@ export function EventNav({ eventId, current }: { eventId: string; current: Event
     ['register', `/events/${eventId}/register`, 'レジ'],
     ['history', `/events/${eventId}/history`, '履歴'],
     ...(role === 'owner'
-      ? ([['prepare', `/events/${eventId}/prepare`, '準備'], ['closing', `/events/${eventId}/closing`, '終了処理']] as [EventTab, string, string][])
+      ? ([['prepare', `/events/${eventId}/prepare`, '準備'], ['closing', `/events/${eventId}/closing`, '終了'], ['report', `/events/${eventId}/report`, 'レポート']] as [EventTab, string, string][])
       : []),
   ];
   return (

@@ -9,6 +9,7 @@ import type { GiveawayKind, Item, Txn } from '../db/types';
 import { GIVE_LABEL, describeTxn } from '../domain/history';
 import { recordGiveaway, recordSale, voidTransaction } from '../domain/record';
 import { hhmm, yen } from '../lib/format';
+import { useWakeLock } from '../app/useWakeLock';
 import { useEventData } from './useEventData';
 
 const LONG_PRESS_MS = 550;
@@ -51,6 +52,8 @@ export function RegisterPage() {
   const [reason, setReason] = useState('');
   const [screenLock, setScreenLock] = useState(() => readLock(eventId));
   useEffect(() => writeLock(eventId, screenLock), [eventId, screenLock]);
+  // レジを開いている間は画面を消さない(確定後は記録しないので不要)
+  const awake = useWakeLock(!!data && !data.closing);
   const press = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout>; fired: boolean } | null>(null);
   const [pressing, setPressing] = useState<string | null>(null);
 
@@ -205,7 +208,7 @@ export function RegisterPage() {
         </div>
         <div className="mode">
           {cart ? <span className="cart-on">カートモード:タップで追加</span> : <span>タップで1部記録・長押しでメニュー</span>}
-          <span>{eventItems.length}品目</span>
+          <span>{awake ? '画面は消えません・' : ''}{eventItems.length}品目</span>
         </div>
         {locked && (
           <button className="closed-banner" onClick={() => navigate(`/events/${eventId}/closing`)}>

@@ -40,6 +40,10 @@ export function ItemsPage() {
   return (
     <main className="page">
       <PageHeader title="品目" right={<Link className="sbtn acc" to="/items/new">品目を追加</Link>} />
+      <Link className="card row-link" to="/stocktake">
+        <span><b>棚卸し</b><small>自宅の在庫を数えて、実際の数に合わせる(通販で発送した分など)</small></span>
+        <span className="go-label">数える</span>
+      </Link>
 
       {live.length === 0 && (
         <div className="card">

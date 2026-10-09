@@ -8,7 +8,11 @@ export function SyncPill() {
 
   let label: string;
   let tone: 'ok' | 'wait' | 'muted';
-  if (pending > 0) {
+  // 送れずに失敗が続いているときは、未送信の件数より先にエラーを出す(押すと理由が出る)
+  if (state.kind === 'error') {
+    label = pending > 0 ? `同期エラー・未送信 ${pending}件` : '同期エラー';
+    tone = 'wait';
+  } else if (pending > 0) {
     label = `未送信 ${pending}件`;
     tone = 'wait';
   } else if (state.kind === 'local') {
@@ -17,8 +21,8 @@ export function SyncPill() {
   } else if (state.kind === 'syncing') {
     label = '同期中';
     tone = 'muted';
-  } else if (state.kind === 'offline' || state.kind === 'signed-out' || state.kind === 'error') {
-    label = state.kind === 'offline' ? 'オフライン' : state.kind === 'signed-out' ? '未ログイン' : '同期エラー';
+  } else if (state.kind === 'offline' || state.kind === 'signed-out') {
+    label = state.kind === 'offline' ? 'オフライン' : '未ログイン';
     tone = 'wait';
   } else {
     label = '同期済み';

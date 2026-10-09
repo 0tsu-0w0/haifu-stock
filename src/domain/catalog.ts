@@ -2,7 +2,7 @@ import { putAndQueue, type HaifuDB } from '../db/local';
 import type { CashCount, EventItem, EventRow, Expense, ExpenseCategory, Item, ItemKind, Owner, PrintRun, SetComponent } from '../db/types';
 import { uuidv7 } from '../lib/uuid';
 import { assertOpen } from './closing';
-import { eventItemSummary } from './ledger';
+import { eventItemSummary, stockByLocation } from './ledger';
 import { moveStock, type Ctx } from './record';
 import { createEvent } from './setup';
 
@@ -432,4 +432,47 @@ export async function setOwnerArchived(db: HaifuDB, ownerId: string, archived: b
     if (cur.is_self) throw new Error('自分はしまえません');
     await putAndQueue(db, 'owners', { ...cur, archived_at: archived ? stamp() : null, client_updated_at: stamp() });
   });
+}
+
+/** レジのボタンの並び順を保存する(F-401)。渡した順に 0, 1, 2… を振る */
+export async function saveSortOrder(db: HaifuDB, eventId: string, itemIds: string[]): Promise<void> {
+  await db.transaction('rw', ['event_items', 'outbox', 'event_closings'], async () => {
+    await assertOpen(db, eventId);
+    for (const [i, itemId] of itemIds.entries()) {
+      const cur = await db.event_items.get([eventId, itemId]);
+      if (!cur || cur.sort_order === i) continue;
+      await putAndQueue(db, 'event_items', { ...cur, sort_order: i, client_updated_at: stamp() });
+    }
+  });
+}
+
+export const STOCKTAKE_REASON = {
+  mail_order: '通販で発送', handed: '知人に手渡し', lost: '紛失・破損', found: '数え漏れ・見つかった', other: 'その他',
+} as const;
+export type StocktakeReason = keyof typeof STOCKTAKE_REASON;
+
+/**
+ * 棚卸し(F-204)。数えた実数と今の在庫の差を、理由つきの「調整」として記録する。
+ * 通販などアプリの外で減った分はここで合わせる(販売ではないので、需要の予測には入らない)
+ */
+export async function recordStocktake(
+  db: HaifuDB, ctx: Ctx,
+  input: { locationId: string; lines: { itemId: string; counted: number; reason: StocktakeReason }[] },
+): Promise<{ adjusted: number }> {
+  const loc = await db.locations.get(input.locationId);
+  if (!loc || loc.kind !== 'storage') throw new Error('保管場所が見つかりません');
+  const stock = stockByLocation(await db.stock_movements.toArray(), await db.transactions.toArray());
+  let adjusted = 0;
+  for (const l of input.lines) {
+    if (!Number.isInteger(l.counted) || l.counted < 0) throw new Error('数は0以上の整数で入れてください');
+    const diff = l.counted - (stock.get(`${l.itemId}|${loc.id}`) ?? 0);
+    if (diff === 0) continue;
+    await moveStock(db, ctx, {
+      itemId: l.itemId, qty: Math.abs(diff), reason: 'adjust',
+      from: diff < 0 ? loc.id : null, to: diff > 0 ? loc.id : null,
+      note: `棚卸し: ${STOCKTAKE_REASON[l.reason]}`,
+    });
+    adjusted++;
+  }
+  return { adjusted };
 }

@@ -154,6 +154,12 @@ await as(U1, async () => {
 await as(U1, async () => {
   const r = await db.query(`update event_closings set reopened_at = now(), reopened_by = $2 where event_id = $1 and reopened_at is null`, [EV, U1]);
   ok(r.affectedRows === 1, 'サークル主は確定を解除(reopened_at を入れる)できる');
+
+  // サークル名の変更は update で送る(insert は create_circle だけに許しているので、upsert は断られる)
+  const cn = await db.query(`update circles set name = '新しい名前' where id = $1`, [C]);
+  ok(cn.affectedRows === 1, 'サークル主はサークル名を update で変えられる');
+  await expectError(db.query(`insert into circles (id, name) values ($1, 'x') on conflict (id) do update set name = excluded.name`, [C]),
+    'サークルの upsert は権限で断られる(アプリは update で送る)');
 });
 await as(U2, async () => {
   await db.query(`insert into transactions (id, circle_id, event_id, type, device_id, recorded_by, recorded_at) values ($1,$2,$3,'sale',$4,$5,now())`, [id(), C, EV, DEV2, U2]);

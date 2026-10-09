@@ -13,12 +13,15 @@ export class SupabaseRemote implements Remote {
   async push(table: string, rows: Row[]): Promise<void> {
     if (table === 'circles') {
       // サークルは作成と同時にサークル主を登録する必要があるため、専用の関数で作る
+      // 作ったあとの名前の変更は update で送る(サークルの insert は create_circle だけに許しているので、upsert は権限で断られる)
       for (const r of rows) {
         const { error } = await this.client.rpc('create_circle', { p_id: r.id, p_name: r.name });
         if (error) throw error;
+        const { error: e2 } = await this.client.from('circles')
+          .update({ name: r.name, client_updated_at: r.client_updated_at })
+          .eq('id', r.id as string);
+        if (e2) throw e2;
       }
-      const { error } = await this.client.from('circles').upsert(rows, { onConflict: 'id' });
-      if (error) throw error;
       return;
     }
     const spec = TABLE_BY_NAME[table];

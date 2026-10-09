@@ -11,7 +11,7 @@ import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../components/Toast';
 import type { ExpenseCategory } from '../db/types';
 import {
-  EXPENSE_LABEL, copyFloatAndExpenses, deleteEvent, planFromEvent, prepareEvent, preparedQty, saveEventInfo, saveExpense, saveFloat,
+  EXPENSE_LABEL, copyFloatAndExpenses, deleteEvent, planFromEvent, prepareEvent, preparedQty, saveEventInfo, saveExpense, saveFloat, saveSortOrder,
   type PrepareLine,
 } from '../domain/catalog';
 import { DENOMINATIONS } from '../domain/closing';
@@ -155,6 +155,18 @@ export function EventPreparePage() {
     return { itemId: id, included: !!ei && !ei.removed_at, bring: data.prepared.get(id) ?? 0, priceOverride: ei?.price_override ?? null };
   };
 
+  // レジに並んでいる品目(反映済みのもの)の並び順
+  const regOrder = data.eventItems.filter((e) => !e.removed_at).sort((a, b) => a.sort_order - b.sort_order).map((e) => e.item_id);
+  async function move(i: number, d: -1 | 1) {
+    const next = [...regOrder];
+    [next[i], next[i + d]] = [next[i + d], next[i]];
+    try {
+      await saveSortOrder(db, eventId!, next);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   const floatCounts = new Map(data.cash.filter((c) => c.phase === 'float').map((c) => [c.denomination, c.count]));
   const floatTotal = [...floatCounts].reduce((a, [d, c]) => a + d * c, 0);
   const shownExpenses = data.expenses.filter((e) => (e.planned_amount ?? 0) > 0 || (e.actual_amount ?? 0) > 0);
@@ -274,6 +286,23 @@ export function EventPreparePage() {
             {changed ? '持ち込みを反映する' : '持ち込みは反映済みです'}
           </button>
           <p className="note">反映すると、自分の品目は{home?.name ?? '自宅'}からイベントへ、受託品は預かりとして在庫が動きます。あとで数を変えると、差の分だけ動きます。</p>
+
+          {regOrder.length > 1 && (
+            <>
+              <h3 className="section">レジの並び順</h3>
+              <div className="card order-list">
+                {regOrder.map((id, i) => (
+                  <div key={id} className="order-row">
+                    <span className="num k">{i + 1}</span>
+                    <span className="order-name">{data.items.find((x) => x.id === id)?.name}</span>
+                    <button className="sbtn" aria-label="上へ" disabled={locked || i === 0} onClick={() => void move(i, -1)}>↑</button>
+                    <button className="sbtn" aria-label="下へ" disabled={locked || i === regOrder.length - 1} onClick={() => void move(i, 1)}>↓</button>
+                  </div>
+                ))}
+                <p className="note">レジでは、この順に左上から2列で並びます。よく売れるものを上にすると押しやすくなります。変えるとすぐ保存され、売り子の端末にも伝わります。</p>
+              </div>
+            </>
+          )}
 
           <h3 className="section">釣り銭準備金 {yen(floatTotal)}</h3>
           <div className="card">

@@ -14,8 +14,10 @@ import { InvitePage } from './pages/InvitePage';
 import { JoinPage } from './pages/JoinPage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
+import { ReportPage } from './pages/ReportPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SetupPage } from './pages/SetupPage';
+import { StocktakePage } from './pages/StocktakePage';
 
 function Routed() {
   const ctx = useCtx();
@@ -33,11 +35,13 @@ function Routed() {
           <Route path="/events/:eventId/register" element={<RegisterPage />} />
           <Route path="/events/:eventId/closing" element={<ClosingPage />} />
           <Route path="/events/:eventId/history" element={<HistoryPage />} />
+          <Route path="/events/:eventId/report" element={<ReportPage />} />
           <Route path="/events/new" element={<EventPreparePage />} />
           <Route path="/events/:eventId/prepare" element={<EventPreparePage />} />
           <Route path="/items" element={<ItemsPage />} />
           <Route path="/analysis" element={<AnalysisPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/stocktake" element={<StocktakePage />} />
           <Route path="/items/new" element={<ItemEditPage />} />
           <Route path="/items/:itemId" element={<ItemEditPage />} />
           <Route path="/events/:eventId/invite" element={<InvitePage />} />

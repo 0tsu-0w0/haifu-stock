@@ -130,6 +130,7 @@ export function HomePage() {
             {owner && (
               <span className="sub-links">
                 <Link className="sub-link" to={`/events/${ev.id}/prepare`}>準備(持ち込み・釣り銭・経費)</Link>
+                <Link className="sub-link" to={`/events/${ev.id}/report`}>レポート</Link>
                 {configured && <Link className="sub-link" to={`/events/${ev.id}/invite`}>売り子を招待</Link>}
               </span>
             )}
