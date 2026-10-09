@@ -11,12 +11,14 @@ import type { GiveawayKind, Item, Txn } from '../db/types';
 import { GIVE_LABEL, describeTxn } from '../domain/history';
 import { recordGiveaway, recordSale, voidTransaction } from '../domain/record';
 import { profitTimeline } from '../domain/report';
+import { changeBreakdown, denomLabel, paidSuggestions } from '../domain/change';
 import { hhmm, yen } from '../lib/format';
 import { useWakeLock } from '../app/useWakeLock';
 import { useEventData } from './useEventData';
 
 const LONG_PRESS_MS = 550;
-const PAID_CHOICES = [1000, 5000, 10000] as const;
+// 「その他」で受け取ったお金を足していくボタン
+const TALLY = [10000, 5000, 1000, 500, 100, 50, 10] as const;
 const DISCOUNT_REASONS = ['まとめ買い', '知り合い', 'おまけ', 'その他'] as const;
 const UNLOCK_MS = 800;
 // 誤操作の防止
@@ -60,6 +62,8 @@ export function RegisterPage() {
   const [cart, setCart] = useState<Map<string, number> | null>(() => (instant ? null : new Map()));
   const [cartZero, setCartZero] = useState(false);
   const [paid, setPaid] = useState<Paid>(null);
+  // 「その他」: 受け取ったお札・硬貨を足していって、預かり金額にする
+  const [tallyOpen, setTallyOpen] = useState(false);
   const [discountOpen, setDiscountOpen] = useState(false);
   const [payInput, setPayInput] = useState('');
   const [reason, setReason] = useState('');
@@ -205,6 +209,7 @@ export function RegisterPage() {
     setCart(instant ? null : new Map());
     setCartZero(false);
     setPaid(null);
+    setTallyOpen(false);
     setDiscountOpen(false);
     setPayInput('');
     setReason('');
@@ -213,7 +218,8 @@ export function RegisterPage() {
   // 値引き(F-409): 受け取る金額を入れると、元の合計との差を値引きとして記録する
   const payTotal = discountOpen && payInput !== '' ? Number(payInput) : cartTotal;
   const discount = cartTotal - payTotal;
-  const paidAmount = paid === 'exact' ? payTotal : paid;
+  // 「その他」を開いただけ(0円)のときは、預かり金額を入れていないものとして扱う
+  const paidAmount = paid === 'exact' ? payTotal : paid ? paid : null;
 
   // 下の左のボタン: カートが空(またはカートを使っていない)なら「取り消し」、品目が入っていれば「やめる」
   const showUndo = !cart || (!instant && cart.size === 0);
@@ -392,18 +398,38 @@ export function RegisterPage() {
           ) : (
             cart.size > 0 && <button className="link-btn" onClick={() => setDiscountOpen(true)}>値引き・金額を変える</button>
           )}
-          <div className="paid">
-            {PAID_CHOICES.map((v) => (
-              <button key={v} className="num" aria-pressed={paid === v} onClick={() => setPaid((p) => (p === v ? null : v))}>
+          <div className="paid" role="group" aria-label="預かり金額">
+            <button aria-pressed={paid === 'exact'} onClick={() => { setTallyOpen(false); setPaid((p) => (p === 'exact' ? null : 'exact')); }}>ちょうど</button>
+            {paidSuggestions(payTotal).map((v) => (
+              <button key={v} className="num" aria-pressed={!tallyOpen && paid === v} onClick={() => { setTallyOpen(false); setPaid((p) => (p === v && !tallyOpen ? null : v)); }}>
                 {yen(v)}
               </button>
             ))}
-            <button aria-pressed={paid === 'exact'} onClick={() => setPaid((p) => (p === 'exact' ? null : 'exact'))}>ちょうど</button>
+            <button aria-pressed={tallyOpen} onClick={() => { setTallyOpen((o) => !o); setPaid(tallyOpen ? null : 0); }}>その他</button>
           </div>
-          {paidAmount !== null && cart.size > 0 && (
+          {tallyOpen && (
+            <div className="tally">
+              <div className="rowx">
+                <span className="k">受け取った金額</span>
+                <strong className="num">{yen(typeof paid === 'number' ? paid : 0)}</strong>
+              </div>
+              <div className="tally-keys">
+                {TALLY.map((d) => (
+                  <button key={d} className="num" onClick={() => setPaid((p) => (typeof p === 'number' ? p : 0) + d)}>+{d.toLocaleString('ja-JP')}</button>
+                ))}
+                <button onClick={() => setPaid(0)}>クリア</button>
+              </div>
+            </div>
+          )}
+          {paidAmount !== null && paidAmount > 0 && cart.size > 0 && (
             <div className={`change${paidAmount < payTotal ? ' short' : ''}`}>
-              <span>{paidAmount < payTotal ? '足りません' : 'お釣り'}</span>
-              <strong className="num">{yen(Math.abs(paidAmount - payTotal))}</strong>
+              <div className="change-main">
+                <span>{paidAmount < payTotal ? '足りません' : paidAmount === payTotal ? 'お釣りなし' : 'お釣り'}</span>
+                <strong className="num">{yen(Math.abs(paidAmount - payTotal))}</strong>
+              </div>
+              {paidAmount > payTotal && (
+                <p className="change-parts">{changeBreakdown(paidAmount - payTotal).map((x) => `${denomLabel(x.denom)}×${x.count}`).join('・')}</p>
+              )}
             </div>
           )}
         </section>
