@@ -11,6 +11,17 @@ import { getMeta, setMeta } from '../db/local';
 // Google やメールのリンクから戻ってきたら、ログイン後の処理を続けるための印(1時間で無効)
 const PENDING_KEY = 'pending_login';
 const PENDING_MS = 60 * 60 * 1000;
+// Supabase は同じアドレスに60秒以内に続けて送れない
+const RESEND_SEC = 60;
+const EMAIL_KEY = 'login-email';
+
+const savedEmail = () => {
+  try {
+    return localStorage.getItem(EMAIL_KEY) ?? '';
+  } catch {
+    return '';
+  }
+};
 
 /** Google から戻ってきたときの URL に付くエラー(取り消したときなど) */
 function oauthError(): string | null {
@@ -31,14 +42,36 @@ export function LoginPage() {
   const { syncNow } = useSync();
   const navigate = useNavigate();
   const toast = useToast();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(savedEmail);
   const [code, setCode] = useState('');
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [choices, setChoices] = useState<CircleChoice[] | null>(null);
   const [googleOn, setGoogleOn] = useState(false);
+  const [switching, setSwitching] = useState(false);
+  const [sentAt, setSentAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const resumed = useRef(false);
+  const loggedIn = !!session && !session.user.is_anonymous;
+
+  // もう一度送れるまでの残り秒数を出すため、送ったあとは1秒ごとに描き直す
+  useEffect(() => {
+    if (!sentAt) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [sentAt]);
+  const waitSec = sentAt ? Math.max(0, RESEND_SEC - Math.floor((now - sentAt) / 1000)) : 0;
+
+  // メールを送って待っている間に、別のタブでリンクが開かれてログインが済んだら、ホームへ進む
+  useEffect(() => {
+    if (!sent || !loggedIn || resumed.current) return;
+    void (async () => {
+      if ((await getMeta<string>(db, 'user_id')) !== session!.user.id || resumed.current) return;
+      toast('ログインしました');
+      navigate('/');
+    })();
+  }, [sent, loggedIn]);
 
   useEffect(() => {
     let alive = true;
@@ -100,7 +133,14 @@ export function LoginPage() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) throw new Error('メールアドレスを正しく入れてください');
     await setMeta(db, PENDING_KEY, Date.now());
     await backend.sendCode(v, `${window.location.origin}/login`);
+    try {
+      localStorage.setItem(EMAIL_KEY, v);
+    } catch {
+      /* 次に開いたときに入れ直すだけ */
+    }
     setSent(true);
+    setSentAt(Date.now());
+    setNow(Date.now());
   });
 
   async function completeLogin(userId: string) {
@@ -140,12 +180,25 @@ export function LoginPage() {
     );
   }
 
+  // ログイン済み: メールを送る欄は出さず、ホームへ戻る道を大きく出す
+  if (loggedIn && !switching && !sent) {
+    return (
+      <main className="page">
+        <h1>ログイン</h1>
+        <div className="card form">
+          <p><b>{session!.user.email}</b> でログインしています。</p>
+          {error && <p className="error">{error}</p>}
+          <Link className="btn primary center" to="/">ホームに戻る</Link>
+          <button className="link-btn" onClick={() => { setSwitching(true); setEmail(''); }}>別のアカウントでログインする</button>
+        </div>
+        <p className="note">ログアウトは、設定画面のいちばん下からできます。ログアウトしても、この端末の記録は消えません。</p>
+      </main>
+    );
+  }
+
   return (
     <main className="page">
-      <h1>ログイン</h1>
-      {session && !session.user.is_anonymous && (
-        <p className="note">{session.user.email} でログインしています。別のアカウントに切り替えるときは、もう一度ログインしてください。</p>
-      )}
+      <h1>{switching ? '別のアカウントでログイン' : 'ログイン'}</h1>
       <p className="lead">
         ログインすると、売り子の端末と記録を共有できます。この端末で記録したデータは、ログインしても消えません。
       </p>
@@ -205,10 +258,13 @@ export function LoginPage() {
           />
           {error && <p className="error">{error}</p>}
           <button className="btn primary" disabled={busy}>{busy ? '確認中…' : 'ログイン'}</button>
-          <button type="button" className="link-btn" onClick={() => { setSent(false); setCode(''); }}>メールアドレスを入れ直す</button>
+          <button type="button" className="btn" disabled={busy || waitSec > 0} onClick={() => void sendCode()}>
+            {waitSec > 0 ? `メールをもう一度送る(あと${waitSec}秒)` : 'メールをもう一度送る'}
+          </button>
+          <button type="button" className="link-btn" onClick={() => { setSent(false); setCode(''); setError(''); }}>メールアドレスを入れ直す</button>
         </form>
       )}
-      <Link className="link-btn" to="/">ログインせずに戻る</Link>
+      <Link className="link-btn" to="/">{switching ? 'やめてホームに戻る' : 'ログインせずに戻る'}</Link>
     </main>
   );
 }
