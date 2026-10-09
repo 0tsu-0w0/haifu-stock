@@ -125,7 +125,7 @@ a { color: inherit; text-decoration: none; }
 .fbtn small { font-weight: 400; font-size: 11px; color: var(--ink-2); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 8px; }
 
 .toast {
-  position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); width: min(448px, calc(100% - 32px));
+  position: fixed; left: 50%; bottom: calc(140px + env(safe-area-inset-bottom, 0px)); width: min(448px, calc(100% - 32px));
   transform: translate(-50%, 12px); background: var(--ink); color: var(--bg); border-radius: 12px; padding: 11px 14px;
   display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 14px;
   opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s; z-index: 20;
@@ -303,3 +303,54 @@ details[open] summary { margin-bottom: 6px; }
 .chart-tip div { display: flex; justify-content: space-between; gap: 10px; }
 .reopen { border-style: dashed; }
 .btn.danger { color: var(--danger); border-color: var(--danger-line); background: var(--danger-bg); }
+.confirm-btn { display: flex; flex-direction: column; gap: 4px; }
+.btn.quiet-danger { color: var(--danger); background: transparent; }
+
+/* イベントの画面の下のタブ */
+.enav { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border-top: 1px solid var(--line); background: var(--surface); padding: 2px 4px env(safe-area-inset-bottom, 0px); flex: none; margin-top: auto; }
+.enav-tab { min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; color: var(--ink-3); border-radius: 10px; }
+.enav-tab[aria-current="page"] { color: var(--accent); font-weight: 700; }
+.enav-tab[aria-current="page"] svg { stroke-width: 2.4; }
+.foot:has(+ .enav) { padding-bottom: 10px; }
+
+/* レジ: 値引きとロック */
+.total > span:last-child { display: flex; align-items: baseline; gap: 8px; }
+.total .was { color: var(--ink-3); font-size: 15px; }
+.discount { display: flex; flex-direction: column; gap: 8px; background: var(--sunk); border-radius: 10px; padding: 8px 10px; }
+.discount .link-btn, .cart > .link-btn { font-size: 13px; padding: 2px; }
+.register { position: relative; }
+.lock-cover { position: absolute; inset: 0; z-index: 15; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; text-align: center; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.lock-cover > b { font-size: 20px; }
+.lock-cover .k { margin: 0; }
+.lock-sum { margin: 8px 0 24px; display: flex; flex-direction: column; gap: 2px; }
+.lock-sum .num { font-size: 32px; font-weight: 700; }
+.lock-sum small { color: var(--ink-2); }
+.unlock { position: relative; overflow: hidden; width: min(280px, 100%); height: 56px; border-radius: 14px; border: 1px solid var(--line-2); background: var(--surface); font-weight: 700; }
+.unlock::before { content: ""; position: absolute; inset: 0; background: var(--accent); opacity: .18; transform: scaleX(0); transform-origin: left; }
+.unlock.holding::before { transform: scaleX(1); transition: transform .8s linear; }
+.unlock span { position: relative; }
+
+/* 準備: 前回からコピー */
+.copy-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.copy-row select { width: 100%; height: 40px; }
+
+/* ホーム */
+.hero { gap: 6px; border: 1.5px solid var(--accent); }
+.hero.today { background: var(--accent-soft); }
+.hero-when { font-size: 12px; font-weight: 700; color: var(--accent); letter-spacing: .04em; }
+.hero-name { font-size: 20px; line-height: 1.3; }
+.hero-go { height: 56px; font-size: 17px; margin-top: 6px; }
+.home-actions { grid-template-columns: repeat(3, 1fr); }
+.home-actions .btn { font-size: 14px; padding: 0 4px; }
+.onboard { gap: 8px; }
+.progress { height: 6px; border-radius: 3px; background: var(--sunk); overflow: hidden; }
+.progress span { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width .3s; }
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.steps li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px 0; }
+.steps .mark { width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--line-2); display: grid; place-items: center; font-size: 13px; color: var(--ink-3); }
+.steps li.done .mark { background: var(--ok-bg); border-color: transparent; color: var(--ok); }
+.steps li.current .mark { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.steps li.done b { color: var(--ink-3); font-weight: 500; }
+.step-text { display: flex; flex-direction: column; min-width: 0; }
+.step-text small { font-size: 12px; color: var(--ink-2); }
+.install { gap: 6px; border-style: dashed; }

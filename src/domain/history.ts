@@ -1,4 +1,5 @@
 import type { GiveawayKind, Item, Txn, TxnLine } from '../db/types';
+import { lineAmount } from './ledger';
 
 // レジの履歴(F-404、F-1008)。取り消しも記録として残っているので、それを「取り消し済み」の印として重ねる
 
@@ -14,6 +15,8 @@ export interface HistoryRow {
   /** 販売額(無償出庫は 0) */
   amount: number;
   qty: number;
+  /** 値引き額(F-409) */
+  discount: number;
   voided: Txn | null;
 }
 
@@ -36,8 +39,9 @@ export function historyRows(txns: Txn[], linesByTxn: Map<string, TxnLine[]>, ite
         txn: t,
         kind: t.type as HistoryKind,
         label: describeTxn(t, lines, itemById),
-        amount: t.type === 'sale' ? lines.reduce((a, l) => a + l.qty * l.unit_price, 0) : 0,
+        amount: t.type === 'sale' ? lines.reduce((a, l) => a + lineAmount(l), 0) : 0,
         qty: lines.reduce((a, l) => a + l.qty, 0),
+        discount: lines.reduce((a, l) => a + (l.discount ?? 0), 0),
         voided: voidOf.get(t.id) ?? null,
       };
     });

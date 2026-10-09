@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { db } from '../app/db';
 import { useCtx } from '../app/useCtx';
+import { EventNav } from '../components/EventNav';
 import { useToast } from '../components/Toast';
 import { filterHistory, historyRows, type HistoryFilter, type HistoryRow } from '../domain/history';
 import { voidTransaction } from '../domain/record';
@@ -55,9 +56,6 @@ export function HistoryPage() {
   return (
     <div className="closing">
       <header className="c-top">
-        <Link className="icon-btn" to={`/events/${eventId}/register`} aria-label="レジに戻る">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
-        </Link>
         <div className="c-title">
           <b>記録の履歴</b>
           <span>{data.event.name}</span>
@@ -88,6 +86,7 @@ export function HistoryPage() {
                 <span className="label">{r.label}</span>
                 <small>
                   {deviceLabel(r.txn.device_id)}
+                  {r.discount > 0 && `・値引き ${yen(r.discount)}${r.txn.note ? `(${r.txn.note})` : ''}`}
                   {r.txn.paid_amount !== null && `・預かり ${yen(r.txn.paid_amount)}`}
                   {r.txn.zero_stock_override && '・残数0で記録'}
                   {r.txn.source === 'closing' && '・終了処理で追加'}
@@ -108,6 +107,7 @@ export function HistoryPage() {
           ))}
         </ul>
       </main>
+      <EventNav eventId={eventId} current="history" />
     </div>
   );
 }

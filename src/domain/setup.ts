@@ -93,7 +93,7 @@ const SAMPLE: SampleItem[] = [
   { key: 'cp', name: 'コピー本', price: 200, stock: 15, owner: 'C' },
 ];
 
-/** 見本データ: 受託元2つ、品目9つ、今日のイベント1つ。在庫は自宅から持ち込んだ状態 */
+/** テスト用の見本データ: 受託元2つ、品目9つ、今日のイベント1つ。在庫は自宅から持ち込んだ状態(アプリの画面からは使わない) */
 export async function addSampleData(db: HaifuDB, ctx: Ctx): Promise<EventRow> {
   const self = await db.owners.where('circle_id').equals(ctx.circleId).filter((o) => o.is_self).first();
   const home = await db.locations.where('circle_id').equals(ctx.circleId).filter((l) => l.kind === 'storage').first();

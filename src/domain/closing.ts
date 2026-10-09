@@ -3,7 +3,7 @@ import type {
   CashCount, ClosingCount, ClosingSummary, ConsignmentSettlement, CountHandling, EventClosing, Item, Movement, Txn,
 } from '../db/types';
 import { uuidv7 } from '../lib/uuid';
-import { activeTxnIds } from './ledger';
+import { activeTxnIds, lineAmount } from './ledger';
 import { moveStock, recordGiveaway, recordSale, type Ctx } from './record';
 import { deriveEvent, loadEventSnapshot, type EventSnapshot } from './snapshot';
 
@@ -83,7 +83,7 @@ export function computeMoney(s: EventSnapshot, rows: CountRow[]): Money {
     const x = sold.get(id) ?? { qty: 0, amount: 0 };
     sold.set(id, { qty: x.qty + qty, amount: x.amount + amount });
   };
-  for (const l of s.lines) if (saleIds.has(l.transaction_id)) add(l.item_id, l.qty, l.qty * l.unit_price);
+  for (const l of s.lines) if (saleIds.has(l.transaction_id)) add(l.item_id, l.qty, lineAmount(l));
   for (const r of rows) if (r.handling === 'add_sale') add(r.item.id, -r.diff, -r.diff * priceOf(r.item));
 
   const counted = new Map(rows.map((r) => [r.item.id, r.counted]));

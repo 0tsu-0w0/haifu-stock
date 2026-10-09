@@ -36,6 +36,8 @@ export interface Item extends FromServer {
   print_lot: number | null;
   low_threshold: number;
   archived_at: Iso | null;
+  /** 削除した時刻(表示から消す。記録は残す) */
+  deleted_at?: Iso | null;
   client_updated_at: Iso;
 }
 
@@ -68,6 +70,8 @@ export interface EventRow extends FromServer {
   space_no: string | null;
   starts_at: Iso | null;
   ends_at: Iso | null;
+  /** 削除した時刻(表示から消す。記録は残す) */
+  deleted_at?: Iso | null;
   client_updated_at: Iso;
 }
 
@@ -109,6 +113,8 @@ export interface Txn extends FromServer {
   paid_amount: number | null;
   zero_stock_override: boolean;
   is_correction: boolean;
+  /** 値引きや手入力の金額にした理由(F-409) */
+  note?: string | null;
   device_id: Uuid;
   recorded_by: Uuid;
   recorded_at: Iso;
@@ -121,6 +127,8 @@ export interface TxnLine extends FromServer {
   item_id: Uuid;
   qty: number;
   unit_price: number;
+  /** この行の値引き額(取引の値引きを金額の比で割り振ったもの。F-409) */
+  discount?: number;
 }
 
 export type MovementReason =

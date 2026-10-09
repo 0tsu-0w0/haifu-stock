@@ -5,6 +5,7 @@ import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
 import { useSync } from '../app/SyncProvider';
 import { useCtx } from '../app/useCtx';
+import { EventNav } from '../components/EventNav';
 import { NumberField } from '../components/NumberField';
 import { useToast } from '../components/Toast';
 import type { CountHandling } from '../db/types';
@@ -81,9 +82,6 @@ export function ClosingPage() {
   return (
     <div className="closing">
       <header className="c-top">
-        <Link className="icon-btn" to={`/events/${eventId}/register`} aria-label="レジに戻る">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
-        </Link>
         <div className="c-title">
           <b>終了処理</b>
           <span>{done ? '確定済み' : `${step + 1} / 4 ${STEPS[step]}`}</span>
@@ -112,6 +110,7 @@ export function ClosingPage() {
           </button>
         </footer>
       )}
+      <EventNav eventId={eventId} current="closing" />
     </div>
   );
 }

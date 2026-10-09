@@ -1,8 +1,8 @@
-import { useRef, useState, type PointerEvent as RPointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
 import { useCtx } from '../app/useCtx';
+import { EventNav } from '../components/EventNav';
 import { SyncPill } from '../components/SyncPill';
 import { useToast } from '../components/Toast';
 import type { GiveawayKind, Item, Txn } from '../db/types';
@@ -13,6 +13,25 @@ import { useEventData } from './useEventData';
 
 const LONG_PRESS_MS = 550;
 const PAID_CHOICES = [1000, 5000, 10000] as const;
+const DISCOUNT_REASONS = ['まとめ買い', '知り合い', 'おまけ', 'その他'] as const;
+const UNLOCK_MS = 800;
+
+const lockKey = (eventId: string) => `register-lock:${eventId}`;
+function readLock(eventId: string): boolean {
+  try {
+    return sessionStorage.getItem(lockKey(eventId)) === '1';
+  } catch {
+    return false;
+  }
+}
+function writeLock(eventId: string, on: boolean) {
+  try {
+    if (on) sessionStorage.setItem(lockKey(eventId), '1');
+    else sessionStorage.removeItem(lockKey(eventId));
+  } catch {
+    /* 保存できなくてもロック自体は効く */
+  }
+}
 
 type Paid = number | 'exact' | null;
 
@@ -21,13 +40,17 @@ export function RegisterPage() {
   const { eventId = '' } = useParams();
   const navigate = useNavigate();
   const ctx = useCtx();
-  const { role } = useAuth();
   const data = useEventData(eventId);
   const toast = useToast();
   const [sheetItem, setSheetItem] = useState<Item | null>(null);
   const [cart, setCart] = useState<Map<string, number> | null>(null); // null = カートモードではない
   const [cartZero, setCartZero] = useState(false);
   const [paid, setPaid] = useState<Paid>(null);
+  const [discountOpen, setDiscountOpen] = useState(false);
+  const [payInput, setPayInput] = useState('');
+  const [reason, setReason] = useState('');
+  const [screenLock, setScreenLock] = useState(() => readLock(eventId));
+  useEffect(() => writeLock(eventId, screenLock), [eventId, screenLock]);
   const press = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout>; fired: boolean } | null>(null);
   const [pressing, setPressing] = useState<string | null>(null);
 
@@ -133,22 +156,31 @@ export function RegisterPage() {
     setCart(null);
     setCartZero(false);
     setPaid(null);
+    setDiscountOpen(false);
+    setPayInput('');
+    setReason('');
   };
   const cartTotal = [...(cart ?? [])].reduce((a, [id, q]) => a + priceOf(itemById.get(id)!) * q, 0);
-  const paidAmount = paid === 'exact' ? cartTotal : paid;
+  // 値引き(F-409): 受け取る金額を入れると、元の合計との差を値引きとして記録する
+  const payTotal = discountOpen && payInput !== '' ? Number(payInput) : cartTotal;
+  const discount = cartTotal - payTotal;
+  const paidAmount = paid === 'exact' ? payTotal : paid;
 
   async function checkout() {
     if (!cart || cart.size === 0) return toast('品目をタップしてカートに入れてください');
-    if (paidAmount !== null && paidAmount < cartTotal) return toast('預かり金額が足りません');
-    const change = paidAmount !== null ? `・お釣り ${yen(paidAmount - cartTotal)}` : '';
+    if (discount < 0) return toast('元の合計より高い金額は入れられません');
+    if (paidAmount !== null && paidAmount < payTotal) return toast('預かり金額が足りません');
+    const change = paidAmount !== null ? `・お釣り ${yen(paidAmount - payTotal)}` : '';
     await undoable(
       recordSale(db, ctx!, {
         eventId,
         lines: [...cart].map(([itemId, qty]) => ({ itemId, qty })),
         paidAmount,
         zeroStockOverride: cartZero,
+        discount: Math.max(0, discount),
+        note: reason || undefined,
       }),
-      `${yen(cartTotal)} を記録${change}`,
+      `${yen(payTotal)} を記録${discount > 0 ? `(値引き ${yen(discount)})` : ''}${change}`,
     );
     exitCart();
   }
@@ -162,12 +194,9 @@ export function RegisterPage() {
             <span>{event.space_no ?? event.held_on}</span>
           </Link>
           <SyncPill />
-          <Link className="icon-btn" to={`/events/${eventId}/history`} aria-label="記録の履歴">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 8v4l3 2" /><path d="M3.05 11a9 9 0 1 1 .5 4" /><path d="M3 4v5h5" /></svg>
-          </Link>
-          {role === 'owner' && <Link className="icon-btn" to={`/events/${eventId}/closing`} aria-label="終了処理">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 21V4" /><path d="M5 4h11l-2 4 2 4H5" /></svg>
-          </Link>}
+          <button className="icon-btn" aria-label="画面をロックする" onClick={() => { exitCart(); setScreenLock(true); }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
+          </button>
         </div>
         <div className="sum">
           <div><small>売上</small><strong className="num">{yen(totals.amount)}</strong></div>
@@ -259,7 +288,37 @@ export function RegisterPage() {
               );
             })}
           </div>
-          <div className="total"><span>合計</span><strong className="num">{yen(cartTotal)}</strong></div>
+          <div className="total">
+            <span>合計</span>
+            <span>
+              {discount > 0 && <s className="num was">{yen(cartTotal)}</s>}
+              <strong className="num">{yen(payTotal)}</strong>
+            </span>
+          </div>
+          {discountOpen ? (
+            <div className="discount">
+              <div className="rowx">
+                <label className="k" htmlFor="pay-in">受け取る金額</label>
+                <span className="exp-amount">
+                  <input
+                    id="pay-in" className="price-in" inputMode="numeric" placeholder={String(cartTotal)} value={payInput}
+                    onChange={(e) => setPayInput(e.target.value.replace(/\D/g, ''))}
+                  />
+                  <small className="k">円</small>
+                </span>
+              </div>
+              <div className="chips" role="group" aria-label="値引きの理由">
+                {DISCOUNT_REASONS.map((r) => (
+                  <button key={r} className="chip" aria-pressed={reason === r} onClick={() => setReason((x) => (x === r ? '' : r))}>{r}</button>
+                ))}
+              </div>
+              {discount > 0 && <p className="k">値引き <span className="num">{yen(discount)}</span>(理由と一緒に履歴に残ります)</p>}
+              {discount < 0 && <p className="msg">元の合計より高い金額は入れられません</p>}
+              <button className="link-btn" onClick={() => { setDiscountOpen(false); setPayInput(''); setReason(''); }}>値引きをやめる</button>
+            </div>
+          ) : (
+            cart.size > 0 && <button className="link-btn" onClick={() => setDiscountOpen(true)}>値引き・金額を変える</button>
+          )}
           <div className="paid">
             {PAID_CHOICES.map((v) => (
               <button key={v} className="num" aria-pressed={paid === v} onClick={() => setPaid((p) => (p === v ? null : v))}>
@@ -269,9 +328,9 @@ export function RegisterPage() {
             <button aria-pressed={paid === 'exact'} onClick={() => setPaid((p) => (p === 'exact' ? null : 'exact'))}>ちょうど</button>
           </div>
           {paidAmount !== null && cart.size > 0 && (
-            <div className={`change${paidAmount < cartTotal ? ' short' : ''}`}>
-              <span>{paidAmount < cartTotal ? '足りません' : 'お釣り'}</span>
-              <strong className="num">{yen(Math.abs(paidAmount - cartTotal))}</strong>
+            <div className={`change${paidAmount < payTotal ? ' short' : ''}`}>
+              <span>{paidAmount < payTotal ? '足りません' : 'お釣り'}</span>
+              <strong className="num">{yen(Math.abs(paidAmount - payTotal))}</strong>
             </div>
           )}
         </section>
@@ -284,7 +343,7 @@ export function RegisterPage() {
               やめる<small>カートを空にする</small>
             </button>
             <button className="fbtn primary" onClick={() => void checkout()}>
-              記録する<small className="num">{cart.size ? yen(cartTotal) : 'カートは空です'}</small>
+              記録する<small className="num">{cart.size ? yen(payTotal) : 'カートは空です'}</small>
             </button>
           </>
         ) : (
@@ -310,6 +369,16 @@ export function RegisterPage() {
           </>
         )}
       </footer>
+      {!cart && <EventNav eventId={eventId} current="register" />}
+
+      {screenLock && (
+        <LockCover
+          title={event.name}
+          sales={yen(totals.amount)}
+          count={totals.count}
+          onUnlock={() => { setScreenLock(false); vibrate(20); }}
+        />
+      )}
 
       {sheetItem && (
         <ItemSheet
@@ -333,6 +402,39 @@ export function RegisterPage() {
           }
         />
       )}
+    </div>
+  );
+}
+
+/** 画面のロック(F-410)。カバンやポケットの中での誤タップを防ぐ。長押しで解除する */
+function LockCover(props: { title: string; sales: string; count: number; onUnlock: () => void }) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [holding, setHolding] = useState(false);
+  const stop = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    setHolding(false);
+  };
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  return (
+    <div className="lock-cover" role="dialog" aria-modal="true" aria-label="画面はロック中です" onContextMenu={(e) => e.preventDefault()}>
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
+      <b>ロック中</b>
+      <p className="k">{props.title}</p>
+      <p className="lock-sum"><span className="num">{props.sales}</span><small>{props.count}部</small></p>
+      <button
+        className={`unlock${holding ? ' holding' : ''}`}
+        onPointerDown={() => {
+          setHolding(true);
+          timer.current = setTimeout(() => { stop(); props.onUnlock(); }, UNLOCK_MS);
+        }}
+        onPointerUp={stop}
+        onPointerLeave={stop}
+        onPointerCancel={stop}
+        onKeyDown={(e) => { if (e.key === 'Enter') props.onUnlock(); }}
+      >
+        <span>長押しで解除</span>
+      </button>
     </div>
   );
 }

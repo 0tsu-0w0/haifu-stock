@@ -2,6 +2,7 @@ import { putAndQueue, type HaifuDB } from '../db/local';
 import type { CashCount, EventItem, EventRow, Expense, ExpenseCategory, Item, ItemKind, Owner, PrintRun, SetComponent } from '../db/types';
 import { uuidv7 } from '../lib/uuid';
 import { assertOpen } from './closing';
+import { eventItemSummary } from './ledger';
 import { moveStock, type Ctx } from './record';
 import { createEvent } from './setup';
 
@@ -53,7 +54,7 @@ export async function saveItem(db: HaifuDB, ctx: Ctx, input: ItemInput): Promise
   const item: Item = {
     id: cur?.id ?? uuidv7(), circle_id: ctx.circleId, owner_id: input.ownerId, kind: input.kind, name,
     price: input.price, print_lot: input.printLot ?? null, low_threshold: input.lowThreshold,
-    archived_at: cur?.archived_at ?? null, client_updated_at: stamp(),
+    archived_at: cur?.archived_at ?? null, deleted_at: cur?.deleted_at ?? null, client_updated_at: stamp(),
   };
   await db.transaction('rw', ['items', 'set_components', 'outbox'], async () => {
     await putAndQueue(db, 'items', item);
@@ -244,6 +245,81 @@ export async function createItemForEvent(
   });
 }
 
+/**
+ * イベントを削除する(表示から消す。記録は残すので元に戻せる)。
+ * 終了処理をしていないイベントに在庫が残っていれば、自分の品目は保管場所へ、受託品は持ち主へ戻す
+ */
+export async function deleteEvent(db: HaifuDB, ctx: Ctx, eventId: string, opts: { storageId: string }): Promise<{ returned: number }> {
+  return db.transaction('rw', [
+    'events', 'event_closings', 'locations', 'items', 'owners', 'set_components', 'stock_movements', 'transactions', 'outbox',
+  ], async () => {
+    const ev = await db.events.get(eventId);
+    if (!ev) throw new Error('イベントが見つかりません');
+    if (ev.deleted_at) return { returned: 0 };
+    let returned = 0;
+    const closed = (await db.event_closings.where('event_id').equals(eventId).filter((c) => !c.reopened_at).count()) > 0;
+    const loc = await db.locations.where('event_id').equals(eventId).first();
+    if (!closed && loc) {
+      const items = await db.items.where('circle_id').equals(ctx.circleId).toArray();
+      const summary = eventItemSummary({
+        eventLocationId: loc.id, items, setComponents: await db.set_components.toArray(),
+        movements: await db.stock_movements.where('event_id').equals(eventId).toArray(),
+        txns: await db.transactions.where('event_id').equals(eventId).toArray(),
+      });
+      const owners = new Map((await db.owners.toArray()).map((o) => [o.id, o]));
+      for (const item of items.filter((i) => i.kind !== 'set')) {
+        const left = summary.get(item.id)?.remaining ?? 0;
+        if (left <= 0) continue;
+        const own = owners.get(item.owner_id)?.is_self ?? true;
+        await moveStock(db, ctx, own
+          ? { itemId: item.id, qty: left, from: loc.id, to: opts.storageId, reason: 'transfer', note: '削除したイベントから戻す' }
+          : { itemId: item.id, qty: left, from: loc.id, to: null, reason: 'return_to_owner', note: '削除したイベントから持ち主に返す' });
+        returned += left;
+      }
+    }
+    await putAndQueue(db, 'events', { ...ev, deleted_at: stamp(), client_updated_at: stamp() });
+    return { returned };
+  });
+}
+
+export async function restoreEvent(db: HaifuDB, eventId: string): Promise<void> {
+  await db.transaction('rw', ['events', 'outbox'], async () => {
+    const ev = await db.events.get(eventId);
+    if (!ev) throw new Error('イベントが見つかりません');
+    await putAndQueue(db, 'events', { ...ev, deleted_at: null, client_updated_at: stamp() });
+  });
+}
+
+/**
+ * 品目を削除する(表示から消す。記録は残すので元に戻せる)。
+ * 終了していないイベントに持ち込み中のものと、削除していないセットの中身になっているものは消せない
+ */
+export async function deleteItem(db: HaifuDB, itemId: string): Promise<void> {
+  await db.transaction('rw', ['items', 'event_items', 'events', 'event_closings', 'set_components', 'outbox'], async () => {
+    const item = await db.items.get(itemId);
+    if (!item) throw new Error('品目が見つかりません');
+    for (const ei of await db.event_items.filter((e) => e.item_id === itemId && !e.removed_at).toArray()) {
+      const ev = await db.events.get(ei.event_id);
+      if (!ev || ev.deleted_at) continue;
+      const closed = (await db.event_closings.where('event_id').equals(ev.id).filter((c) => !c.reopened_at).count()) > 0;
+      if (!closed) throw new Error(`「${ev.name}」に持ち込み中です。先にイベントの準備で外してください`);
+    }
+    for (const c of await db.set_components.filter((x) => x.component_item_id === itemId).toArray()) {
+      const set = await db.items.get(c.set_item_id);
+      if (set && !set.deleted_at) throw new Error(`セット「${set.name}」の中身です。先にセットを削除してください`);
+    }
+    await putAndQueue(db, 'items', { ...item, deleted_at: stamp(), client_updated_at: stamp() });
+  });
+}
+
+export async function restoreItem(db: HaifuDB, itemId: string): Promise<void> {
+  await db.transaction('rw', ['items', 'outbox'], async () => {
+    const item = await db.items.get(itemId);
+    if (!item) throw new Error('品目が見つかりません');
+    await putAndQueue(db, 'items', { ...item, deleted_at: null, client_updated_at: stamp() });
+  });
+}
+
 /** 釣り銭準備金(F-305) */
 export async function saveFloat(db: HaifuDB, ctx: Ctx, eventId: string, denomination: number, count: number): Promise<void> {
   await db.transaction('rw', ['cash_counts', 'outbox', 'event_closings'], async () => {
@@ -274,4 +350,57 @@ export async function saveExpense(
   };
   await db.transaction('rw', ['expenses', 'outbox'], () => putAndQueue(db, 'expenses', exp));
   return exp;
+}
+
+/**
+ * 前回のイベントの持ち込み設定を読む(F-303)。画面のフォームに入れるだけで、在庫はまだ動かさない。
+ * 持ち込み数は、終了処理で持ち帰った分に左右されないよう、準備で決めた数(planned_qty)を使う
+ */
+export async function planFromEvent(db: HaifuDB, fromEventId: string): Promise<PrepareLine[]> {
+  const eis = (await db.event_items.where('event_id').equals(fromEventId).toArray()).filter((e) => !e.removed_at);
+  const items = await db.items.bulkGet(eis.map((e) => e.item_id));
+  return eis
+    .filter((_, i) => items[i] && !items[i]!.deleted_at && !items[i]!.archived_at)
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((e) => ({ itemId: e.item_id, included: true, bring: e.planned_qty ?? 0, priceOverride: e.price_override, sortOrder: e.sort_order }));
+}
+
+/**
+ * 前回のイベントの釣り銭準備金と経費(予定額)を写す(F-303)。
+ * すでに入れてあるものは上書きしないよう、空のときだけ写す
+ */
+export async function copyFloatAndExpenses(
+  db: HaifuDB, ctx: Ctx, fromEventId: string, toEventId: string,
+): Promise<{ float: boolean; expenses: number }> {
+  return db.transaction('rw', ['cash_counts', 'expenses', 'outbox', 'event_closings'], async () => {
+    await assertOpen(db, toEventId);
+    const [fromCash, toCash, fromExp, toExp] = await Promise.all([
+      db.cash_counts.where('event_id').equals(fromEventId).filter((c) => c.phase === 'float' && c.count > 0).toArray(),
+      db.cash_counts.where('event_id').equals(toEventId).filter((c) => c.phase === 'float' && c.count > 0).toArray(),
+      db.expenses.where('event_id').equals(fromEventId).toArray(),
+      db.expenses.where('event_id').equals(toEventId).filter((e) => (e.planned_amount ?? 0) > 0 || (e.actual_amount ?? 0) > 0).toArray(),
+    ]);
+    let float = false;
+    if (toCash.length === 0 && fromCash.length > 0) {
+      for (const c of fromCash) {
+        await putAndQueue(db, 'cash_counts', {
+          event_id: toEventId, phase: 'float', denomination: c.denomination, circle_id: ctx.circleId, count: c.count, client_updated_at: stamp(),
+        } satisfies CashCount);
+      }
+      float = true;
+    }
+    let expenses = 0;
+    if (toExp.length === 0) {
+      for (const e of fromExp) {
+        const amount = e.actual_amount ?? e.planned_amount ?? 0;
+        if (amount <= 0) continue;
+        await putAndQueue(db, 'expenses', {
+          id: uuidv7(), circle_id: ctx.circleId, event_id: toEventId, category: e.category, label: e.label,
+          planned_amount: amount, actual_amount: null, client_updated_at: stamp(),
+        } satisfies Expense);
+        expenses++;
+      }
+    }
+    return { float, expenses };
+  });
 }

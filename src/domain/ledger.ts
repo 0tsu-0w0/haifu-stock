@@ -2,6 +2,9 @@ import type { Item, Movement, SetComponent, Txn, TxnLine } from '../db/types';
 
 // 台帳から集計値を計算する純粋関数。db/schema.sql のビューと同じ考え方で、残数や売上は保存しない
 
+/** 明細の金額(値引き後) */
+export const lineAmount = (l: Pick<TxnLine, 'qty' | 'unit_price' | 'discount'>) => l.qty * l.unit_price - (l.discount ?? 0);
+
 /** 取り消されていない販売・無償出庫の取引ID */
 export function activeTxnIds(txns: Txn[]): Set<string> {
   const voided = new Set(txns.filter((t) => t.type === 'void').map((t) => t.voids_txn_id));
@@ -90,7 +93,7 @@ export function salesTotals(args: { txns: Txn[]; lines: TxnLine[]; items: Item[]
   let count = 0;
   for (const l of args.lines) {
     if (!sales.has(l.transaction_id)) continue;
-    const a = l.qty * l.unit_price;
+    const a = lineAmount(l);
     amount += a;
     count += l.qty;
     const o = ownerOf.get(l.item_id);

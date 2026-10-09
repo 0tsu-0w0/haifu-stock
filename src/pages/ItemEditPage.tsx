@@ -3,10 +3,11 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { db } from '../app/db';
 import { useCtx } from '../app/useCtx';
+import { ConfirmButton } from '../components/ConfirmButton';
 import { NumberField } from '../components/NumberField';
 import { useToast } from '../components/Toast';
 import type { ItemKind } from '../db/types';
-import { addPrintRun, saveItem, saveOwner, setItemArchived } from '../domain/catalog';
+import { addPrintRun, deleteItem, restoreItem, saveItem, saveOwner, setItemArchived } from '../domain/catalog';
 import { breakEvenQty, stockByLocation } from '../domain/ledger';
 import { yen } from '../lib/format';
 
@@ -25,7 +26,7 @@ export function ItemEditPage() {
     const [item, owners, items, storages, runs, comps, movements, txns] = await Promise.all([
       isNew ? undefined : db.items.get(itemId!),
       db.owners.where('circle_id').equals(ctx.circleId).filter((o) => !o.archived_at).toArray(),
-      db.items.where('circle_id').equals(ctx.circleId).filter((i) => !i.archived_at).toArray(),
+      db.items.where('circle_id').equals(ctx.circleId).filter((i) => !i.archived_at && !i.deleted_at).toArray(),
       db.locations.where('circle_id').equals(ctx.circleId).filter((l) => l.kind === 'storage').toArray(),
       isNew ? [] : db.print_runs.where('item_id').equals(itemId!).sortBy('edition'),
       isNew ? [] : db.set_components.where('set_item_id').equals(itemId!).toArray(),
@@ -247,6 +248,27 @@ export function ItemEditPage() {
           {item.archived_at ? 'アーカイブから戻す' : 'この品目をアーカイブする'}
         </button>
       )}
+
+      {item && (item.deleted_at ? (
+        <div className="card">
+          <p className="note">この品目は削除済みです。</p>
+          <button className="btn" onClick={async () => { await restoreItem(db, item.id); toast('元に戻しました'); }}>元に戻す</button>
+        </div>
+      ) : (
+        <ConfirmButton
+          label="この品目を削除する"
+          confirmLabel="もう一度押すと削除します"
+          onConfirm={async () => {
+            try {
+              await deleteItem(db, item.id);
+              toast(`${item.name} を削除しました。「品目」の画面の下から元に戻せます`);
+              navigate('/items');
+            } catch (e) {
+              toast(e instanceof Error ? e.message : String(e));
+            }
+          }}
+        />
+      ))}
     </main>
   );
 }

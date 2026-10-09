@@ -3,12 +3,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { db } from '../app/db';
 import { useCtx } from '../app/useCtx';
+import { ConfirmButton } from '../components/ConfirmButton';
+import { EventNav } from '../components/EventNav';
 import { NewItemForEvent } from '../components/NewItemForEvent';
 import { NumberField } from '../components/NumberField';
 import { useToast } from '../components/Toast';
 import type { ExpenseCategory } from '../db/types';
 import {
-  EXPENSE_LABEL, prepareEvent, preparedQty, saveEventInfo, saveExpense, saveFloat, type PrepareLine,
+  EXPENSE_LABEL, copyFloatAndExpenses, deleteEvent, planFromEvent, prepareEvent, preparedQty, saveEventInfo, saveExpense, saveFloat,
+  type PrepareLine,
 } from '../domain/catalog';
 import { DENOMINATIONS } from '../domain/closing';
 import { stockByLocation } from '../domain/ledger';
@@ -31,7 +34,7 @@ export function EventPreparePage() {
 
   const data = useLiveQuery(async () => {
     if (!ctx) return null;
-    const [event, items, owners, storages, eventItems, prepared, cash, expenses, closings, movements, txns] = await Promise.all([
+    const [event, items, owners, storages, eventItems, prepared, cash, expenses, closings, movements, txns, events] = await Promise.all([
       isNew ? undefined : db.events.get(eventId!),
       db.items.where('circle_id').equals(ctx.circleId).toArray(),
       db.owners.where('circle_id').equals(ctx.circleId).toArray(),
@@ -43,9 +46,12 @@ export function EventPreparePage() {
       isNew ? [] : db.event_closings.where('event_id').equals(eventId!).toArray(),
       db.stock_movements.toArray(),
       db.transactions.toArray(),
+      db.events.where('circle_id').equals(ctx.circleId).toArray(),
     ]);
+    // コピー元にできるイベント(F-303): 削除していない、ほかのイベント。新しい順
+    const others = events.filter((e) => !e.deleted_at && e.id !== eventId).sort((a, b) => b.held_on.localeCompare(a.held_on));
     return {
-      event, items, owners, storages, eventItems, prepared, cash, expenses,
+      event, items, owners, storages, eventItems, prepared, cash, expenses, others,
       closed: closings.some((c) => !c.reopened_at), stock: stockByLocation(movements, txns),
     };
   }, [ctx?.circleId, eventId]);
@@ -55,6 +61,7 @@ export function EventPreparePage() {
   const [newExp, setNewExp] = useState<{ category: ExpenseCategory; amount: string }>({ category: 'booth_fee', amount: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [copyFrom, setCopyFrom] = useState('');
 
   // 読み込んだ値でフォームを初期化する(その後はフォームの値を正とする)
   useEffect(() => {
@@ -79,7 +86,7 @@ export function EventPreparePage() {
     const order = new Map(data.eventItems.map((e) => [e.item_id, e.sort_order]));
     const self = data.owners.find((o) => o.is_self)?.id;
     return data.items
-      .filter((i) => !i.archived_at || order.has(i.id))
+      .filter((i) => (!i.archived_at && !i.deleted_at) || order.has(i.id))
       .sort((a, b) =>
         (order.get(a.id) ?? 1e6) - (order.get(b.id) ?? 1e6)
         || Number(b.owner_id === self) - Number(a.owner_id === self)
@@ -102,6 +109,23 @@ export function EventPreparePage() {
       if (isNew) navigate(`/events/${ev.id}/prepare`, { replace: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function copyPrevious(fromId: string) {
+    try {
+      const plan = await planFromEvent(db, fromId);
+      if (plan.length === 0) return toast('そのイベントには持ち込む品目がありません');
+      setLines((m) => {
+        const n = new Map(m ?? []);
+        for (const l of plan) n.set(l.itemId, l);
+        return n;
+      });
+      const r = await copyFloatAndExpenses(db, ctx!, fromId, eventId!);
+      const extra = [r.float ? '釣り銭' : '', r.expenses ? `経費${r.expenses}件` : ''].filter(Boolean).join('・');
+      toast(`${plan.length}品目を入れました${extra ? `(${extra}も写しました)` : ''}。確かめて「持ち込みを反映する」を押してください`);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -141,11 +165,15 @@ export function EventPreparePage() {
       || (l.included && (l.priceOverride ?? null) !== (ei?.price_override ?? null)));
   });
 
+  // 既定のコピー元: このイベントより前で、いちばん新しいもの
+  const defaultFrom = data.others.find((e) => !data.event || e.held_on <= data.event.held_on) ?? data.others[0];
+  const fromId = copyFrom || defaultFrom?.id || '';
+
   return (
+    <>
     <main className="page">
       <header className="bar">
-        <Link className="ev" to="/"><b>{isNew ? 'イベントを作る' : 'イベントの準備'}</b><span>ホームに戻る</span></Link>
-        {!isNew && <Link className="sbtn" to={`/events/${eventId}/register`}>レジを開く</Link>}
+        <Link className="ev" to="/"><b>{isNew ? 'イベントを作る' : 'イベントの準備'}</b><span>{isNew ? 'ホームに戻る' : data.event?.name}</span></Link>
       </header>
       {locked && <p className="note">このイベントは終了処理を確定済みです。準備の内容は変えられません。</p>}
 
@@ -180,6 +208,18 @@ export function EventPreparePage() {
       {!isNew && lines && (
         <>
           <h3 className="section">持ち込む品目</h3>
+          {!locked && fromId && (
+            <div className="card copy-prev">
+              <label className="k" htmlFor="copy-from">前回のイベントからコピー</label>
+              <div className="copy-row">
+                <select id="copy-from" value={fromId} onChange={(e) => setCopyFrom(e.target.value)}>
+                  {data.others.map((e) => <option key={e.id} value={e.id}>{e.held_on} {e.name}</option>)}
+                </select>
+                <button className="sbtn acc" onClick={() => void copyPrevious(fromId)}>コピー</button>
+              </div>
+              <p className="note">持ち込む品目・数・イベント価格を下に入れます。在庫は「持ち込みを反映する」を押すまで動きません。釣り銭と経費は、まだ入れていないときだけ写します。</p>
+            </div>
+          )}
           {data.items.length === 0 && (
             <div className="card"><p className="note">品目がまだありません。</p><Link className="btn center" to="/items/new">品目を追加</Link></div>
           )}
@@ -290,6 +330,33 @@ export function EventPreparePage() {
           </div>
         </>
       )}
+
+      {!isNew && data.event && home && (
+        <>
+          <h3 className="section">イベントの削除</h3>
+          <div className="card">
+            <p className="note">
+              一覧と分析から消します。記録は残るので、ホームの「削除したイベント」から元に戻せます。
+              {locked ? '' : `終了処理をしていないので、イベントに残っている在庫は${home.name}(受託品は持ち主)に戻します。`}
+            </p>
+            <ConfirmButton
+              label="このイベントを削除する"
+              confirmLabel="もう一度押すと削除します"
+              onConfirm={async () => {
+                try {
+                  const r = await deleteEvent(db, ctx, eventId!, { storageId: home.id });
+                  toast(r.returned ? `削除しました(${r.returned}部を戻しました)` : '削除しました');
+                  navigate('/');
+                } catch (e) {
+                  toast(e instanceof Error ? e.message : String(e));
+                }
+              }}
+            />
+          </div>
+        </>
+      )}
     </main>
+    {!isNew && <EventNav eventId={eventId!} current="prepare" />}
+    </>
   );
 }

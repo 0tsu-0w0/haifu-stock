@@ -136,6 +136,7 @@ create table items (
   print_lot         int check (print_lot > 0),              -- 印刷所の部数の刻み(F-106)
   low_threshold     int not null default 3 check (low_threshold >= 0),
   archived_at       timestamptz,
+  deleted_at        timestamptz,                            -- 削除(表示から消す。記録は残す)
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
   client_updated_at timestamptz not null default now(),
@@ -213,6 +214,7 @@ create table events (
   space_no          text,
   starts_at         timestamptz,
   ends_at           timestamptz,
+  deleted_at        timestamptz,                       -- 削除(表示から消す。記録は残す)
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
   client_updated_at timestamptz not null default now(),
@@ -337,6 +339,7 @@ create table transactions (
   paid_amount         int check (paid_amount >= 0),    -- 預かり金額(任意。F-402)
   zero_stock_override boolean not null default false,  -- 残数0で記録した(F-406a)
   is_correction       boolean not null default false,  -- 確定後にサークル主が加えた訂正
+  note                text,                            -- 値引きや手入力の金額にした理由(F-409)
   device_id           uuid not null,
   recorded_by         uuid not null,
   recorded_at         timestamptz not null,            -- 端末の時刻。時間帯別集計と完売時刻に使う
@@ -357,9 +360,11 @@ create table transaction_lines (
   item_id         uuid not null references items(id),   -- セットはセットの品目のまま持つ
   qty             int  not null check (qty > 0),
   unit_price      int  not null check (unit_price >= 0), -- その時の価格を残す(無償出庫は 0)
+  discount        int  not null default 0,               -- 取引の値引きを金額の比で割り振った分(F-409)
   received_at     timestamptz not null default now(),
   server_seq      bigint not null default 0
 );
+alter table transaction_lines add constraint transaction_lines_discount check (discount >= 0 and discount <= qty * unit_price);
 create index transaction_lines_txn  on transaction_lines (transaction_id);
 create index transaction_lines_item on transaction_lines (item_id);
 
@@ -770,7 +775,7 @@ group by event_id, item_id;
 -- 販売明細(取り消し分を除く)。持ち主は「今の」持ち主で見る(F-709 の付け替えが過去に効く)
 create view v_sale_lines with (security_invoker = true) as
 select t.circle_id, t.event_id, t.id as transaction_id, t.recorded_at, t.device_id,
-       l.item_id, i.owner_id, o.is_self, l.qty, l.unit_price, l.qty * l.unit_price as amount
+       l.item_id, i.owner_id, o.is_self, l.qty, l.unit_price, l.qty * l.unit_price - l.discount as amount
 from v_active_transactions t
 join transaction_lines l on l.transaction_id = t.id
 join items  i on i.id = l.item_id

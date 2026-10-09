@@ -24,7 +24,8 @@ export class SupabaseRemote implements Remote {
     const spec = TABLE_BY_NAME[table];
     const { error } = await this.client
       .from(table)
-      .upsert(rows, { onConflict: spec.pk.join(','), ignoreDuplicates: spec.ledger });
+      // 古い版の端末が送る行に新しい列がなくても、列の既定値で入るようにする
+      .upsert(rows, { onConflict: spec.pk.join(','), ignoreDuplicates: spec.ledger, defaultToNull: false });
     if (error) throw error;
   }
 

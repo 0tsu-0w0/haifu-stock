@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '../app/db';
 import { useCtx } from '../app/useCtx';
+import { useToast } from '../components/Toast';
+import { restoreItem } from '../domain/catalog';
 import { stockByLocation } from '../domain/ledger';
 import { yen } from '../lib/format';
 
@@ -12,6 +14,8 @@ const KIND_LABEL = { book: '本', goods: 'グッズ', set: 'セット' } as cons
 export function ItemsPage() {
   const ctx = useCtx();
   const [showArchived, setShowArchived] = useState(false);
+  const [showDeleted, setShowDeleted] = useState(false);
+  const toast = useToast();
   const data = useLiveQuery(async () => {
     if (!ctx) return null;
     const [items, owners, storages, movements, txns] = await Promise.all([
@@ -28,7 +32,9 @@ export function ItemsPage() {
   const { items, owners, storages, stock } = data;
   const atStorage = (id: string) => storages.reduce((a, l) => a + (stock.get(`${id}|${l.id}`) ?? 0), 0);
   const groups = [...owners].sort((a, b) => Number(b.is_self) - Number(a.is_self));
-  const archivedCount = items.filter((i) => i.archived_at).length;
+  const live = items.filter((i) => !i.deleted_at);
+  const deleted = items.filter((i) => i.deleted_at);
+  const archivedCount = live.filter((i) => i.archived_at).length;
 
   return (
     <main className="page">
@@ -37,7 +43,7 @@ export function ItemsPage() {
         <Link className="sbtn acc" to="/items/new">品目を追加</Link>
       </header>
 
-      {items.length === 0 && (
+      {live.length === 0 && (
         <div className="card">
           <p>まだ品目がありません。頒布する本やグッズ、受託品を登録してください。</p>
           <Link className="btn primary center" to="/items/new">品目を追加</Link>
@@ -45,7 +51,7 @@ export function ItemsPage() {
       )}
 
       {groups.map((o) => {
-        const mine = items.filter((i) => i.owner_id === o.id && (showArchived || !i.archived_at));
+        const mine = live.filter((i) => i.owner_id === o.id && (showArchived || !i.archived_at));
         if (mine.length === 0) return null;
         return (
           <section key={o.id} className="group">
@@ -71,6 +77,25 @@ export function ItemsPage() {
         <button className="link-btn" onClick={() => setShowArchived((v) => !v)}>
           {showArchived ? 'アーカイブ済みを隠す' : `アーカイブ済みも表示(${archivedCount}件)`}
         </button>
+      )}
+
+      {deleted.length > 0 && (
+        <>
+          <button className="link-btn" onClick={() => setShowDeleted((v) => !v)}>
+            {showDeleted ? '削除した品目を隠す' : `削除した品目(${deleted.length}件)`}
+          </button>
+          {showDeleted && (
+            <div className="card">
+              {deleted.map((i) => (
+                <div className="rowx" key={i.id}>
+                  <span>{i.name}<small className="k"> {yen(i.price)}</small></span>
+                  <button className="sbtn" onClick={async () => { await restoreItem(db, i.id); toast(`${i.name} を元に戻しました`); }}>元に戻す</button>
+                </div>
+              ))}
+              <p className="note">削除した品目は、一覧・イベントの準備・分析に出なくなります。売った記録は残っているので、元に戻せます。</p>
+            </div>
+          )}
+        </>
       )}
     </main>
   );

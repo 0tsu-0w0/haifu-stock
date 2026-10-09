@@ -1,6 +1,6 @@
 import type { HaifuDB } from '../db/local';
 import type { EventRow, Item, PrintRun } from '../db/types';
-import { activeTxnIds, eventItemSummary, stockByLocation, type ItemAtEvent } from './ledger';
+import { activeTxnIds, eventItemSummary, lineAmount, stockByLocation, type ItemAtEvent } from './ledger';
 
 // 刷り部数の目安(要件 §6.1〜6.5)と損益分岐(§6.6)。
 // 機械学習は使わず、途中の値をすべて画面に見せられる計算にする
@@ -90,14 +90,15 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
     db.event_closings.toArray(),
   ]);
   const selfIds = new Set(owners.filter((o) => o.is_self).map((o) => o.id));
-  const ownItems = items.filter((i) => selfIds.has(i.owner_id) && i.kind !== 'set');
+  // 削除した品目・イベントは、目安や損益分岐の対象にしない
+  const ownItems = items.filter((i) => selfIds.has(i.owner_id) && i.kind !== 'set' && !i.deleted_at);
   const itemById = new Map(items.map((i) => [i.id, i]));
   const active = activeTxnIds(txns);
   const today = new Date().toISOString().slice(0, 10);
   const closedEvents = new Set(closings.filter((c) => !c.reopened_at).map((c) => c.event_id));
   // 需要の材料にするのは、終わったイベントだけ(確定済みか、開催日を過ぎたもの)
   const past = events
-    .filter((e) => closedEvents.has(e.id) || e.held_on < today)
+    .filter((e) => !e.deleted_at && (closedEvents.has(e.id) || e.held_on < today))
     .sort((a, b) => a.held_on.localeCompare(b.held_on));
 
   const perEvent = past.map((ev) => {
@@ -173,18 +174,18 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
     const it = itemById.get(l.item_id);
     if (!it) continue;
     if (it.kind !== 'set') {
-      add(it.id, l.qty, l.qty * l.unit_price);
+      add(it.id, l.qty, lineAmount(l));
       continue;
     }
     const comps = setComponents.filter((c) => c.set_item_id === it.id);
     const base = comps.reduce((a, c) => a + (itemById.get(c.component_item_id)?.price ?? 0) * c.qty, 0);
     for (const c of comps) {
       const share = base > 0 ? ((itemById.get(c.component_item_id)?.price ?? 0) * c.qty) / base : 1 / comps.length;
-      add(c.component_item_id, l.qty * c.qty, l.qty * l.unit_price * share);
+      add(c.component_item_id, l.qty * c.qty, lineAmount(l) * share);
     }
   }
 
-  return { events, items, ownItems, histories, storageStock, printRuns, productionCosts, soldTotals, curve, curveSource, curveSamples: samples };
+  return { events: events.filter((e) => !e.deleted_at), items, ownItems, histories, storageStock, printRuns, productionCosts, soldTotals, curve, curveSource, curveSamples: samples };
 }
 
 const quantile = (xs: number[], q: number) => {

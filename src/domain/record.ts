@@ -57,6 +57,7 @@ function txn(ctx: Ctx, at: string, t: Pick<Txn, 'event_id' | 'type'> & Partial<T
     paid_amount: null,
     zero_stock_override: false,
     is_correction: false,
+    note: null,
     device_id: ctx.deviceId,
     recorded_by: ctx.userId,
     recorded_at: at,
@@ -70,12 +71,36 @@ export interface SaleInput {
   paidAmount?: number | null;
   zeroStockOverride?: boolean;
   source?: 'register' | 'closing';
+  /** 値引き額(円)。手入力の金額は「元の合計 − 入れた金額」で渡す(F-409) */
+  discount?: number;
+  /** 値引きの理由 */
+  note?: string;
+}
+
+/**
+ * 取引の値引きを、明細の金額の比で割り振る(端数は金額の大きい明細から1円ずつ)。
+ * 持ち主ごとの売上と受託の精算が、値引き後の金額で正しく出るようにするため
+ */
+export function allocateDiscount(amounts: number[], discount: number): number[] {
+  const total = amounts.reduce((a, b) => a + b, 0);
+  if (discount <= 0 || total <= 0) return amounts.map(() => 0);
+  const raw = amounts.map((a) => (a * discount) / total);
+  const out = raw.map(Math.floor);
+  let rest = discount - out.reduce((a, b) => a + b, 0);
+  const order = amounts.map((_, i) => i).sort((a, b) => raw[b] - out[b] - (raw[a] - out[a]) || amounts[b] - amounts[a]);
+  for (const i of order) {
+    if (rest <= 0) break;
+    if (out[i] < amounts[i]) { out[i]++; rest--; }
+  }
+  return out;
 }
 
 /** 販売を記録する。セットは構成品ごとに在庫移動を書く */
 export async function recordSale(db: HaifuDB, ctx: Ctx, input: SaleInput): Promise<Txn> {
   if (input.lines.length === 0) throw new Error('品目がありません');
   if (input.lines.some((l) => !Number.isInteger(l.qty) || l.qty <= 0)) throw new Error('部数が正しくありません');
+  const discount = input.discount ?? 0;
+  if (!Number.isInteger(discount) || discount < 0) throw new Error('値引きの金額が正しくありません');
 
   return db.transaction('rw', [...LEDGER_TABLES, ...READ_TABLES], async () => {
     await assertOpenForRegister(db, input.eventId, input.source ?? 'register');
@@ -87,20 +112,31 @@ export async function recordSale(db: HaifuDB, ctx: Ctx, input: SaleInput): Promi
       source: input.source ?? 'register',
       paid_amount: input.paidAmount ?? null,
       zero_stock_override: input.zeroStockOverride ?? false,
+      note: discount > 0 ? input.note?.trim() || null : null,
     });
-    await putAndQueue(db, 'transactions', t);
 
+    const priced = [];
     for (const l of input.lines) {
       const item = await db.items.get(l.itemId);
       if (!item) throw new Error('品目が見つかりません');
       const ei = await db.event_items.get([input.eventId, l.itemId]);
+      priced.push({ ...l, item, unitPrice: ei?.price_override ?? item.price });
+    }
+    const total = priced.reduce((a, l) => a + l.unitPrice * l.qty, 0);
+    if (discount > total) throw new Error('値引きが合計を超えています');
+    const shares = allocateDiscount(priced.map((l) => l.unitPrice * l.qty), discount);
+    await putAndQueue(db, 'transactions', t);
+
+    for (const [i, l] of priced.entries()) {
+      const { item } = l;
       const line: TxnLine = {
         id: uuidv7(),
         circle_id: ctx.circleId,
         transaction_id: t.id,
         item_id: l.itemId,
         qty: l.qty,
-        unit_price: ei?.price_override ?? item.price,
+        unit_price: l.unitPrice,
+        discount: shares[i],
       };
       await putAndQueue(db, 'transaction_lines', line);
 
@@ -137,7 +173,7 @@ export async function recordGiveaway(
     });
     await putAndQueue(db, 'transactions', t);
     await putAndQueue(db, 'transaction_lines', {
-      id: uuidv7(), circle_id: ctx.circleId, transaction_id: t.id, item_id: input.itemId, qty: input.qty, unit_price: 0,
+      id: uuidv7(), circle_id: ctx.circleId, transaction_id: t.id, item_id: input.itemId, qty: input.qty, unit_price: 0, discount: 0,
     } satisfies TxnLine);
     await putAndQueue(db, 'stock_movements', movement(ctx, at, {
       item_id: input.itemId, qty: input.qty, reason: 'giveaway',

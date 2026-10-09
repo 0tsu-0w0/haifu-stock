@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
-import { addSampleData, createCircle } from '../domain/setup';
+import { createCircle } from '../domain/setup';
 
 // 初回起動時の設定(F-1009)
 export function SetupPage() {
@@ -11,17 +11,16 @@ export function SetupPage() {
   const [busy, setBusy] = useState(false);
   const { configured } = useAuth();
 
-  async function start(withSample: boolean) {
+  async function start() {
     setError('');
-    const n = withSample && !name.trim() ? '見本サークル' : name;
+    const n = name;
     if (!n.trim()) {
       setError('サークル名を入れてください');
       return;
     }
     setBusy(true);
     try {
-      const ctx = await createCircle(db, n);
-      if (withSample) await addSampleData(db, ctx);
+      await createCircle(db, n);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setBusy(false);
@@ -36,7 +35,7 @@ export function SetupPage() {
         className="card form"
         onSubmit={(e) => {
           e.preventDefault();
-          void start(false);
+          void start();
         }}
       >
         <label htmlFor="circle-name">サークル名</label>
@@ -53,7 +52,6 @@ export function SetupPage() {
         {error && <p className="error">{error}</p>}
         <button className="btn primary" disabled={busy}>始める</button>
       </form>
-      <button className="btn" onClick={() => void start(true)} disabled={busy}>見本データ入りで試す</button>
       <p className="note">データはこの端末に保存されます。あとからログインすると、売り子の端末と同期できます。</p>
       {configured && (
         <div className="card">

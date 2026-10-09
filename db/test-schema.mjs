@@ -160,6 +160,14 @@ await as(U2, async () => {
   ok(true, '確定を解除したあとは、売り子が販売を追加できる');
   const r = await db.query(`update event_closings set reopened_at = null where event_id = $1`, [EV]);
   ok(r.affectedRows === 0, '売り子は確定の記録を変えられない');
+
+  // 値引き(F-409): 明細の discount を引いた額が売上になる。値引きは明細の金額を超えられない
+  const T4 = id();
+  await db.query(`insert into transactions (id, circle_id, event_id, type, note, device_id, recorded_by, recorded_at) values ($1,$2,$3,'sale','まとめ買い',$4,$5,now())`, [T4, C, EV, DEV2, U2]);
+  await db.query(`insert into transaction_lines (id, circle_id, transaction_id, item_id, qty, unit_price, discount) values ($1,$2,$3,$4,1,800,200)`, [id(), C, T4, A]);
+  const sl = await db.query(`select amount from v_sale_lines where transaction_id=$1`, [T4]);
+  ok(sl.rows[0].amount === 600, '値引き200円の明細は 800 − 200 = 600円で集計される');
+  await expectError(db.query(`insert into transaction_lines (id, circle_id, transaction_id, item_id, qty, unit_price, discount) values ($1,$2,$3,$4,1,800,801)`, [id(), C, T4, A]), '明細の金額を超える値引きは入れられない');
 });
 
 await expectError(db.query(`update transactions set paid_amount = 0 where id=$1`, [T1]), 'RLSを通らない管理者でもトリガーで更新を拒否');
