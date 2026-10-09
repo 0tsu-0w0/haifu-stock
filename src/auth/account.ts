@@ -22,8 +22,13 @@ export interface InviteRow {
 }
 
 export interface AuthBackend {
-  sendCode(email: string): Promise<void>;
+  /** ログインのメールを送る。メールのリンクを押すと returnTo に戻ってくる */
+  sendCode(email: string, returnTo: string): Promise<void>;
   verifyCode(email: string, code: string): Promise<{ userId: string }>;
+  /** Google でのログインが Supabase で有効になっているか */
+  googleEnabled(): Promise<boolean>;
+  /** Google のログイン画面へ移る。終わると returnTo に戻ってくる */
+  signInWithGoogle(returnTo: string): Promise<void>;
   signInAnonymously(): Promise<{ userId: string }>;
   currentUserId(): Promise<string | null>;
   /** サークル主として所属しているサークル */

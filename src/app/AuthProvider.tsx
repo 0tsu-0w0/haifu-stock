@@ -17,7 +17,9 @@ interface AuthApi {
 }
 
 const Ctx = createContext<AuthApi | null>(null);
-const backend = supabase ? new SupabaseAuthBackend(supabase) : null;
+const backend = supabase
+  ? new SupabaseAuthBackend(supabase, import.meta.env.VITE_SUPABASE_URL as string, import.meta.env.VITE_SUPABASE_ANON_KEY as string)
+  : null;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null | undefined>(supabase ? undefined : null);

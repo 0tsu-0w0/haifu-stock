@@ -24,12 +24,13 @@ npm run dev
 
 1. プロジェクトを作り、SQL エディタで `db/schema.sql` を実行する
 2. Authentication → Sign In / Providers で、**Email** と **Anonymous sign-ins** を有効にする(匿名ログインは売り子の参加に使う)
-3. Authentication → Emails → Magic Link のテンプレートに、6桁のコード `{{ .Token }}` を入れる(アプリはメールのリンクではなく、コードの入力でログインする)
-4. Authentication → URL Configuration の Site URL に、アプリを置くURLを入れる
+3. (任意)独自のメール送信(SMTP)を設定した場合は、Authentication → Emails の **Confirm signup** と **Magic Link** のテンプレートに6桁のコード `{{ .Token }}` を入れると、コードでもログインできる。標準のメール送信ではテンプレートを編集できないので、メールのリンクでログインする
+4. Authentication → URL Configuration の Site URL に、アプリを置くURLを入れる。Redirect URLs に `<アプリのURL>/login`(開発中は `http://localhost:5173/login` も)を入れる
+5. (任意)Google でのログイン: Google Cloud で OAuth クライアント(ウェブアプリ)を作り、承認済みのリダイレクト URI に `https://<プロジェクト>.supabase.co/auth/v1/callback` を入れる。クライアントIDとシークレットを Authentication → Sign In / Providers → Google に入れて有効にすると、ログイン画面に「Google でログイン」が出る
 
 ### ログインと参加のしかた
 
-- **サークル主**: ホームの「ログイン」から、メールに届く6桁のコードでログインする。ログイン前にこの端末で記録したデータは、そのままサーバーに送られる
+- **サークル主**: ホームの「ログイン」から、Google のアカウントか、メールのリンクでログインする。ログイン前にこの端末で記録したデータは、そのままサーバーに送られる
 - **売り子**: サークル主がホームの「売り子を招待」で出すQRコードを読み、「参加する」を押す。登録は不要で、参加したあとは電波がなくても記録できる
 
 ## 確認する

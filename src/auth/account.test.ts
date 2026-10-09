@@ -14,6 +14,8 @@ class FakeBackend implements AuthBackend {
   invites: InviteRow[] = [];
   eventCircles = new Map<string, string>();
   async sendCode() {}
+  async googleEnabled() { return false; }
+  async signInWithGoogle() {}
   async verifyCode() { this.session = 'owner-uid'; return { userId: 'owner-uid' }; }
   async signInAnonymously() { this.session = 'anon-uid'; return { userId: 'anon-uid' }; }
   async currentUserId() { return this.session; }

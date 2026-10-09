@@ -14,10 +14,33 @@ function explain(e: { message?: string; code?: string; status?: number } | null)
 }
 
 export class SupabaseAuthBackend implements AuthBackend {
-  constructor(private client: SupabaseClient) {}
+  private google: Promise<boolean> | null = null;
 
-  async sendCode(email: string): Promise<void> {
-    const { error } = await this.client.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+  constructor(private client: SupabaseClient, private url?: string, private anonKey?: string) {}
+
+  /** 認証の公開設定(/auth/v1/settings)を見て、Google が有効なときだけボタンを出す */
+  googleEnabled(): Promise<boolean> {
+    if (!this.url || !this.anonKey) return Promise.resolve(false);
+    this.google ??= fetch(`${this.url}/auth/v1/settings`, { headers: { apikey: this.anonKey } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s: { external?: Record<string, boolean> } | null) => !!s?.external?.google)
+      .catch(() => {
+        this.google = null; // 通信できなかっただけなら、次に開いたときにもう一度確かめる
+        return false;
+      });
+    return this.google;
+  }
+
+  async signInWithGoogle(returnTo: string): Promise<void> {
+    const { error } = await this.client.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: returnTo, queryParams: { prompt: 'select_account' } },
+    });
+    if (error) throw explain(error);
+  }
+
+  async sendCode(email: string, returnTo: string): Promise<void> {
+    const { error } = await this.client.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: returnTo } });
     if (error) throw explain(error);
   }
 
