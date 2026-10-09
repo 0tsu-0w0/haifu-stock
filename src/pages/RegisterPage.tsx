@@ -19,6 +19,11 @@ const LONG_PRESS_MS = 550;
 const PAID_CHOICES = [1000, 5000, 10000] as const;
 const DISCOUNT_REASONS = ['まとめ買い', '知り合い', 'おまけ', 'その他'] as const;
 const UNLOCK_MS = 800;
+// 誤操作の防止
+const DOUBLE_TAP_MS = 300; // 同じボタンをこれより速く続けて押したら、1回として扱う(指のぶれ)
+const SCROLL_GUARD_MS = 250; // スクロールを止めるためのタップは記録しない
+const ARM_MS = 3000; // 「もう一度押すと…」の待ち時間
+const MANY_QTY = 10; // これ以上の部数は、記録の前に注意を出す
 
 const lockKey = (eventId: string) => `register-lock:${eventId}`;
 function readLock(eventId: string): boolean {
@@ -39,17 +44,20 @@ function writeLock(eventId: string, on: boolean) {
 
 type Paid = number | 'exact' | null;
 
-// レジ画面(F-401〜406a)。タップで即1部記録、長押しでメニュー、カートでまとめ買い(F-402)
+// レジ画面(F-401〜406a)。既定はタップでカートに入れ、「決済」で記録する。
+// 設定で「タップですぐ記録」にすると、タップで即1部記録し、まとめ買いは「カート」から(F-402)
 export function RegisterPage() {
   const { eventId = '' } = useParams();
   const navigate = useNavigate();
   const ctx = useCtx();
   const { role } = useAuth();
   const [showBE] = usePref('showBreakEven');
+  const [instant] = usePref('instantSale');
   const data = useEventData(eventId);
   const toast = useToast();
   const [sheetItem, setSheetItem] = useState<Item | null>(null);
-  const [cart, setCart] = useState<Map<string, number> | null>(null); // null = カートモードではない
+  // null = カートを使っていない(タップですぐ記録するときだけ)。決済で確定するときは、いつも空のカートから始める
+  const [cart, setCart] = useState<Map<string, number> | null>(() => (instant ? null : new Map()));
   const [cartZero, setCartZero] = useState(false);
   const [paid, setPaid] = useState<Paid>(null);
   const [discountOpen, setDiscountOpen] = useState(false);
@@ -61,8 +69,28 @@ export function RegisterPage() {
   const awake = useWakeLock(!!data && !data.closing);
   // 黒字化までの残り(サークル主だけ)。記録が変わったときだけ計算し直す(ボタンを押すたびには計算しない)
   const be = useMemo(() => (data && role === 'owner' && showBE ? profitTimeline(data) : null), [data, role, showBE]);
-  const press = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout>; fired: boolean } | null>(null);
+  const press = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout>; fired: boolean; pointerId: number; itemId: string } | null>(null);
   const [pressing, setPressing] = useState<string | null>(null);
+  const lastTap = useRef<{ id: string; at: number } | null>(null);
+  const lastScroll = useRef(0);
+  // 記録できたことを、押したボタンの上に「+1」で見せる(n を変えて同じボタンでも出し直す)
+  const [hit, setHit] = useState<{ id: string; n: number } | null>(null);
+  // 動きを減らす設定でアニメーションが止まっても残らないよう、時間で消す
+  useEffect(() => {
+    if (!hit) return;
+    const t = setTimeout(() => setHit(null), 700);
+    return () => clearTimeout(t);
+  }, [hit]);
+  // 取り消し・カートを空にするは、2回押して実行する
+  const [armed, setArmed] = useState<'undo' | 'clear' | null>(null);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(null), ARM_MS);
+    return () => clearTimeout(t);
+  }, [armed]);
+  const [busy, setBusy] = useState(false);
+  // 押した瞬間に立てる印(state は次の描画まで変わらないので、同時の連打を止められない)
+  const busyRef = useRef(false);
 
   if (data === undefined || ctx === undefined) return <main className="page" />;
   if (data === null || ctx === null) {
@@ -121,15 +149,21 @@ export function RegisterPage() {
   };
 
   function tap(item: Item) {
+    const now = Date.now();
+    if (now - lastScroll.current < SCROLL_GUARD_MS) return;
     if (guard()) return;
+    if (cart) {
+      if (available(item) <= 0) return toast('完売です。長押しで記録できます');
+      addToCart(item, 1);
+      return;
+    }
+    if (lastTap.current?.id === item.id && now - lastTap.current.at < DOUBLE_TAP_MS) return;
+    lastTap.current = { id: item.id, at: now };
     if (available(item) <= 0) {
       toast('完売です。長押しで記録できます');
       return;
     }
-    if (cart) {
-      addToCart(item, 1);
-      return;
-    }
+    setHit((h) => ({ id: item.id, n: (h?.n ?? 0) + 1 }));
     void undoable(
       recordSale(db, ctx!, { eventId, lines: [{ itemId: item.id, qty: 1 }] }),
       `${item.name} を記録 ${yen(priceOf(item))}`,
@@ -138,6 +172,10 @@ export function RegisterPage() {
 
   const onDown = (e: RPointerEvent, item: Item) => {
     if (e.button > 0) return;
+    if (press.current) {
+      cancelPress();
+      return;
+    }
     const timer = setTimeout(() => {
       if (!press.current) return;
       press.current.fired = true;
@@ -145,7 +183,7 @@ export function RegisterPage() {
       vibrate(25);
       if (!guard()) setSheetItem(item);
     }, LONG_PRESS_MS);
-    press.current = { x: e.clientX, y: e.clientY, timer, fired: false };
+    press.current = { x: e.clientX, y: e.clientY, timer, fired: false, pointerId: e.pointerId, itemId: item.id };
     setPressing(item.id);
   };
   const cancelPress = () => {
@@ -154,16 +192,17 @@ export function RegisterPage() {
     setPressing(null);
   };
   const onMove = (e: RPointerEvent) => {
-    if (press.current && Math.hypot(e.clientX - press.current.x, e.clientY - press.current.y) > 10) cancelPress();
+    if (press.current && press.current.pointerId === e.pointerId && Math.hypot(e.clientX - press.current.x, e.clientY - press.current.y) > 10) cancelPress();
   };
-  const onUp = (item: Item) => {
+  const onUp = (e: RPointerEvent, item: Item) => {
     const p = press.current;
+    if (!p || p.pointerId !== e.pointerId) return;
     cancelPress();
-    if (p && !p.fired) tap(item);
+    if (!p.fired && p.itemId === item.id) tap(item);
   };
 
   const exitCart = () => {
-    setCart(null);
+    setCart(instant ? null : new Map());
     setCartZero(false);
     setPaid(null);
     setDiscountOpen(false);
@@ -176,12 +215,19 @@ export function RegisterPage() {
   const discount = cartTotal - payTotal;
   const paidAmount = paid === 'exact' ? payTotal : paid;
 
+  // 下の左のボタン: カートが空(またはカートを使っていない)なら「取り消し」、品目が入っていれば「やめる」
+  const showUndo = !cart || (!instant && cart.size === 0);
+
   async function checkout() {
+    if (busyRef.current) return;
     if (!cart || cart.size === 0) return toast('品目をタップしてカートに入れてください');
     if (discount < 0) return toast('元の合計より高い金額は入れられません');
     if (paidAmount !== null && paidAmount < payTotal) return toast('預かり金額が足りません');
     const change = paidAmount !== null ? `・お釣り ${yen(paidAmount - payTotal)}` : '';
-    await undoable(
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await undoable(
       recordSale(db, ctx!, {
         eventId,
         lines: [...cart].map(([itemId, qty]) => ({ itemId, qty })),
@@ -190,21 +236,29 @@ export function RegisterPage() {
         discount: Math.max(0, discount),
         note: reason || undefined,
       }),
-      `${yen(payTotal)} を記録${discount > 0 ? `(値引き ${yen(discount)})` : ''}${change}`,
-    );
-    exitCart();
+      `${instant ? '' : '決済 '}${yen(payTotal)}${instant ? ' を記録' : ''}${discount > 0 ? `(値引き ${yen(discount)})` : ''}${change}`,
+      );
+      exitCart();
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   }
 
   return (
     <div className="register">
       <header className="top">
         <div className="bar">
-          <Link className="ev" to="/">
-            <b>{event.name}</b>
-            <span>{event.space_no ?? event.held_on}</span>
-          </Link>
+          {cart && cart.size > 0 ? (
+            <div className="ev"><b>{event.name}</b><span>カートの途中です</span></div>
+          ) : (
+            <Link className="ev" to="/">
+              <b>{event.name}</b>
+              <span>{event.space_no ?? event.held_on}</span>
+            </Link>
+          )}
           <SyncPill />
-          <button className="icon-btn" aria-label="画面をロックする" onClick={() => { exitCart(); setScreenLock(true); }}>
+          <button className="icon-btn" aria-label="画面をロックする" onClick={() => { cancelPress(); setSheetItem(null); setArmed(null); setScreenLock(true); }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
           </button>
         </div>
@@ -219,7 +273,10 @@ export function RegisterPage() {
           </div>
         )}
         <div className="mode">
-          {cart ? <span className="cart-on">カートモード:タップで追加</span> : <span>タップで1部記録・長押しでメニュー</span>}
+          {!cart ? <span>タップで1部記録・長押しでメニュー</span>
+            : instant ? <span className="cart-on">カートモード:タップで追加</span>
+            : cart.size > 0 ? <span className="cart-on">カート {[...cart.values()].reduce((a, q) => a + q, 0)}部・「決済」で記録</span>
+            : <span>タップでカートに入れ、「決済」で記録</span>}
           <span>{awake ? '画面は消えません・' : ''}{eventItems.length}品目</span>
         </div>
         {locked && (
@@ -229,7 +286,7 @@ export function RegisterPage() {
         )}
       </header>
 
-      <main className="grid-wrap">
+      <main className="grid-wrap" onScroll={() => { lastScroll.current = Date.now(); }}>
         <div className="grid" onContextMenu={(e) => e.preventDefault()}>
           {eventItems.map((ei) => {
             const item = itemById.get(ei.item_id);
@@ -246,7 +303,7 @@ export function RegisterPage() {
                 aria-label={`${item.name} ${priceOf(item)}円 ${r <= 0 ? '完売' : `残り${r}`}${owner && !owner.is_self ? ` 受託 ${owner.name}` : ''}${inCart(item.id) ? ` カートに${inCart(item.id)}` : ''}`}
                 onPointerDown={(e) => onDown(e, item)}
                 onPointerMove={onMove}
-                onPointerUp={() => onUp(item)}
+                onPointerUp={(e) => onUp(e, item)}
                 onPointerCancel={cancelPress}
                 onPointerLeave={cancelPress}
                 onKeyDown={(e) => {
@@ -260,6 +317,7 @@ export function RegisterPage() {
                 }}
               >
                 {inCart(item.id) > 0 && <span className="incart num">{inCart(item.id)}</span>}
+                {hit?.id === item.id && !cart && <span key={hit.n} className="hit num" aria-hidden="true">+1</span>}
                 <span className="nm">{item.name}</span>
                 {owner && !owner.is_self && <span className="tag">受託: {owner.name}</span>}
                 <span className="meta">
@@ -270,10 +328,10 @@ export function RegisterPage() {
             );
           })}
         </div>
-        <p className="hint">完売の品目はタップでは記録しません。長押しすると「販売を記録(残数0)」を選べます。</p>
+        <p className="hint">完売の品目は、タップでは{instant ? "記録しません" : "カートに入りません"}。長押しすると「販売を記録(残数0)」を選べます。</p>
       </main>
 
-      {cart && (
+      {cart && (instant || cart.size > 0) && (
         <section className="cart" aria-label="カート">
           <div className="cart-lines">
             {cart.size === 0 && <p className="empty-cart">品目をタップしてカートに入れてください</p>}
@@ -352,39 +410,48 @@ export function RegisterPage() {
       )}
 
       <footer className="foot">
-        {cart ? (
-          <>
-            <button className="fbtn" onClick={() => { exitCart(); toast('カートを空にしました'); }}>
-              やめる<small>カートを空にする</small>
-            </button>
-            <button className="fbtn primary" onClick={() => void checkout()}>
-              記録する<small className="num">{cart.size ? yen(payTotal) : 'カートは空です'}</small>
-            </button>
-          </>
+        {showUndo ? (
+          <button
+            className={`fbtn${armed === 'undo' ? ' armed' : ''}`}
+            onClick={async () => {
+              if (guard()) return;
+              if (!last) return toast('取り消す記録がありません');
+              if (armed !== 'undo') return setArmed('undo');
+              setArmed(null);
+              try {
+                await voidTransaction(db, ctx, last.id);
+                toast(`取り消し: ${describe(last)}`);
+              } catch (e) {
+                toast(e instanceof Error ? e.message : String(e));
+              }
+            }}
+          >
+            {armed === 'undo' ? 'もう一度押すと取り消し' : '取り消し'}<small>{last ? describe(last) : '記録なし'}</small>
+          </button>
         ) : (
-          <>
-            <button
-              className="fbtn"
-              onClick={async () => {
-                if (guard()) return;
-                if (!last) return toast('取り消す記録がありません');
-                try {
-                  await voidTransaction(db, ctx, last.id);
-                  toast(`取り消し: ${describe(last)}`);
-                } catch (e) {
-                  toast(e instanceof Error ? e.message : String(e));
-                }
-              }}
-            >
-              取り消し<small>{last ? describe(last) : '記録なし'}</small>
-            </button>
-            <button className="fbtn" onClick={() => !guard() && setCart(new Map())}>
-              カート<small>まとめ買い</small>
-            </button>
-          </>
+          <button
+            className={`fbtn${armed === 'clear' ? ' armed' : ''}`}
+            onClick={() => {
+              if (cart && cart.size > 0 && armed !== 'clear') return setArmed('clear');
+              setArmed(null);
+              exitCart();
+              toast(cart && cart.size > 0 ? 'カートを空にしました' : 'カートを閉じました');
+            }}
+          >
+            {armed === 'clear' ? 'もう一度押すと空に' : 'やめる'}<small>{cart && cart.size > 0 ? `カートの${cart.size}品目を消す` : 'カートを閉じる'}</small>
+          </button>
+        )}
+        {cart ? (
+          <button className="fbtn primary" disabled={busy || cart.size === 0} onClick={() => void checkout()}>
+            {instant ? '記録する' : '決済'}<small className="num">{cart.size ? yen(payTotal) : '品目をタップしてください'}</small>
+          </button>
+        ) : (
+          <button className="fbtn" onClick={() => !guard() && setCart(new Map())}>
+            カート<small>まとめ買い</small>
+          </button>
         )}
       </footer>
-      {!cart && <EventNav eventId={eventId} current="register" />}
+      {showUndo && <EventNav eventId={eventId} current="register" />}
 
       {screenLock && (
         <LockCover
@@ -498,6 +565,7 @@ function ItemSheet(props: {
             <button aria-label="1部増やす" onClick={() => setQty((q) => Math.min(99, q + 1))}>+</button>
           </span>
         </div>
+        {qty >= MANY_QTY && <p className="warnnote">{qty}部です。数を確かめてから記録してください。</p>}
         <button
           className="go"
           onClick={() => {

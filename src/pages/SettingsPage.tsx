@@ -30,6 +30,7 @@ export function SettingsPage() {
   const [newOwner, setNewOwner] = useState({ name: '', fee: '' });
   const [showArchived, setShowArchived] = useState(false);
   const [showBE, setShowBE] = usePref('showBreakEven');
+  const [instant, setInstant] = usePref('instantSale');
 
   useEffect(() => {
     if (data?.circle) setCircleName(data.circle.name);
@@ -116,8 +117,15 @@ export function SettingsPage() {
         <p className="note">受託手数料は、売上から差し引いて自分の収入にする割合です。しまった受託元は、品目の登録で選べなくなります。過去の記録と精算は残ります。</p>
       </div>
 
-      <h3 className="section">表示(この端末だけ)</h3>
+      <h3 className="section">レジと表示(この端末だけ)</h3>
       <div className="card">
+        <label className="check">
+          <input type="checkbox" checked={instant} onChange={(e) => setInstant(e.target.checked)} />
+          <span>
+            <b>レジでタップしたらすぐ記録する</b>
+            <small className="k">オフ(おすすめ)のときは、タップした品目をカートに入れ、「決済」を押して記録します。オンにすると、タップした瞬間に1部ずつ記録し、まとめ買いは「カート」から入れます。</small>
+          </span>
+        </label>
         <label className="check">
           <input type="checkbox" checked={showBE} onChange={(e) => setShowBE(e.target.checked)} />
           <span>

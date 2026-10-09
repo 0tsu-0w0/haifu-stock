@@ -5,10 +5,12 @@ import { useState } from 'react';
 const KEYS = {
   /** レジに黒字化までの残り金額を出す(F-1108) */
   showBreakEven: 'pref-show-breakeven',
+  /** レジでタップしたらすぐ記録する(決済ボタンを使わない、以前の動き) */
+  instantSale: 'pref-instant-sale',
 } as const;
 
 type Pref = keyof typeof KEYS;
-const DEFAULTS: Record<Pref, boolean> = { showBreakEven: true };
+const DEFAULTS: Record<Pref, boolean> = { showBreakEven: true, instantSale: false };
 
 function read(p: Pref): boolean {
   try {
