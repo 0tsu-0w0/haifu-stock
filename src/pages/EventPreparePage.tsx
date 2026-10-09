@@ -7,6 +7,7 @@ import { ConfirmButton } from '../components/ConfirmButton';
 import { EventNav } from '../components/EventNav';
 import { NewItemForEvent } from '../components/NewItemForEvent';
 import { NumberField } from '../components/NumberField';
+import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../components/Toast';
 import type { ExpenseCategory } from '../db/types';
 import {
@@ -172,9 +173,7 @@ export function EventPreparePage() {
   return (
     <>
     <main className="page">
-      <header className="bar">
-        <Link className="ev" to="/"><b>{isNew ? 'イベントを作る' : 'イベントの準備'}</b><span>{isNew ? 'ホームに戻る' : data.event?.name}</span></Link>
-      </header>
+      <PageHeader title={isNew ? 'イベントを作る' : 'イベントの準備'} sub={isNew ? undefined : data.event?.name} />
       {locked && <p className="note">このイベントは終了処理を確定済みです。準備の内容は変えられません。</p>}
 
       <form className="card form" onSubmit={(e) => { e.preventDefault(); void saveInfo(); }}>

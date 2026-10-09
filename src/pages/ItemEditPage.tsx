@@ -5,6 +5,7 @@ import { db } from '../app/db';
 import { useCtx } from '../app/useCtx';
 import { ConfirmButton } from '../components/ConfirmButton';
 import { NumberField } from '../components/NumberField';
+import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../components/Toast';
 import type { ItemKind } from '../db/types';
 import { addPrintRun, deleteItem, restoreItem, saveItem, saveOwner, setItemArchived } from '../domain/catalog';
@@ -108,9 +109,7 @@ export function ItemEditPage() {
 
   return (
     <main className="page">
-      <header className="bar">
-        <Link className="ev" to="/items"><b>{item ? item.name : '品目を追加'}</b><span>品目の一覧に戻る</span></Link>
-      </header>
+      <PageHeader title={item ? item.name : '品目を追加'} back="/items" backLabel="品目" />
 
       <form className="card form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
         <label htmlFor="item-name">品目名</label>

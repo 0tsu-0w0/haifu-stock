@@ -5,6 +5,7 @@ import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
 import { useCtx } from '../app/useCtx';
 import { AccountBar } from '../components/AccountBar';
+import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../components/Toast';
 import type { Owner } from '../db/types';
 import { renameLocation, saveCircleName, saveOwner, setOwnerArchived } from '../domain/catalog';
@@ -55,9 +56,7 @@ export function SettingsPage() {
 
   return (
     <main className="page">
-      <header className="bar">
-        <Link className="ev" to="/"><b>設定</b><span>ホームに戻る</span></Link>
-      </header>
+      <PageHeader title="設定" />
 
       <h3 className="section">サークル</h3>
       <form

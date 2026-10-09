@@ -6,6 +6,7 @@ import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
 import { useSync } from '../app/SyncProvider';
 import { useCtx } from '../app/useCtx';
+import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../components/Toast';
 import { hhmm } from '../lib/format';
 
@@ -84,9 +85,7 @@ export function InvitePage() {
 
   return (
     <main className="page">
-      <header className="bar">
-        <Link className="ev" to="/"><b>売り子を招待</b><span>QRコードを売り子のスマホで読んでもらいます</span></Link>
-      </header>
+      <PageHeader title="売り子を招待" sub="QRコードを売り子のスマホで読んでもらいます" />
 
       {current ? (
         <div className="card invite">

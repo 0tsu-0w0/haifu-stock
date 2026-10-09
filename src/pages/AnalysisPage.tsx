@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { db } from '../app/db';
 import { useCtx } from '../app/useCtx';
 import { LineChart } from '../components/LineChart';
+import { PageHeader } from '../components/PageHeader';
 import {
   DEFAULT_FORECAST, SCENARIO_LABEL, decayRates, eventBreakEven, itemBreakEven, loadAnalysis, newBookPlan, reprintPlans,
   type AnalysisData, type ForecastOptions, type ReprintPlan,
@@ -26,9 +27,7 @@ export function AnalysisPage() {
 
   return (
     <main className="page">
-      <header className="bar">
-        <Link className="ev" to="/"><b>分析</b><span>ホームに戻る</span></Link>
-      </header>
+      <PageHeader title="分析" />
       <div className="tabs" role="tablist">
         {TABS.map(([k, label]) => (
           <button key={k} role="tab" aria-selected={tab === k} className="tab" onClick={() => setParams({ tab: k }, { replace: true })}>{label}</button>

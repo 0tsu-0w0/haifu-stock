@@ -368,3 +368,27 @@ details[open] summary { margin-bottom: 6px; }
 .owner-row { display: flex; flex-direction: column; gap: 2px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 .owner-row.archived { opacity: .6; }
 .small-link { align-self: flex-end; font-size: 12px; padding: 2px 4px; }
+
+/* 画面の上の見出しと戻るボタン(スクロールしても上に残る) */
+.phead {
+  position: sticky; top: -14px; z-index: 5; margin: -14px -16px 0; padding: 10px 16px;
+  display: flex; align-items: center; gap: 10px; background: var(--bg); border-bottom: 1px solid var(--line);
+}
+.back-btn {
+  flex: none; min-height: 44px; min-width: 44px; padding: 0 12px 0 6px; border-radius: 12px;
+  display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line-2); background: var(--surface);
+  color: var(--accent); font-weight: 700; font-size: 14px;
+}
+.back-btn:active { background: var(--accent-soft); }
+.phead-title { flex: 1; min-width: 0; }
+.phead-title b { display: block; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.phead-title span { display: block; font-size: 12px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.phead .sbtn { flex: none; }
+
+/* 文字のリンクも指で押しやすい高さにする */
+.link-btn { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 12px; }
+.sub-link { min-height: 40px; display: inline-flex; align-items: center; padding: 0 10px; border-radius: 10px; }
+.sub-link:active, .link-btn:active { background: var(--accent-soft); }
+.sub-links { gap: 4px; }
+.discount .link-btn, .cart > .link-btn { min-height: 34px; }
+.small-link { min-height: 36px; }

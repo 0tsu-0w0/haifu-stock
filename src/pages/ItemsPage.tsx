@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '../app/db';
 import { useCtx } from '../app/useCtx';
+import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../components/Toast';
 import { restoreItem } from '../domain/catalog';
 import { stockByLocation } from '../domain/ledger';
@@ -38,10 +39,7 @@ export function ItemsPage() {
 
   return (
     <main className="page">
-      <header className="bar">
-        <Link className="ev" to="/"><b>品目</b><span>ホームに戻る</span></Link>
-        <Link className="sbtn acc" to="/items/new">品目を追加</Link>
-      </header>
+      <PageHeader title="品目" right={<Link className="sbtn acc" to="/items/new">品目を追加</Link>} />
 
       {live.length === 0 && (
         <div className="card">
