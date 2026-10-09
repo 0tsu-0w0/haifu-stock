@@ -19,7 +19,7 @@ function oauthError(): string | null {
   const m = q.get('error_description') ?? h.get('error_description');
   if (!m) return null;
   if (/provider is not enabled/i.test(m)) return 'Google でのログインが有効になっていません';
-  if (/expired|invalid/i.test(m)) return 'メールのリンクの期限が切れているか、もう使われています。もう一度メールを送ってください';
+  if (/expired|invalid/i.test(m)) return 'メールのリンクが、期限切れか使用済みでした。リンクは1回しか使えません。新しいメールを送って、届いた最新のメールのリンクを押してください';
   if (/access_denied|cancel/i.test(m + (q.get('error') ?? ''))) return 'ログインを取りやめました';
   return `ログインできませんでした(${m})`;
 }
@@ -185,7 +185,10 @@ export function LoginPage() {
         <form className="card form" onSubmit={(e) => { e.preventDefault(); void verify(); }}>
           <p><b>{email}</b> にログインのメールを送りました。</p>
           <p className="note">
-            メールの「Confirm」や「Log In」のリンクを、<b>この端末のこのブラウザ</b>で開くとログインできます。
+            Supabase から英語のメール(件名「Your Magic Link」、確認のときは「Confirm Your Signup」)が届きます。本文の「Sign in」(または「Confirm your mail」)を押してください。リンクは1回だけ、しばらくの間だけ使えます。
+          </p>
+          <p className="note">
+            リンクは、<b>この端末のこのブラウザ</b>で開いてください。
             ほかのブラウザで開いてもログインはできますが、この端末でログインの前に記録した分は、このブラウザでログインするまで送られません。
           </p>
           <p className="note">届かないときは、迷惑メールのフォルダも見てください。続けて送ると、しばらく送れなくなることがあります。</p>

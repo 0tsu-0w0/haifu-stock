@@ -358,3 +358,13 @@ details[open] summary { margin-bottom: 6px; }
 /* ログイン: Google */
 .btn.google { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .or { text-align: center; font-size: 12px; color: var(--ink-3); margin: 0; }
+
+/* 設定 */
+.bar-end { display: flex; align-items: center; gap: 8px; flex: none; }
+.name-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.name-row input, .owner-add input:not(.price-in) { height: 40px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font: inherit; padding: 0 10px; min-width: 0; }
+.owner-add { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+.fee-in { width: 56px; }
+.owner-row { display: flex; flex-direction: column; gap: 2px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.owner-row.archived { opacity: .6; }
+.small-link { align-self: flex-end; font-size: 12px; padding: 2px 4px; }

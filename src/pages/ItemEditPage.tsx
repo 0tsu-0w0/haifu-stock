@@ -25,7 +25,7 @@ export function ItemEditPage() {
     if (!ctx) return null;
     const [item, owners, items, storages, runs, comps, movements, txns] = await Promise.all([
       isNew ? undefined : db.items.get(itemId!),
-      db.owners.where('circle_id').equals(ctx.circleId).filter((o) => !o.archived_at).toArray(),
+      db.owners.where('circle_id').equals(ctx.circleId).toArray(),
       db.items.where('circle_id').equals(ctx.circleId).filter((i) => !i.archived_at && !i.deleted_at).toArray(),
       db.locations.where('circle_id').equals(ctx.circleId).filter((l) => l.kind === 'storage').toArray(),
       isNew ? [] : db.print_runs.where('item_id').equals(itemId!).sortBy('edition'),
@@ -33,7 +33,8 @@ export function ItemEditPage() {
       isNew ? [] : db.stock_movements.where('item_id').equals(itemId!).toArray(),
       db.transactions.toArray(),
     ]);
-    return { item, owners, items, storages, runs, comps, stock: stockByLocation(movements, txns) };
+    // しまった受託元は選べないようにする(この品目の今の持ち主だけは残す)
+    return { item, owners: owners.filter((o) => !o.archived_at || o.id === item?.owner_id), items, storages, runs, comps, stock: stockByLocation(movements, txns) };
   }, [ctx?.circleId, itemId]);
 
   const [form, setForm] = useState({ name: '', kind: 'book' as ItemKind, price: '', ownerId: '', low: '3' });

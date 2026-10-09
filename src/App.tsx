@@ -14,6 +14,7 @@ import { InvitePage } from './pages/InvitePage';
 import { JoinPage } from './pages/JoinPage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { SetupPage } from './pages/SetupPage';
 
 function Routed() {
@@ -36,6 +37,7 @@ function Routed() {
           <Route path="/events/:eventId/prepare" element={<EventPreparePage />} />
           <Route path="/items" element={<ItemsPage />} />
           <Route path="/analysis" element={<AnalysisPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/items/new" element={<ItemEditPage />} />
           <Route path="/items/:itemId" element={<ItemEditPage />} />
           <Route path="/events/:eventId/invite" element={<InvitePage />} />

@@ -404,3 +404,32 @@ export async function copyFloatAndExpenses(
     return { float, expenses };
   });
 }
+
+/** サークル名を変える(設定画面) */
+export async function saveCircleName(db: HaifuDB, ctx: Ctx, name: string): Promise<void> {
+  const v = name.trim();
+  if (!v) throw new Error('サークル名を入れてください');
+  await db.transaction('rw', ['circles', 'outbox'], () =>
+    putAndQueue(db, 'circles', { id: ctx.circleId, name: v, client_updated_at: stamp() }));
+}
+
+/** 保管場所(自宅など)の名前を変える */
+export async function renameLocation(db: HaifuDB, locationId: string, name: string): Promise<void> {
+  const v = name.trim();
+  if (!v) throw new Error('名前を入れてください');
+  await db.transaction('rw', ['locations', 'outbox'], async () => {
+    const cur = await db.locations.get(locationId);
+    if (!cur) throw new Error('置き場所が見つかりません');
+    await putAndQueue(db, 'locations', { ...cur, name: v, client_updated_at: stamp() });
+  });
+}
+
+/** 受託元(持ち主)をしまう・戻す。自分はしまえない */
+export async function setOwnerArchived(db: HaifuDB, ownerId: string, archived: boolean): Promise<void> {
+  await db.transaction('rw', ['owners', 'outbox'], async () => {
+    const cur = await db.owners.get(ownerId);
+    if (!cur) throw new Error('持ち主が見つかりません');
+    if (cur.is_self) throw new Error('自分はしまえません');
+    await putAndQueue(db, 'owners', { ...cur, archived_at: archived ? stamp() : null, client_updated_at: stamp() });
+  });
+}
