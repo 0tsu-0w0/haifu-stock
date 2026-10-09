@@ -7,6 +7,7 @@ import { isIos, isStandalone } from '../app/install';
 import { useSync } from '../app/SyncProvider';
 import { useToast } from '../components/Toast';
 import { getMeta, setMeta } from '../db/local';
+import { authCodeInUrl } from '../sync/supabaseRemote';
 
 // Google やメールのリンクから戻ってきたら、ログイン後の処理を続けるための印(1時間で無効)
 const PENDING_KEY = 'pending_login';
@@ -30,12 +31,14 @@ function oauthError(): string | null {
   const m = q.get('error_description') ?? h.get('error_description');
   if (!m) return null;
   if (/provider is not enabled/i.test(m)) return 'Google でのログインが有効になっていません';
-  if (/expired|invalid/i.test(m)) return 'メールのリンクが、期限切れか使用済みでした。リンクは1回しか使えません。新しいメールを送って、届いた最新のメールのリンクを押してください';
+  if (/expired|invalid/i.test(m)) {
+    return 'メールのリンクが、期限切れか使用済みでした。メールのリンクを安全確認する機能(セキュリティソフトやブラウザの拡張機能、メールアプリのリンクの確認)が、先にリンクを開いてしまうことがあります。その場合は、その機能を Gmail で切るか、メールに書かれたコードでログインしてください';
+  }
   if (/access_denied|cancel/i.test(m + (q.get('error') ?? ''))) return 'ログインを取りやめました';
   return `ログインできませんでした(${m})`;
 }
 
-// サークル主のログイン。Google のアカウントか、メールのリンク(またはメールに書かれた6桁のコード)で入る。
+// サークル主のログイン。Google のアカウントか、メールに書かれたコード(Supabase の設定で6〜10桁)で入る。リンクのメールにも対応する。
 // リンクが別のブラウザで開いても、そのブラウザでログインを済ませ、サーバーのサークルを使う
 export function LoginPage() {
   const { configured, backend, session } = useAuth();
@@ -86,6 +89,11 @@ export function LoginPage() {
     if (err) {
       setError(err);
       void setMeta(db, PENDING_KEY, null);
+      window.history.replaceState(null, '', '/login');
+      return;
+    }
+    if (authCodeInUrl && session === null && !resumed.current) {
+      setError('このリンクは、ログインのメールを送ったのと同じブラウザで開いてください(ホーム画面に追加したアプリから送った場合は、そのアプリで)。もう一度メールを送ってください');
       window.history.replaceState(null, '', '/login');
       return;
     }
@@ -152,7 +160,7 @@ export function LoginPage() {
 
   const verify = () => run(async () => {
     const c = code.replace(/\s/g, '');
-    if (!/^\d{6}$/.test(c)) throw new Error('メールに届いた6桁の数字を入れてください');
+    if (!/^\d{6,10}$/.test(c)) throw new Error('メールに届いたコード(数字)を、全部入れてください');
     const { userId } = await backend.verifyCode(email.trim(), c);
     await completeLogin(userId);
   });
@@ -237,24 +245,17 @@ export function LoginPage() {
       ) : (
         <form className="card form" onSubmit={(e) => { e.preventDefault(); void verify(); }}>
           <p><b>{email}</b> にログインのメールを送りました。</p>
-          <p className="note">
-            Supabase から英語のメール(件名「Your Magic Link」、確認のときは「Confirm Your Signup」)が届きます。本文の「Sign in」(または「Confirm your mail」)を押してください。リンクは1回だけ、しばらくの間だけ使えます。
-          </p>
-          <p className="note">
-            リンクは、<b>この端末のこのブラウザ</b>で開いてください。
-            ほかのブラウザで開いてもログインはできますが、この端末でログインの前に記録した分は、このブラウザでログインするまで送られません。
-          </p>
-          <p className="note">届かないときは、迷惑メールのフォルダも見てください。続けて送ると、しばらく送れなくなることがあります。</p>
-          <label htmlFor="code">メールに6桁のコードが書かれているときは、ここに入れてもログインできます</label>
+          <p className="note">メールに書かれたコード(数字)を、全部入れてください。コードは1回だけ、しばらくの間だけ使えます。もう一度メールを送ったときは、いちばん新しいメールのコードを使います。</p>
+          <label htmlFor="code">コード</label>
           <input
             id="code"
             className="code-input num"
             inputMode="numeric"
             autoComplete="one-time-code"
-            maxLength={6}
+            maxLength={10}
             value={code}
             onChange={(e) => { setCode(e.target.value.replace(/\D/g, '')); setError(''); }}
-            placeholder="123456"
+            placeholder="12345678"
           />
           {error && <p className="error">{error}</p>}
           <button className="btn primary" disabled={busy}>{busy ? '確認中…' : 'ログイン'}</button>
@@ -262,6 +263,9 @@ export function LoginPage() {
             {waitSec > 0 ? `メールをもう一度送る(あと${waitSec}秒)` : 'メールをもう一度送る'}
           </button>
           <button type="button" className="link-btn" onClick={() => { setSent(false); setCode(''); setError(''); }}>メールアドレスを入れ直す</button>
+          <p className="note">
+            届かないときは、迷惑メールのフォルダも見てください。メールにリンクが書かれている場合は、<b>この端末のこのブラウザ</b>でリンクを開いてもログインできます。
+          </p>
         </form>
       )}
       <Link className="link-btn" to="/">{switching ? 'やめてホームに戻る' : 'ログインせずに戻る'}</Link>

@@ -5,7 +5,14 @@ import type { Remote, Row } from './engine';
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
-export const supabase: SupabaseClient | null = url && anonKey ? createClient(url, anonKey) : null;
+/** ログインのリンクから戻ってきたときの印(Supabase が URL から消す前に読んでおく) */
+export const authCodeInUrl = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('code');
+
+// PKCE: メールのリンクや Google から戻ったとき、ログインを始めたこのブラウザでしか完了できない。
+// メールのリンクを安全確認のソフトなどが先に開いても、そちらにログインの状態が渡らないようにするため
+export const supabase: SupabaseClient | null = url && anonKey
+  ? createClient(url, anonKey, { auth: { flowType: 'pkce' } })
+  : null;
 
 export class SupabaseRemote implements Remote {
   constructor(private client: SupabaseClient) {}
