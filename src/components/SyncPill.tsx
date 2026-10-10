@@ -12,17 +12,18 @@ export function SyncPill() {
   if (state.kind === 'error') {
     label = pending > 0 ? `同期エラー・未送信 ${pending}件` : '同期エラー';
     tone = 'wait';
-  } else if (pending > 0) {
-    label = `未送信 ${pending}件`;
-    tone = 'wait';
-  } else if (state.kind === 'local') {
+  } else if (state.kind === 'local' || state.kind === 'signed-out') {
+    // ログインしていない(端末の中だけで使っている)ときは、送る先がないので件数は出さない
     label = '端末に保存';
     tone = 'muted';
+  } else if (state.kind === 'offline') {
+    label = pending > 0 ? `オフライン・あとで送る ${pending}件` : 'オフライン';
+    tone = 'wait';
   } else if (state.kind === 'syncing') {
     label = '同期中';
     tone = 'muted';
-  } else if (state.kind === 'offline' || state.kind === 'signed-out') {
-    label = state.kind === 'offline' ? 'オフライン' : '未ログイン';
+  } else if (pending > 0) {
+    label = `未送信 ${pending}件`;
     tone = 'wait';
   } else {
     label = '同期済み';

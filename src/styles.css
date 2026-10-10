@@ -437,3 +437,8 @@ details[open] summary { margin-bottom: 6px; }
 .change { flex-direction: column; align-items: stretch; gap: 2px; }
 .change-main { display: flex; justify-content: space-between; align-items: baseline; }
 .change-parts { margin: 0; font-size: 13px; font-weight: 700; }
+
+/* レジ: カートの欄は画面の半分まで(品目のボタンが隠れないように) */
+.cart { max-height: 50vh; overflow-y: auto; overscroll-behavior: contain; flex: none; }
+.cart-summary { text-align: left; font-size: 13px; color: var(--accent); padding: 4px 0; text-decoration: underline; text-underline-offset: 3px; }
+.tally-keys button { height: 36px; }

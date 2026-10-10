@@ -64,6 +64,19 @@ export function RegisterPage() {
   const [paid, setPaid] = useState<Paid>(null);
   // 「その他」: 受け取ったお札・硬貨を足していって、預かり金額にする
   const [tallyOpen, setTallyOpen] = useState(false);
+  // カートの品目の一覧(預かり金額を入れている間はたたんで、品目のボタンを見えるようにする)
+  const [showLines, setShowLines] = useState(true);
+  // 下の説明文は、レジを開いた最初の3回だけ出す
+  const [showHint] = useState(() => {
+    try {
+      const n = Number(localStorage.getItem('register-hint-count') ?? '0');
+      if (n >= 3) return false;
+      localStorage.setItem('register-hint-count', String(n + 1));
+      return true;
+    } catch {
+      return true;
+    }
+  });
   const [discountOpen, setDiscountOpen] = useState(false);
   const [payInput, setPayInput] = useState('');
   const [reason, setReason] = useState('');
@@ -210,6 +223,7 @@ export function RegisterPage() {
     setCartZero(false);
     setPaid(null);
     setTallyOpen(false);
+    setShowLines(true);
     setDiscountOpen(false);
     setPayInput('');
     setReason('');
@@ -334,12 +348,19 @@ export function RegisterPage() {
             );
           })}
         </div>
-        <p className="hint">完売の品目は、タップでは{instant ? "記録しません" : "カートに入りません"}。長押しすると「販売を記録(残数0)」を選べます。</p>
+        {showHint && !(cart && cart.size > 0) && (
+          <p className="hint">完売の品目は、タップでは{instant ? '記録しません' : 'カートに入りません'}。長押しすると「販売を記録(残数0)」を選べます。</p>
+        )}
       </main>
 
       {cart && (instant || cart.size > 0) && (
         <section className="cart" aria-label="カート">
-          <div className="cart-lines">
+          {!showLines && (
+            <button className="cart-summary" onClick={() => setShowLines(true)}>
+              カートの品目 {cart.size}件・{[...cart.values()].reduce((a, q) => a + q, 0)}部(押すと表示)
+            </button>
+          )}
+          {showLines && <div className="cart-lines">
             {cart.size === 0 && <p className="empty-cart">品目をタップしてカートに入れてください</p>}
             {[...cart].map(([id, q]) => {
               const item = itemById.get(id)!;
@@ -366,7 +387,7 @@ export function RegisterPage() {
                 </div>
               );
             })}
-          </div>
+          </div>}
           <div className="total">
             <span>合計</span>
             <span>
@@ -405,7 +426,7 @@ export function RegisterPage() {
                 {yen(v)}
               </button>
             ))}
-            <button aria-pressed={tallyOpen} onClick={() => { setTallyOpen((o) => !o); setPaid(tallyOpen ? null : 0); }}>その他</button>
+            <button aria-pressed={tallyOpen} onClick={() => { setShowLines(tallyOpen); setTallyOpen((o) => !o); setPaid(tallyOpen ? null : 0); }}>その他</button>
           </div>
           {tallyOpen && (
             <div className="tally">
