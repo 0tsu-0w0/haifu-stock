@@ -85,9 +85,11 @@ export function EventPreparePage() {
   const ordered = useMemo(() => {
     if (!data) return [];
     const order = new Map(data.eventItems.map((e) => [e.item_id, e.sort_order]));
+    // 削除・アーカイブした品目は出さない(終了済みのイベントで、まだ持ち込みに入っているものだけは残す)
+    const active = new Set(data.eventItems.filter((e) => !e.removed_at).map((e) => e.item_id));
     const self = data.owners.find((o) => o.is_self)?.id;
     return data.items
-      .filter((i) => (!i.archived_at && !i.deleted_at) || order.has(i.id))
+      .filter((i) => (!i.archived_at && !i.deleted_at) || active.has(i.id))
       .sort((a, b) =>
         (order.get(a.id) ?? 1e6) - (order.get(b.id) ?? 1e6)
         || Number(b.owner_id === self) - Number(a.owner_id === self)
@@ -354,7 +356,7 @@ export function EventPreparePage() {
               <input className="price-in" inputMode="numeric" aria-label="金額" placeholder="7000" value={newExp.amount} onChange={(e) => setNewExp({ ...newExp, amount: e.target.value.replace(/\D/g, '') })} />
               <button className="sbtn" disabled={locked}>追加</button>
             </form>
-            <p className="note">金額を空にすると、その経費を消します。</p>
+            <p className="note">金額を空にすると、その経費を消します。印刷費は品目の「刷り記録」に入れます(売れた分が原価として収支に入るので、ここには入れません)。</p>
           </div>
         </>
       )}
