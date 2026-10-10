@@ -236,7 +236,7 @@ export function EventPreparePage() {
           {data.items.length === 0 && (
             <div className="card"><p className="note">品目がまだありません。</p><Link className="btn center" to="/items/new">品目を追加</Link></div>
           )}
-          <div className="card prep">
+          {ordered.length > 0 && <div className="card prep">
             {ordered.map((i) => {
               const l = lineOf(i.id);
               const o = owner(i.owner_id);
@@ -277,7 +277,7 @@ export function EventPreparePage() {
                 </div>
               );
             })}
-          </div>
+          </div>}
           {!locked && home && (
             <NewItemForEvent
               ctx={ctx} eventId={eventId!} storageId={home.id} storageName={home.name} owners={data.owners.filter((o) => !o.archived_at)}

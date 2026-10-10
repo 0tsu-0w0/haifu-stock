@@ -445,4 +445,6 @@ details[open] summary { margin-bottom: 6px; }
 
 /* iPhone の Safari: 日付・時刻の入力が欄からはみ出さないようにする */
 .form input[type="date"], .form input[type="time"] { -webkit-appearance: none; appearance: none; display: block; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; text-align: left; }
-.form input::-webkit-date-and-time-value { text-align: left; margin: 0; }
+.form input[type="date"], .form input[type="time"] { padding: 0 12px; line-height: 42px; }
+.form input::-webkit-date-and-time-value { text-align: left; margin: 0; line-height: 42px; }
+.form input::-webkit-datetime-edit { padding: 0; line-height: 42px; }
