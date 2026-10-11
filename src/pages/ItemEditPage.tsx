@@ -9,7 +9,7 @@ import { PageHeader } from '../components/PageHeader';
 import { PrintPlan } from '../components/PrintPlan';
 import { useToast } from '../components/Toast';
 import type { ItemKind } from '../db/types';
-import { addPrintRun, deleteItem, restoreItem, saveItem, saveOwner, setItemArchived } from '../domain/catalog';
+import { addPrintRun, deleteItem, productionCost, restoreItem, saveItem, saveOwner, saveProductionCost, setItemArchived } from '../domain/catalog';
 import { COLOR_LABEL, ITEM_COLORS, colorVar } from '../domain/colors';
 import { breakEvenQty, stockByLocation } from '../domain/ledger';
 import { yen } from '../lib/format';
@@ -26,7 +26,7 @@ export function ItemEditPage() {
 
   const data = useLiveQuery(async () => {
     if (!ctx) return null;
-    const [item, owners, items, storages, runs, comps, movements, txns] = await Promise.all([
+    const [item, owners, items, storages, runs, comps, movements, txns, prodCost] = await Promise.all([
       isNew ? undefined : db.items.get(itemId!),
       db.owners.where('circle_id').equals(ctx.circleId).toArray(),
       db.items.where('circle_id').equals(ctx.circleId).filter((i) => !i.archived_at && !i.deleted_at).toArray(),
@@ -35,9 +35,10 @@ export function ItemEditPage() {
       isNew ? [] : db.set_components.where('set_item_id').equals(itemId!).toArray(),
       isNew ? [] : db.stock_movements.where('item_id').equals(itemId!).toArray(),
       db.transactions.toArray(),
+      isNew ? 0 : productionCost(db, itemId!),
     ]);
     // しまった受託元は選べないようにする(この品目の今の持ち主だけは残す)
-    return { item, owners: owners.filter((o) => !o.archived_at || o.id === item?.owner_id), items, storages, runs, comps, stock: stockByLocation(movements, txns) };
+    return { item, owners: owners.filter((o) => !o.archived_at || o.id === item?.owner_id), items, storages, runs, comps, prodCost, stock: stockByLocation(movements, txns) };
   }, [ctx?.circleId, itemId]);
 
   const [form, setForm] = useState({ name: '', kind: 'book' as ItemKind, price: '', ownerId: '', low: '3', color: null as string | null });
@@ -46,6 +47,8 @@ export function ItemEditPage() {
   const [run, setRun] = useState({ qty: '', cost: '', date: '', printer: '' });
   const [error, setError] = useState('');
   const [runError, setRunError] = useState('');
+  const [prod, setProd] = useState<string | null>(null);
+  const [prodError, setProdError] = useState('');
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -67,7 +70,10 @@ export function ItemEditPage() {
   const owner = data.owners.find((o) => o.id === form.ownerId);
   const isOwn = form.ownerId !== NEW_OWNER && (owner?.is_self ?? false);
   const candidates = data.items.filter((i) => i.kind !== 'set' && i.id !== item?.id);
-  const fixedCost = data.runs.reduce((a, r) => a + r.total_cost, 0);
+  const printCost = data.runs.reduce((a, r) => a + r.total_cost, 0);
+  // 損益分岐の費用 = 印刷費 + 制作費(F-107)
+  const fixedCost = printCost + data.prodCost;
+  const prodValue = prod ?? (data.prodCost > 0 ? String(data.prodCost) : '');
   const printed = data.runs.reduce((a, r) => a + r.qty, 0);
   const home = data.storages[0];
 
@@ -105,6 +111,19 @@ export function ItemEditPage() {
       toast(`刷り記録を追加し、${home.name}に入れました`);
     } catch (e) {
       setRunError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function saveProd() {
+    setProdError('');
+    if (!item) return;
+    try {
+      const amount = prodValue === '' ? 0 : Number(prodValue);
+      await saveProductionCost(db, ctx!, item.id, amount);
+      setProd(null);
+      toast(amount > 0 ? `制作費を ${yen(amount)} にしました` : '制作費を0円にしました');
+    } catch (e) {
+      setProdError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -224,7 +243,10 @@ export function ItemEditPage() {
               </div>
             ))}
             {data.runs.length > 0 && be !== null && (
-              <p className="note">印刷費の合計 {yen(fixedCost)}(1部あたり {yen(Math.round(fixedCost / printed))})。{yen(item.price)}で {be}部売ると回収できます。</p>
+              <p className="note">
+                印刷費の合計 {yen(printCost)}(1部あたり {yen(Math.round(printCost / printed))})
+                {data.prodCost > 0 && `、制作費 ${yen(data.prodCost)}`}。{yen(item.price)}で {be}部売ると回収できます。
+              </p>
             )}
             {data.runs.length > 0 && (
               <Link className="sub-link" to={`/analysis?tab=item&item=${item.id}`}>損益分岐のグラフを見る</Link>
@@ -255,6 +277,15 @@ export function ItemEditPage() {
             </div>
             {runError && <p className="error">{runError}</p>}
             <button className="btn">追加して{home?.name ?? '自宅'}に入れる</button>
+          </form>
+          <form className="card form" onSubmit={(e) => { e.preventDefault(); void saveProd(); }}>
+            <label htmlFor="prod-cost">制作費(円)</label>
+            <div className="copy-row">
+              <input id="prod-cost" inputMode="numeric" value={prodValue} onChange={(e) => setProd(e.target.value.replace(/D/g, ''))} placeholder="0" />
+              <button className="sbtn acc" disabled={prod === null || prod === (data.prodCost > 0 ? String(data.prodCost) : '')}>保存</button>
+            </div>
+            <small className="k">表紙イラストやデザインの外注費、資料代など、印刷費のほかに払った金額の合計。初版の費用に入り、再版には入りません。自分の作業時間は入れません。</small>
+            {prodError && <p className="error">{prodError}</p>}
           </form>
           <PrintPlan item={item} ctx={ctx} />
         </>

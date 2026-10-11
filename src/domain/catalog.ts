@@ -1,5 +1,5 @@
 import { putAndQueue, type HaifuDB } from '../db/local';
-import type { CashCount, EventItem, EventRow, Expense, ExpenseCategory, Item, ItemKind, Owner, PriceTier, PrintRun, SetComponent } from '../db/types';
+import type { CashCount, EventItem, EventRow, Expense, ExpenseCategory, Item, ItemKind, Owner, PriceTier, PrintRun, ProductionCost, SetComponent } from '../db/types';
 import { uuidv7 } from '../lib/uuid';
 import { assertOpen } from './closing';
 import { isItemColor } from './colors';
@@ -512,6 +512,35 @@ export async function priceTiers(db: HaifuDB, itemId: string): Promise<PriceTier
   return (await db.print_price_tiers.where('item_id').equals(itemId).toArray())
     .filter((t) => !t.deleted_at)
     .sort((a, b) => a.qty - b.qty);
+}
+
+/** 品目の制作費の合計(F-107) */
+export async function productionCost(db: HaifuDB, itemId: string): Promise<number> {
+  return (await db.production_costs.where('item_id').equals(itemId).toArray())
+    .reduce((a, c) => a + Number(c.amount ?? 0), 0);
+}
+
+/**
+ * 品目の制作費を、合計の金額で保存する(F-107)。内訳は持たず、1行目を書き換えて、ほかの行は0円にする。
+ * 0円にすれば、なかったことになる
+ */
+export async function saveProductionCost(db: HaifuDB, ctx: Ctx, itemId: string, amount: number): Promise<void> {
+  if (!Number.isInteger(amount) || amount < 0) throw new Error('制作費は0円以上の整数で入れてください');
+  await db.transaction('rw', ['production_costs', 'outbox'], async () => {
+    const rows = (await db.production_costs.where('item_id').equals(itemId).toArray()) as unknown as ProductionCost[];
+    rows.sort((a, b) => a.id.localeCompare(b.id));
+    const [first, ...rest] = rows;
+    if (!first && amount === 0) return;
+    if (!first || first.amount !== amount) {
+      await putAndQueue(db, 'production_costs', {
+        id: first?.id ?? uuidv7(), circle_id: ctx.circleId, item_id: itemId, label: first?.label ?? '制作費',
+        amount, paid_on: first?.paid_on ?? null, client_updated_at: stamp(),
+      } satisfies ProductionCost);
+    }
+    for (const r of rest) {
+      if (r.amount !== 0) await putAndQueue(db, 'production_costs', { ...r, amount: 0, client_updated_at: stamp() });
+    }
+  });
 }
 
 /** 印刷所の部数の刻み(F-106)。刷り部数の提案とシミュレーションの丸めに使う。null で指定なし */

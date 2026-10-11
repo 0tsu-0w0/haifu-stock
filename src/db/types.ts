@@ -44,6 +44,17 @@ export interface Item extends FromServer {
 }
 
 /** 印刷所の価格表の1行(F-108)。部数ごとの総額 */
+/** 印刷費以外の制作費(F-107)。画面では品目ごとに1行だけ持ち、金額を書き換える */
+export interface ProductionCost extends FromServer {
+  id: Uuid;
+  circle_id: Uuid;
+  item_id: Uuid;
+  label: string;
+  amount: number;
+  paid_on?: string | null;
+  client_updated_at: Iso;
+}
+
 export interface PriceTier extends FromServer {
   id: Uuid;
   circle_id: Uuid;
