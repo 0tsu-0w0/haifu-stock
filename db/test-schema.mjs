@@ -227,6 +227,21 @@ await as(U1, async () => {
   ok(r.affectedRows === 1, 'サークル主は売り子の端末の名前も付け直せる');
 });
 
+// 同期の軽量化: 表ごとの最新の server_seq は、呼んだ人に見える行だけで数える
+await as(U1, async () => {
+  const h = (await db.query(`select sync_heads() as h`)).rows[0].h;
+  const max = (await db.query(`select max(server_seq)::int as m from transactions`)).rows[0].m;
+  ok(Object.keys(h).length === 22 && h.transactions === max, 'sync_heads はサークル主に、全部の表の最新の番号を返す');
+});
+await as(U2, async () => {
+  const h = (await db.query(`select sync_heads() as h`)).rows[0].h;
+  ok(h.devices > 0 && h.print_runs === 0, 'sync_heads は売り子には見える行だけで数える(刷り記録は見えないので0)');
+});
+await as('00000000-0000-0000-0000-0000000000c3', async () => {
+  const h = (await db.query(`select sync_heads() as h`)).rows[0].h;
+  ok(Object.values(h).every((v) => v === 0), 'サークルに関係のない人には、どの表も0');
+});
+
 await expectError(db.query(`update transactions set paid_amount = 0 where id=$1`, [T1]), 'RLSを通らない管理者でもトリガーで更新を拒否');
 await expectError(db.query(`delete from stock_movements where transaction_id=$1`, [T1]), 'RLSを通らない管理者でもトリガーで削除を拒否');
 

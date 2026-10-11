@@ -38,6 +38,16 @@ export class MemoryRemote implements Remote {
       .slice(0, limit);
   }
 
+  /** 表ごとの最新の server_seq。null にすると、サーバーに関数がない状態をまねる */
+  headsEnabled = true;
+  async heads(): Promise<Record<string, number> | null> {
+    if (this.offline) throw new Error('offline');
+    if (!this.headsEnabled) return null;
+    const out: Record<string, number> = {};
+    for (const [name, t] of this.tables) out[name] = Math.max(0, ...[...t.values()].map((r) => Number(r.server_seq)));
+    return out;
+  }
+
   count(table: string): number {
     return this.table(table).size;
   }

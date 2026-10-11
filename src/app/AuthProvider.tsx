@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getRole, type AuthBackend, type Role } from '../auth/account';
 import { SupabaseAuthBackend } from '../auth/supabaseBackend';
-import { supabase } from '../sync/supabaseRemote';
+import { getSupabase, supabaseConfig } from '../sync/supabaseClient';
 import { db } from './db';
 
 interface AuthApi {
@@ -17,29 +17,39 @@ interface AuthApi {
 }
 
 const Ctx = createContext<AuthApi | null>(null);
-const backend = supabase
-  ? new SupabaseAuthBackend(supabase, import.meta.env.VITE_SUPABASE_URL as string, import.meta.env.VITE_SUPABASE_ANON_KEY as string)
+const backend = supabaseConfig
+  ? new SupabaseAuthBackend(() => getSupabase()!, supabaseConfig.url, supabaseConfig.anonKey)
   : null;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null | undefined>(supabase ? undefined : null);
+  const [session, setSession] = useState<Session | null | undefined>(supabaseConfig ? undefined : null);
   const role = useLiveQuery(() => getRole(db), [], 'owner' as Role);
 
   useEffect(() => {
-    if (!supabase) return;
-    void supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
-    return () => data.subscription.unsubscribe();
+    const client = getSupabase();
+    if (!client) return;
+    let stop = false;
+    let unsubscribe = () => {};
+    void client.then((c) => {
+      if (stop) return;
+      void c.auth.getSession().then(({ data }) => setSession(data.session));
+      const { data } = c.auth.onAuthStateChange((_event, s) => setSession(s));
+      unsubscribe = () => data.subscription.unsubscribe();
+    }, () => setSession(null)); // ライブラリを読み込めなかったら、ログインしていないものとして端末の中だけで動く
+    return () => {
+      stop = true;
+      unsubscribe();
+    };
   }, []);
 
   const value = useMemo<AuthApi>(() => ({
-    configured: !!supabase,
+    configured: !!supabaseConfig,
     backend,
     session,
     role,
     // ログアウトしても端末のデータは消さない(会場ではオフラインでも記録を続けられるように)
     signOut: async () => {
-      await supabase?.auth.signOut();
+      await (await getSupabase())?.auth.signOut();
     },
   }), [session, role]);
 

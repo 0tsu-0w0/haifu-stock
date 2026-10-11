@@ -1,18 +1,6 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { TABLE_BY_NAME } from '../db/tables';
 import type { Remote, Row } from './engine';
-
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-
-/** ログインのリンクから戻ってきたときの印(Supabase が URL から消す前に読んでおく) */
-export const authCodeInUrl = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('code');
-
-// PKCE: メールのリンクや Google から戻ったとき、ログインを始めたこのブラウザでしか完了できない。
-// メールのリンクを安全確認のソフトなどが先に開いても、そちらにログインの状態が渡らないようにするため
-export const supabase: SupabaseClient | null = url && anonKey
-  ? createClient(url, anonKey, { auth: { flowType: 'pkce' } })
-  : null;
 
 export class SupabaseRemote implements Remote {
   constructor(private client: SupabaseClient) {}
@@ -37,6 +25,13 @@ export class SupabaseRemote implements Remote {
       // 古い版の端末が送る行に新しい列がなくても、列の既定値で入るようにする
       .upsert(rows, { onConflict: spec.pk.join(','), ignoreDuplicates: spec.ledger, defaultToNull: false });
     if (error) throw error;
+  }
+
+  async heads(): Promise<Record<string, number> | null> {
+    const { data, error } = await this.client.rpc('sync_heads');
+    // サーバーにまだ関数がないとき(古いサーバー)は、全部の表を見に行く
+    if (error) return null;
+    return data as Record<string, number>;
   }
 
   async pull(table: string, since: number, limit: number): Promise<Row[]> {

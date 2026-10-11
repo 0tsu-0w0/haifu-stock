@@ -7,7 +7,7 @@ import { isIos, isStandalone } from '../app/install';
 import { useSync } from '../app/SyncProvider';
 import { useToast } from '../components/Toast';
 import { getMeta, setMeta } from '../db/local';
-import { authCodeInUrl } from '../sync/supabaseRemote';
+import { authCodeInUrl } from '../sync/supabaseClient';
 
 // Google やメールのリンクから戻ってきたら、ログイン後の処理を続けるための印(1時間で無効)
 const PENDING_KEY = 'pending_login';

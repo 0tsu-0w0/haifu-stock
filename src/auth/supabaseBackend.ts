@@ -18,7 +18,8 @@ function explain(e: { message?: string; code?: string; status?: number } | null)
 export class SupabaseAuthBackend implements AuthBackend {
   private google: Promise<boolean> | null = null;
 
-  constructor(private client: SupabaseClient, private url?: string, private anonKey?: string) {}
+  /** client はライブラリを読み込んでから返す(最初の画面を出すのを待たせないため) */
+  constructor(private client: () => Promise<SupabaseClient>, private url?: string, private anonKey?: string) {}
 
   /** 認証の公開設定(/auth/v1/settings)を見て、Google が有効なときだけボタンを出す */
   googleEnabled(): Promise<boolean> {
@@ -34,7 +35,7 @@ export class SupabaseAuthBackend implements AuthBackend {
   }
 
   async signInWithGoogle(returnTo: string): Promise<void> {
-    const { error } = await this.client.auth.signInWithOAuth({
+    const { error } = await (await this.client()).auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: returnTo, queryParams: { prompt: 'select_account' } },
     });
@@ -42,29 +43,29 @@ export class SupabaseAuthBackend implements AuthBackend {
   }
 
   async sendCode(email: string, returnTo: string): Promise<void> {
-    const { error } = await this.client.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: returnTo } });
+    const { error } = await (await this.client()).auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: returnTo } });
     if (error) throw explain(error);
   }
 
   async verifyCode(email: string, code: string): Promise<{ userId: string }> {
-    const { data, error } = await this.client.auth.verifyOtp({ email, token: code, type: 'email' });
+    const { data, error } = await (await this.client()).auth.verifyOtp({ email, token: code, type: 'email' });
     if (error || !data.user) throw explain(error);
     return { userId: data.user.id };
   }
 
   async signInAnonymously(): Promise<{ userId: string }> {
-    const { data, error } = await this.client.auth.signInAnonymously();
+    const { data, error } = await (await this.client()).auth.signInAnonymously();
     if (error || !data.user) throw explain(error);
     return { userId: data.user.id };
   }
 
   async currentUserId(): Promise<string | null> {
-    const { data } = await this.client.auth.getSession();
+    const { data } = await (await this.client()).auth.getSession();
     return data.session?.user.id ?? null;
   }
 
   async ownedCircles(userId: string): Promise<CircleChoice[]> {
-    const { data, error } = await this.client
+    const { data, error } = await (await this.client())
       .from('circle_members')
       .select('circle_id, circles(name)')
       .eq('user_id', userId)
@@ -78,24 +79,24 @@ export class SupabaseAuthBackend implements AuthBackend {
   }
 
   async redeemInvite(token: string): Promise<string> {
-    const { data, error } = await this.client.rpc('redeem_invite', { token });
+    const { data, error } = await (await this.client()).rpc('redeem_invite', { token });
     if (error) throw explain(error);
     return data as string;
   }
 
   async eventCircle(eventId: string): Promise<string> {
-    const { data, error } = await this.client.from('events').select('circle_id').eq('id', eventId).single();
+    const { data, error } = await (await this.client()).from('events').select('circle_id').eq('id', eventId).single();
     if (error || !data) throw explain(error);
     return data.circle_id as string;
   }
 
   async insertInvite(row: InviteRow): Promise<void> {
-    const { error } = await this.client.from('invites').insert(row);
+    const { error } = await (await this.client()).from('invites').insert(row);
     if (error) throw explain(error);
   }
 
   async listInvites(eventId: string): Promise<InviteRow[]> {
-    const { data, error } = await this.client
+    const { data, error } = await (await this.client())
       .from('invites')
       .select('id, circle_id, event_id, token_hash, created_by, expires_at, revoked_at')
       .eq('event_id', eventId)
@@ -107,7 +108,7 @@ export class SupabaseAuthBackend implements AuthBackend {
   }
 
   async revokeInvite(id: string): Promise<void> {
-    const { error } = await this.client.from('invites').update({ revoked_at: new Date().toISOString() }).eq('id', id);
+    const { error } = await (await this.client()).from('invites').update({ revoked_at: new Date().toISOString() }).eq('id', id);
     if (error) throw explain(error);
   }
 }

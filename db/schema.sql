@@ -889,3 +889,38 @@ from items i
 join fixed f on f.item_id = i.id
 left join sold s on s.item_id = i.id
 group by i.circle_id, i.id, i.name, i.price, f.fixed_cost, f.printed_qty;
+
+-- ---------------------------------------------------------------------
+-- 同期
+-- ---------------------------------------------------------------------
+-- 同期の軽量化: 表ごとの最新の server_seq を1回で返す。呼んだ人に見える行だけで数える(RLS がかかる)
+-- 端末は、覚えている位置より新しい表だけを受け取りに行く
+create or replace function public.sync_heads() returns jsonb
+language sql stable security invoker set search_path = public as $$
+  select jsonb_build_object(
+    'circles', (select coalesce(max(server_seq), 0) from public.circles),
+    'event_types', (select coalesce(max(server_seq), 0) from public.event_types),
+    'owners', (select coalesce(max(server_seq), 0) from public.owners),
+    'items', (select coalesce(max(server_seq), 0) from public.items),
+    'set_components', (select coalesce(max(server_seq), 0) from public.set_components),
+    'print_runs', (select coalesce(max(server_seq), 0) from public.print_runs),
+    'events', (select coalesce(max(server_seq), 0) from public.events),
+    'locations', (select coalesce(max(server_seq), 0) from public.locations),
+    'event_items', (select coalesce(max(server_seq), 0) from public.event_items),
+    'transactions', (select coalesce(max(server_seq), 0) from public.transactions),
+    'transaction_lines', (select coalesce(max(server_seq), 0) from public.transaction_lines),
+    'stock_movements', (select coalesce(max(server_seq), 0) from public.stock_movements),
+    'devices', (select coalesce(max(server_seq), 0) from public.devices),
+    'production_costs', (select coalesce(max(server_seq), 0) from public.production_costs),
+    'print_price_tiers', (select coalesce(max(server_seq), 0) from public.print_price_tiers),
+    'reservations', (select coalesce(max(server_seq), 0) from public.reservations),
+    'event_breaks', (select coalesce(max(server_seq), 0) from public.event_breaks),
+    'expenses', (select coalesce(max(server_seq), 0) from public.expenses),
+    'cash_counts', (select coalesce(max(server_seq), 0) from public.cash_counts),
+    'closing_counts', (select coalesce(max(server_seq), 0) from public.closing_counts),
+    'event_closings', (select coalesce(max(server_seq), 0) from public.event_closings),
+    'consignment_settlements', (select coalesce(max(server_seq), 0) from public.consignment_settlements)
+  )
+$$;
+revoke execute on function public.sync_heads() from public, anon;
+grant execute on function public.sync_heads() to authenticated;

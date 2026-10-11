@@ -12,6 +12,11 @@ export interface Remote {
   push(table: string, rows: Row[]): Promise<void>;
   /** server_seq が since より大きい行を、小さい順に limit 件まで返す */
   pull(table: string, since: number, limit: number): Promise<Row[]>;
+  /**
+   * 表ごとの最新の server_seq(見える行だけ)。変わった表だけを受け取りに行くために使う(軽量化)。
+   * 使えないときは null を返し、そのときは全部の表を受け取りに行く
+   */
+  heads?(): Promise<Record<string, number> | null>;
 }
 
 /** 同期できなかった表 */
@@ -27,6 +32,8 @@ export interface SyncResult {
   pushed: number;
   pulled: number;
   failed: TableError[];
+  /** 受け取りでサーバーに問い合わせた回数(軽量化の確認用) */
+  pullRequests: number;
 }
 
 const PULL_LIMIT = 500;
@@ -115,14 +122,28 @@ export async function pushOutbox(db: HaifuDB, remote: Remote): Promise<{ pushed:
   return { pushed, failed, attempted };
 }
 
-export async function pullChanges(db: HaifuDB, remote: Remote): Promise<{ pulled: number; failed: TableError[] }> {
+export async function pullChanges(db: HaifuDB, remote: Remote): Promise<{ pulled: number; failed: TableError[]; requests: number }> {
   let pulled = 0;
+  let requests = 0;
   const failed: TableError[] = [];
+  // 変わった表だけを受け取る。1回の問い合わせで全部の表の最新の番号を見る
+  let heads: Record<string, number> | null = null;
+  if (remote.heads) {
+    try {
+      heads = await remote.heads();
+      requests++;
+    } catch {
+      heads = null; // 調べられなければ、これまでどおり全部の表を見に行く
+    }
+  }
   for (const spec of TABLES) {
     try {
       let since = (await getMeta<number>(db, `cursor:${spec.name}`)) ?? 0;
+      const head = heads?.[spec.name];
+      if (typeof head === 'number' && head <= since) continue;
       for (;;) {
         const rows = await remote.pull(spec.name, since, PULL_LIMIT);
+        requests++;
         if (rows.length === 0) break;
         // 端末でまだ送っていない変更がある行は、端末側を残す(次の送信で後勝ちに任せる)
         const pending = new Set(
@@ -140,7 +161,7 @@ export async function pullChanges(db: HaifuDB, remote: Remote): Promise<{ pulled
       failed.push({ table: spec.name, phase: 'pull', message: messageOf(e) });
     }
   }
-  return { pulled, failed };
+  return { pulled, failed, requests };
 }
 
 /** すべてが失敗した(通信できない・サーバーが落ちている)ときは、同期そのものの失敗として投げる */
@@ -166,7 +187,7 @@ export function syncOnce(db: HaifuDB, remote: Remote): Promise<SyncResult> {
       const pullAllFailed = pull.failed.length === TABLES.length;
       if (pullAllFailed && (push.attempted === 0 || pushAllFailed)) throw new SyncFailedError(failed);
       await setMeta(db, 'last_synced_at', new Date().toISOString());
-      return { pushed: push.pushed, pulled: pull.pulled, failed };
+      return { pushed: push.pushed, pulled: pull.pulled, failed, pullRequests: pull.requests };
     } finally {
       running.delete(db);
     }
