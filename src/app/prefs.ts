@@ -9,10 +9,12 @@ const KEYS = {
   instantSale: 'pref-instant-sale',
   /** レジで完売した品目を末尾に回す */
   soldOutLast: 'pref-soldout-last',
+  /** レジで残り1部の品目を赤で示す */
+  lastOneRed: 'pref-last-one-red',
 } as const;
 
 type Pref = keyof typeof KEYS;
-const DEFAULTS: Record<Pref, boolean> = { showBreakEven: true, instantSale: false, soldOutLast: false };
+const DEFAULTS: Record<Pref, boolean> = { showBreakEven: true, instantSale: false, soldOutLast: false, lastOneRed: true };
 
 /** 選ぶ形の設定。最初の値が既定 */
 export const CHOICES = {

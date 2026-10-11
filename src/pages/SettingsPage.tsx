@@ -176,6 +176,7 @@ function DisplaySettings({ owner }: { owner: boolean }) {
   const [showBE, setShowBE] = usePref('showBreakEven');
   const [instant, setInstant] = usePref('instantSale');
   const [soldOutLast, setSoldOutLast] = usePref('soldOutLast');
+  const [lastOneRed, setLastOneRed] = usePref('lastOneRed');
   const [theme, setTheme] = useChoice('theme');
   const [regSize, setRegSize] = useChoice('regSize');
   const [regCols, setRegCols] = useChoice('regCols');
@@ -201,6 +202,13 @@ function DisplaySettings({ owner }: { owner: boolean }) {
         </div>
         <small className="k">品目が多いときは3列にすると、スクロールせずに全部見えます。</small>
       </div>
+      <label className="check">
+        <input type="checkbox" checked={lastOneRed} onChange={(e) => setLastOneRed(e.target.checked)} />
+        <span>
+          <b>レジで残り1部の品目を赤で示す</b>
+          <small className="k">最後の1部になった品目のボタンを赤くして「残1・最後」と出します。オフにすると、ほかの残りわずかと同じ黄色で出します。</small>
+        </span>
+      </label>
       <label className="check">
         <input type="checkbox" checked={soldOutLast} onChange={(e) => setSoldOutLast(e.target.checked)} />
         <span>

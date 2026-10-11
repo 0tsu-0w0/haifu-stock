@@ -57,6 +57,7 @@ export function RegisterPage() {
   const [showBE] = usePref('showBreakEven');
   const [instant] = usePref('instantSale');
   const [soldOutLast] = usePref('soldOutLast');
+  const [lastOneRed] = usePref('lastOneRed');
   const [regSize] = useChoice('regSize');
   const [regCols] = useChoice('regCols');
   const data = useEventData(eventId);
@@ -327,15 +328,15 @@ export function RegisterPage() {
             const s = summary.get(item.id);
             const r = shownRemaining(item);
             const owner = ownerById.get(item.owner_id);
-            const state = r < 0 ? 'out neg' : r === 0 ? 'out' : r <= item.low_threshold ? 'low' : '';
+            const state = r < 0 ? 'out neg' : r === 0 ? 'out' : r === 1 && lastOneRed ? 'last' : r <= item.low_threshold ? 'low' : '';
             const color = colorVar(item.color);
-            const remText = r < 0 ? `残 −${-r}` : r === 0 ? (s?.soldOutAt ? `完売 ${hhmm(s.soldOutAt)}` : '完売') : `残${r}`;
+            const remText = r < 0 ? `残 −${-r}` : r === 0 ? (s?.soldOutAt ? `完売 ${hhmm(s.soldOutAt)}` : '完売') : r === 1 && lastOneRed ? '残1・最後' : `残${r}`;
             return (
               <button
                 key={item.id}
                 className={`item ${state}${color ? ' colored' : ''}${pressing === item.id ? ' pressing' : ''}`}
                 style={color ? ({ '--item-color': color } as React.CSSProperties) : undefined}
-                aria-label={`${item.name} ${priceOf(item)}円 ${r <= 0 ? '完売' : `残り${r}`}${owner && !owner.is_self ? ` 受託 ${owner.name}` : ''}${inCart(item.id) ? ` カートに${inCart(item.id)}` : ''}`}
+                aria-label={`${item.name} ${priceOf(item)}円 ${r <= 0 ? '完売' : r === 1 ? '残り1部・最後の1部' : `残り${r}`}${owner && !owner.is_self ? ` 受託 ${owner.name}` : ''}${inCart(item.id) ? ` カートに${inCart(item.id)}` : ''}`}
                 onPointerDown={(e) => onDown(e, item)}
                 onPointerMove={onMove}
                 onPointerUp={(e) => onUp(e, item)}

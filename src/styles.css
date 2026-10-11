@@ -528,3 +528,8 @@ details[open] summary { margin-bottom: 6px; }
 .sheet-discount { display: flex; flex-direction: column; gap: 8px; padding: 8px 2px 2px; }
 .sheet-discount .rowx input { width: 120px; }
 .go:disabled { opacity: .5; }
+
+/* レジ: 残り1部(最後の1部)は赤で示す */
+.item.last { background: var(--danger-bg); border: 1.5px solid var(--danger-line); }
+.item.last .nm, .item.last .rem { color: var(--danger); }
+.item.last .rem { font-weight: 700; }
