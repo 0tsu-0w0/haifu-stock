@@ -7,6 +7,7 @@ import { ToastProvider } from './components/Toast';
 import { HomePage } from './pages/HomePage';
 import { RegisterPage } from './pages/RegisterPage';
 import { SetupPage } from './pages/SetupPage';
+import { UpdateBanner } from './components/UpdateBanner';
 
 /** 画面のファイルを読む。新しい版の公開で古いファイルが消えていたら、1回だけページを読み直して新しい版にする */
 function retry<T>(load: () => Promise<T>): Promise<T> {
@@ -85,6 +86,7 @@ export function App() {
           <SyncProvider>
             <div className="app">
               <Routed />
+              <UpdateBanner />
             </div>
           </SyncProvider>
         </AuthProvider>

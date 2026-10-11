@@ -11,6 +11,7 @@ import { DataExport } from '../components/DataExport';
 import { PageHeader } from '../components/PageHeader';
 import { RegisterTour } from '../components/RegisterTour';
 import { SyncStatus } from '../components/SyncStatus';
+import { AppVersion } from '../components/UpdateBanner';
 import { useToast } from '../components/Toast';
 import type { Owner } from '../db/types';
 import { renameLocation, saveCircleName, saveOwner, setOwnerArchived } from '../domain/catalog';
@@ -50,6 +51,7 @@ export function SettingsPage() {
         <h3 className="section">同期の状態</h3>
         <SyncStatus />
         <AccountBar />
+        <AppVersion />
         <Link className="link-btn" to="/">ホームに戻る</Link>
       </main>
     );
@@ -139,6 +141,7 @@ export function SettingsPage() {
 
       <h3 className="section">ログイン</h3>
       <AccountBar />
+      <AppVersion />
     </main>
   );
 }

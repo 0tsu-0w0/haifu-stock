@@ -19,6 +19,7 @@ import { profitTimeline } from '../domain/report';
 import { colorVar } from '../domain/colors';
 import { hhmm, yen } from '../lib/format';
 import { useWakeLock } from '../app/useWakeLock';
+import { setUpdateBlocked } from '../app/update';
 import { useEventData } from './useEventData';
 import { CartPanel, type Paid } from './register/CartPanel';
 import { ItemSheet } from './register/ItemSheet';
@@ -131,6 +132,12 @@ export function RegisterPage() {
   useEffect(() => {
     if (role === 'staff' && !tourSeen()) setTour(true);
   }, [role]);
+  // 会計の途中は、新しい版の知らせを出さない(押して読み込み直すと、カートが消えるため)(#16)
+  const cartBusy = !!cart && cart.size > 0;
+  useEffect(() => {
+    setUpdateBlocked(cartBusy);
+    return () => setUpdateBlocked(false);
+  }, [cartBusy]);
   const [busy, setBusy] = useState(false);
   // 押した瞬間に立てる印(state は次の描画まで変わらないので、同時の連打を止められない)
   const busyRef = useRef(false);
