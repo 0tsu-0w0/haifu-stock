@@ -596,3 +596,11 @@ details[open] summary { margin-bottom: 6px; }
 .resv-add input, .resv-add select { height: 44px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font: inherit; padding: 0 10px; min-width: 0; }
 .resv-add-row { display: grid; grid-template-columns: 1fr 64px auto; gap: 8px; }
 .resv-chip { background: var(--consign-bg); color: var(--consign); border-radius: 10px; padding: 8px 12px; font-size: 13px; font-weight: 700; text-align: left; }
+
+/* 分析: イベントの比較(#13) */
+.compare-tbl td:first-child { min-width: 128px; }
+.compare-tbl td:first-child a { color: var(--accent); font-weight: 700; }
+.compare-tbl td:first-child small { display: block; }
+/* タブの数に合わせて並べ、長い名前は2行に折り返す */
+.tabs { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
+.tab { white-space: normal; line-height: 1.25; }
