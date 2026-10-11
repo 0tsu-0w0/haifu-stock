@@ -6,7 +6,8 @@ import { useCtx } from '../app/useCtx';
 import { LineChart } from '../components/LineChart';
 import { PageHeader } from '../components/PageHeader';
 import {
-  DEFAULT_FORECAST, SCENARIO_LABEL, decayRates, editionsOf, eventBreakEven, itemBreakEven, loadAnalysis, newBookPlan, reprintPlans,
+  DEFAULT_FORECAST, SCENARIO_LABEL, decayRates, editionsOf, eventBreakEven, itemBreakEven, loadAnalysis, newBookPlan, priceRange,
+  priceTrial, reprintPlans,
   type AnalysisData, type ForecastOptions, type ReprintPlan,
 } from '../domain/analysis';
 import { computeMoney, planCounts } from '../domain/closing';
@@ -179,6 +180,8 @@ function ReprintCard({ plan, opts }: { plan: ReprintPlan; opts: ForecastOptions 
 function ItemBreakEvens({ data, selected, onSelect }: { data: AnalysisData; selected: string | null; onSelect: (id: string) => void }) {
   const list = useMemo(() => data.ownItems.filter((i) => !i.archived_at).map((i) => itemBreakEven(data, i)), [data]);
   const [edition, setEdition] = useState<number | undefined>(undefined);
+  // 価格を変えたときの試算(F-1106)。null は試算していない
+  const [trial, setTrial] = useState<number | null>(null);
   const total = list.find((b) => b.item.id === selected) ?? list.find((b) => b.fixedCost > 0) ?? list[0];
   if (!total) return <div className="card"><p className="note">自分の品目がまだありません。</p></div>;
   // 再版した品目は「初版から通算」と「その版だけ」を切り替えられる(F-1107)
@@ -188,14 +191,15 @@ function ItemBreakEvens({ data, selected, onSelect }: { data: AnalysisData; sele
 
   const missing = cur.fixedCost === 0;
   const be = cur.breakEvenQty ?? 0;
+  const t = trial !== null && trial !== Math.round(cur.unitRevenue) ? priceTrial(cur, trial) : null;
   const xMax = Math.max(cur.printed * 1.1, be * 1.3, cur.soldQty * 1.15, 10);
-  const yMax = Math.max(cur.unitRevenue * xMax, cur.fixedCost * 1.15);
+  const yMax = Math.max(cur.unitRevenue * xMax, (t?.price ?? 0) * xMax, cur.fixedCost * 1.15);
   const recovered = cur.soldAmount >= cur.fixedCost && cur.fixedCost > 0;
 
   return (
     <>
       <label className="label-like" htmlFor="be-item">頒布物</label>
-      <select id="be-item" value={cur.item.id} onChange={(e) => { setEdition(undefined); onSelect(e.target.value); }}>
+      <select id="be-item" value={cur.item.id} onChange={(e) => { setEdition(undefined); setTrial(null); onSelect(e.target.value); }}>
         {list.map((b) => <option key={b.item.id} value={b.item.id}>{b.item.name}{b.fixedCost === 0 ? '(印刷費が未入力)' : ''}</option>)}
       </select>
       {editions.length > 1 && (
@@ -232,6 +236,7 @@ function ItemBreakEvens({ data, selected, onSelect }: { data: AnalysisData; sele
             series={[
               { key: 'rev', label: '売上', color: 'var(--series-1)', y: (x) => cur.unitRevenue * x },
               { key: 'cost', label: '費用', color: 'var(--series-2)', y: () => cur.fixedCost, dashed: true },
+              ...(t ? [{ key: 'trial', label: `試算 ${yen(t.price)}`, color: 'var(--series-1)', y: (x: number) => t.price * x, dashed: true }] : []),
             ]}
             markers={[
               { kind: 'point', x: be, y: cur.unitRevenue * be, label: `${be}部で回収` },
@@ -243,6 +248,7 @@ function ItemBreakEvens({ data, selected, onSelect }: { data: AnalysisData; sele
               ['売上', yen(Math.round(cur.unitRevenue * x))],
               ['費用', yen(cur.fixedCost)],
               ['差', `${cur.unitRevenue * x - cur.fixedCost >= 0 ? '+' : ''}${yen(Math.round(cur.unitRevenue * x - cur.fixedCost))}`],
+              ...(t ? [['試算の売上', yen(Math.round(t.price * x))] as [string, string]] : []),
             ]}
           />
           <table className="tbl small">
@@ -254,6 +260,7 @@ function ItemBreakEvens({ data, selected, onSelect }: { data: AnalysisData; sele
             </tbody>
           </table>
           {cur.cannotRecover && <p className="msg">刷った{cur.printed}部をすべて売っても、費用を回収できません。</p>}
+          <PriceTrialCard be={cur} trial={trial} onChange={setTrial} />
           <p className="note">セットで売れた分は、セット価格を構成品の通常価格の比で分けて数えています。通販の販売は含みません。</p>
         </>
       )}
@@ -356,5 +363,51 @@ function EventChart({ be, ownName }: { be: ReturnType<typeof eventBreakEven>; ow
         収支 = 売上 × 粗利率 + 受託手数料 − 経費。
       </p>
     </>
+  );
+}
+
+/** 価格を変えたときの試算(F-1106)。スライダーを動かすと、損益分岐部数をその場で出し直す */
+function PriceTrialCard({ be, trial, onChange }: { be: ReturnType<typeof itemBreakEven>; trial: number | null; onChange: (v: number | null) => void }) {
+  const base = Math.round(be.unitRevenue);
+  const range = priceRange(be.item.price);
+  const price = trial ?? base;
+  const t = priceTrial(be, price);
+  const diff = t.breakEvenQty !== null && be.breakEvenQty !== null ? t.breakEvenQty - be.breakEvenQty : null;
+  return (
+    <div className="card trial">
+      <div className="rowx">
+        <label htmlFor="trial-price"><b>価格を変えて試す</b></label>
+        <strong className="num trial-price">{yen(price)}</strong>
+      </div>
+      <input
+        id="trial-price" type="range" min={Math.min(range.min, base)} max={Math.max(range.max, base)} step={range.step} value={price}
+        aria-valuetext={`${price}円`}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+      <div className="trial-scale k"><span>{yen(Math.min(range.min, base))}</span><span>{yen(Math.max(range.max, base))}</span></div>
+      <table className="tbl small">
+        <tbody>
+          <tr>
+            <td>損益分岐</td>
+            <td className="num">
+              {t.breakEvenQty === null ? '—' : `${t.breakEvenQty}部`}
+              {diff ? <span className={diff < 0 ? 'pos' : 'neg-num'}>({diff > 0 ? '+' : ''}{diff}部)</span> : null}
+            </td>
+          </tr>
+          <tr><td>回収まで</td><td className="num">{t.remainingQty === null ? '—' : t.remainingQty === 0 ? '回収済み' : `あと${t.remainingQty}部`}</td></tr>
+          {be.printed > 0 && (
+            <tr>
+              <td>残り{Math.max(be.printed - be.soldQty, 0)}部をこの価格で全部売ったとき</td>
+              <td className={`num ${t.allSoldProfit >= 0 ? 'pos' : 'neg-num'}`}>{t.allSoldProfit >= 0 ? '+' : ''}{yen(t.allSoldProfit)}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      {trial !== null && trial !== base && <button className="link-btn" onClick={() => onChange(null)}>いまの価格({yen(base)})に戻す</button>}
+      <p className="note">
+        売れる部数は変えない、単純な試算です。実際には、価格を上げると売れる部数が減ることがあります。
+        これまでの売上はそのまま数え、これから売る分だけをこの価格で数えます。
+      </p>
+    </div>
   );
 }

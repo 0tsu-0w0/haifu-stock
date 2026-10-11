@@ -568,3 +568,11 @@ details[open] summary { margin-bottom: 6px; }
 .tier-tbl .link-btn { min-height: 32px; padding: 0 4px; }
 .tier-add { display: grid; grid-template-columns: 1fr 1.3fr auto; gap: 8px; }
 .tier-add input { min-width: 0; }
+
+/* 分析: 価格を変えたときの試算(F-1106) */
+.trial { display: flex; flex-direction: column; gap: 8px; }
+.trial-price { font-size: 22px; color: var(--accent); }
+.trial input[type="range"] { width: 100%; height: 36px; accent-color: var(--accent); margin: 0; }
+.trial-scale { display: flex; justify-content: space-between; font-size: 12px; margin-top: -6px; }
+.trial td span { margin-left: 6px; font-size: 12px; }
+.trial .link-btn { align-self: flex-start; }

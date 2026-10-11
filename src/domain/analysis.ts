@@ -361,6 +361,36 @@ export function itemBreakEven(data: AnalysisData, item: Item, edition?: number):
   };
 }
 
+export interface PriceTrial {
+  price: number;
+  /** その価格で全部売れたとして、費用を回収できる部数 */
+  breakEvenQty: number | null;
+  /** これまでの売上に加えて、その価格であと何部売れば回収できるか */
+  remainingQty: number | null;
+  /** 刷った部数の残りを、その価格で全部売ったときの収支 */
+  allSoldProfit: number;
+}
+
+/**
+ * 価格を変えたときの試算(F-1106)。需要(売れる部数)は変えない単純な試算。
+ * これまでの売上はそのまま数え、これから売る分だけをその価格で数える
+ */
+export function priceTrial(be: ItemBreakEven, price: number): PriceTrial {
+  const p = Math.max(0, Math.round(price));
+  const breakEvenQty = p > 0 ? Math.ceil(be.fixedCost / p) : null;
+  const remainingQty = be.remainingAmount === 0 ? 0 : p > 0 ? Math.ceil(be.remainingAmount / p) : null;
+  const left = Math.max(be.printed - be.soldQty, 0);
+  return { price: p, breakEvenQty, remainingQty, allSoldProfit: Math.round(be.soldAmount + left * p - be.fixedCost) };
+}
+
+/** スライダーの範囲: 定価の半分〜2倍くらいを、きりのよい刻みで */
+export function priceRange(price: number): { min: number; max: number; step: number } {
+  const step = price >= 1000 ? 100 : price >= 300 ? 50 : 10;
+  const min = Math.max(step, Math.floor((price * 0.5) / step) * step);
+  const max = Math.max(Math.ceil((price * 2) / step) * step, min + step * 4);
+  return { min, max, step };
+}
+
 /** 版の一覧(F-1107 の切り替え用) */
 export function editionsOf(data: AnalysisData, itemId: string): number[] {
   return [...new Set(data.printRuns.filter((r) => r.item_id === itemId).map((r) => r.edition))].sort((a, b) => a - b);
