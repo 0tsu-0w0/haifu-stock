@@ -227,6 +227,17 @@ await as(U1, async () => {
   ok(r.affectedRows === 1, 'サークル主は売り子の端末の名前も付け直せる');
 });
 
+// 支払い方法(#15): 送られてこなければ現金。決まった値だけ
+await as(U2, async () => {
+  const TP = id();
+  await db.query(`insert into transactions (id, circle_id, event_id, type, device_id, recorded_by, recorded_at) values ($1,$2,$3,'sale',$4,$5,now())`, [TP, C, EV, DEV2, U2]);
+  const m = (await db.query(`select payment_method from transactions where id = $1`, [TP])).rows[0].payment_method;
+  ok(m === 'cash', '支払い方法を送らない(古い版の)取引は現金になる');
+  await db.query(`insert into transactions (id, circle_id, event_id, type, payment_method, device_id, recorded_by, recorded_at) values ($1,$2,$3,'sale','qr',$4,$5,now())`, [id(), C, EV, DEV2, U2]);
+  ok(true, '売り子はコード決済の取引を記録できる');
+  await expectError(db.query(`insert into transactions (id, circle_id, event_id, type, payment_method, device_id, recorded_by, recorded_at) values ($1,$2,$3,'sale','bitcoin',$4,$5,now())`, [id(), C, EV, DEV2, U2]), '決まっていない支払い方法は入れられない');
+});
+
 // 同期の軽量化: 表ごとの最新の server_seq は、呼んだ人に見える行だけで数える
 await as(U1, async () => {
   const h = (await db.query(`select sync_heads() as h`)).rows[0].h;

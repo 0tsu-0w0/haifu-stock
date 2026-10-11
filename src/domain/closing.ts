@@ -268,7 +268,7 @@ export async function confirmClosing(
       event_id: eventId,
       closed_at: stamp(),
       closed_by: ctx.userId,
-      cash_diff: derived.counted ? derived.counted - (derived.float + derived.totals.amount) : null,
+      cash_diff: derived.counted ? derived.counted - (derived.float + derived.totals.cash) : null,
       return_location_id: opts.returnLocationId,
       summary: {
         sales: derived.totals.amount,

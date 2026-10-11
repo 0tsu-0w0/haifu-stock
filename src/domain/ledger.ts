@@ -1,4 +1,5 @@
 import type { Item, Movement, SetComponent, Txn, TxnLine } from '../db/types';
+import { methodOf } from './payment';
 
 // 台帳から集計値を計算する純粋関数。db/schema.sql のビューと同じ考え方で、残数や売上は保存しない
 
@@ -82,24 +83,29 @@ export interface SalesTotals {
   count: number;
   /** 持ち主ごとの売上 */
   byOwner: Map<string, number>;
+  /** 現金で受け取った売上(現金の理論値に使う。#15) */
+  cash: number;
 }
 
 export function salesTotals(args: { txns: Txn[]; lines: TxnLine[]; items: Item[] }): SalesTotals {
   const active = activeTxnIds(args.txns);
   const sales = new Set(args.txns.filter((t) => t.type === 'sale' && active.has(t.id)).map((t) => t.id));
   const ownerOf = new Map(args.items.map((i) => [i.id, i.owner_id]));
+  const cashTxns = new Set(args.txns.filter((t) => sales.has(t.id) && methodOf(t) === 'cash').map((t) => t.id));
   const byOwner = new Map<string, number>();
   let amount = 0;
   let count = 0;
+  let cash = 0;
   for (const l of args.lines) {
     if (!sales.has(l.transaction_id)) continue;
     const a = lineAmount(l);
     amount += a;
     count += l.qty;
+    if (cashTxns.has(l.transaction_id)) cash += a;
     const o = ownerOf.get(l.item_id);
     if (o) byOwner.set(o, (byOwner.get(o) ?? 0) + a);
   }
-  return { amount, count, byOwner };
+  return { amount, count, byOwner, cash };
 }
 
 /** 直近の、まだ取り消されていない取引(取り消しボタンの対象) */

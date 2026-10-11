@@ -9,7 +9,7 @@ import { useDeviceNames } from '../app/useDeviceNames';
 import { useToast } from '../components/Toast';
 import { deviceLabel, saveDeviceName } from '../domain/devices';
 import {
-  boughtTogether, deviceBreakdown, eventReport, ownerBreakdown, profitTimeline, salesDuration, scopeSnapshot, SLOT_MIN, type ProfitTimeline, type ReportScope, type ReportSlot,
+  boughtTogether, deviceBreakdown, paymentBreakdown, eventReport, ownerBreakdown, profitTimeline, salesDuration, scopeSnapshot, SLOT_MIN, type ProfitTimeline, type ReportScope, type ReportSlot,
 } from '../domain/report';
 import { hhmm, yen } from '../lib/format';
 import { useEventData } from './useEventData';
@@ -35,6 +35,7 @@ export function ReportPage() {
   const r = useMemo(() => (scoped ? eventReport(scoped) : null), [scoped]);
   const pt = useMemo(() => (scoped ? profitTimeline(scoped) : null), [scoped]);
   const devices = useMemo(() => (scoped ? deviceBreakdown(scoped) : []), [scoped]);
+  const payments = useMemo(() => (scoped ? paymentBreakdown(scoped) : []), [scoped]);
   const together = useMemo(() => (scoped ? boughtTogether(scoped) : null), [scoped]);
   const duration = useMemo(() => (scoped ? salesDuration(scoped) : null), [scoped]);
   const owners = useMemo(() => (data && consignors.length > 0 ? ownerBreakdown(data) : []), [data, consignors]);
@@ -158,6 +159,22 @@ export function ReportPage() {
         )}
         {devices.length > 0 && (
           <>
+            {payments.length > 1 && (
+              <>
+                <h3 className="section">支払い方法ごと</h3>
+                <div className="card table-scroll">
+                  <table className="tbl small report-tbl">
+                    <thead><tr><th>支払い方法</th><th>件数</th><th>売上</th></tr></thead>
+                    <tbody>
+                      {payments.map((p) => (
+                        <tr key={p.method}><td>{p.label}</td><td className="num">{p.txns}件</td><td className="num">{yen(p.amount)}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="note">現金以外で受け取った分は、終了処理の現金の数え合わせに入れていません。</p>
+              </>
+            )}
             <h3 className="section">記録した端末ごと</h3>
             <div className="card table-scroll">
               <table className="tbl small report-tbl">

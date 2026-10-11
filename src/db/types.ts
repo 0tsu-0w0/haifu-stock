@@ -128,10 +128,15 @@ export interface Txn extends FromServer {
   is_correction: boolean;
   /** 値引きや手入力の金額にした理由(F-409) */
   note?: string | null;
+  /** 支払い方法(#15)。ない記録は現金 */
+  payment_method?: PaymentMethod;
   device_id: Uuid;
   recorded_by: Uuid;
   recorded_at: Iso;
 }
+
+/** 現金 / コード決済(PayPay など)/ カード / その他 */
+export type PaymentMethod = 'cash' | 'qr' | 'card' | 'other';
 
 export interface TxnLine extends FromServer {
   id: Uuid;

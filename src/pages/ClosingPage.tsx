@@ -264,7 +264,9 @@ function CashStep({ data, ctx, rows, money }: { data: Data; ctx: Ctx; rows: Coun
   const toast = useToast();
   const counts = new Map(data.cash.filter((c) => c.phase === 'close').map((c) => [c.denomination, c.count]));
   const extra = plannedExtraSales(data, rows);
-  const theo = data.float + data.totals.amount + extra;
+  // 現金以外(コード決済・カードなど)で受け取った売上は、現金箱に入っていないので除く(#15)
+  const cashless = data.totals.amount - data.totals.cash;
+  const theo = data.float + data.totals.cash + extra;
   const diff = data.counted - theo;
   const hints = cashDiffHints(diff, data.items, rows);
   return (
@@ -293,6 +295,7 @@ function CashStep({ data, ctx, rows, money }: { data: Data; ctx: Ctx; rows: Coun
             <tr><td>自分の分の売上</td><td>{yen(money.own)}</td></tr>
             <tr><td>受託分の売上</td><td>{yen(money.consigned)}</td></tr>
             {extra > 0 && <tr><td>うち残数確認で追加した販売</td><td>{yen(extra)}</td></tr>}
+            {cashless > 0 && <tr><td>キャッシュレスで受け取った分(現金箱にないので除く)</td><td>−{yen(cashless)}</td></tr>}
           </tbody>
         </table>
       </div>

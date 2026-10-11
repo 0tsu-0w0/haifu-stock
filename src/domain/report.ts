@@ -1,5 +1,7 @@
 import { activeTxnIds, lineAmount } from './ledger';
+import type { PaymentMethod } from '../db/types';
 import { breakOverlapMs } from './breaks';
+import { PAYMENT_LABEL, PAYMENT_METHODS, methodOf } from './payment';
 import { deriveEvent, type EventSnapshot } from './snapshot';
 
 // イベント後のレポート(F-701〜703)。サマリー、品目ごとの消化率と完売時刻、30分ごとの売れ方
@@ -328,4 +330,28 @@ export function salesDuration(s: EventSnapshot, now = Date.now()): { minutes: nu
   const end = Math.max(...times);
   const brk = breakOverlapMs(start, end, s.breaks, now);
   return { minutes: Math.round((end - start - brk) / 60_000), breakMinutes: Math.round(brk / 60_000) };
+}
+
+export interface PaymentRow {
+  method: PaymentMethod;
+  label: string;
+  txns: number;
+  amount: number;
+}
+
+/** 支払い方法ごとの売上と件数(#15)。売上のない方法は出さない */
+export function paymentBreakdown(s: EventSnapshot): PaymentRow[] {
+  const active = activeTxnIds(s.txns);
+  const rows = new Map<PaymentMethod, PaymentRow>();
+  const amountOf = new Map<string, number>();
+  for (const l of s.lines) amountOf.set(l.transaction_id, (amountOf.get(l.transaction_id) ?? 0) + lineAmount(l));
+  for (const t of s.txns) {
+    if (t.type !== 'sale' || !active.has(t.id)) continue;
+    const m = methodOf(t);
+    const r = rows.get(m) ?? { method: m, label: PAYMENT_LABEL[m], txns: 0, amount: 0 };
+    r.txns++;
+    r.amount += amountOf.get(t.id) ?? 0;
+    rows.set(m, r);
+  }
+  return PAYMENT_METHODS.map((m) => rows.get(m)).filter((r): r is PaymentRow => !!r);
 }

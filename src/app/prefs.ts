@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { PaymentMethod } from '../db/types';
 
 // この端末だけの表示の設定(端末のブラウザに保存する。同期はしない)
 
@@ -80,4 +81,29 @@ export function applyTheme(t: ChoiceValue<'theme'> = readChoice('theme')) {
   const root = document.documentElement;
   if (t === 'auto') delete root.dataset.theme;
   else root.dataset.theme = t;
+}
+
+const PAY_KEY = 'pref-pay-methods';
+const PAY_EXTRA: readonly PaymentMethod[] = ['qr', 'card', 'other'];
+
+function readPayMethods(): PaymentMethod[] {
+  const raw = load(PAY_KEY);
+  let extra: PaymentMethod[] = [];
+  try {
+    const v: unknown = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(v)) extra = PAY_EXTRA.filter((m) => v.includes(m));
+  } catch {
+    /* 読めなければ現金だけ */
+  }
+  return ['cash', ...extra];
+}
+
+/** この端末のレジで使う支払い方法(#15)。現金はいつも入る。既定は現金だけ(レジに選ぶ欄を出さない) */
+export function usePayMethods(): [PaymentMethod[], (v: PaymentMethod[]) => void] {
+  const [v, setV] = useState(readPayMethods);
+  return [v, (next) => {
+    const list: PaymentMethod[] = ['cash', ...PAY_EXTRA.filter((m) => next.includes(m))];
+    setV(list);
+    save(PAY_KEY, JSON.stringify(list.filter((m) => m !== 'cash')));
+  }];
 }

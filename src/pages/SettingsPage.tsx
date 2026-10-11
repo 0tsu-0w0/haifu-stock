@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
-import { useChoice, usePref } from '../app/prefs';
+import { useChoice, usePayMethods, usePref } from '../app/prefs';
 import { useCtx } from '../app/useCtx';
 import { useDeviceNames } from '../app/useDeviceNames';
 import { AccountBar } from '../components/AccountBar';
@@ -16,6 +16,7 @@ import { useToast } from '../components/Toast';
 import type { Owner } from '../db/types';
 import { renameLocation, saveCircleName, saveOwner, setOwnerArchived } from '../domain/catalog';
 import { saveDeviceName } from '../domain/devices';
+import { PAYMENT_LABEL } from '../domain/payment';
 
 // 設定: サークル名、保管場所の名前、受託元(持ち主)、ログイン
 export function SettingsPage() {
@@ -194,6 +195,7 @@ function DisplaySettings({ owner }: { owner: boolean }) {
   const [instant, setInstant] = usePref('instantSale');
   const [soldOutLast, setSoldOutLast] = usePref('soldOutLast');
   const [lastOneRed, setLastOneRed] = usePref('lastOneRed');
+  const [payMethods, setPayMethods] = usePayMethods();
   const [haptics, setHaptics] = usePref('haptics');
   const [tour, setTour] = useState(false);
   const [theme, setTheme] = useChoice('theme');
@@ -235,6 +237,18 @@ function DisplaySettings({ owner }: { owner: boolean }) {
           <small className="k">最後の1部になった品目のボタンを赤くして「残1・最後」と出します。オフにすると、ほかの残りわずかと同じ黄色で出します。</small>
         </span>
       </label>
+      <div className="seg-row">
+        <span className="k">受け取る支払い方法</span>
+        <div className="chips" role="group" aria-label="受け取る支払い方法">
+          {(['qr', 'card', 'other'] as const).map((m) => (
+            <button
+              key={m} className="chip" aria-pressed={payMethods.includes(m)}
+              onClick={() => setPayMethods(payMethods.includes(m) ? payMethods.filter((x) => x !== m) : [...payMethods, m])}
+            >{PAYMENT_LABEL[m]}</button>
+          ))}
+        </div>
+        <small className="k">現金はいつも使えます。PayPay などで受け取るときは「コード決済」を選ぶと、レジで支払い方法を選べるようになり、その分は現金の数え合わせから除きます。</small>
+      </div>
       <label className="check">
         <input type="checkbox" checked={soldOutLast} onChange={(e) => setSoldOutLast(e.target.checked)} />
         <span>

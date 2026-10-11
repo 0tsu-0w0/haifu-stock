@@ -1,5 +1,5 @@
 import { putAndQueue, type HaifuDB } from '../db/local';
-import type { Reservation, ReservationStatus, Txn } from '../db/types';
+import type { PaymentMethod, Reservation, ReservationStatus, Txn } from '../db/types';
 import { uuidv7 } from '../lib/uuid';
 import { assertOpen } from './closing';
 import { activeTxnIds } from './ledger';
@@ -62,7 +62,7 @@ export async function cancelReservation(db: HaifuDB, id: string): Promise<void> 
 
 /** 渡した。販売として記録し、取り置きを「渡した」にする。販売を取り消すと、取り置き中に戻る */
 export async function handReservation(
-  db: HaifuDB, ctx: Ctx, id: string, opts: { paidAmount?: number | null } = {},
+  db: HaifuDB, ctx: Ctx, id: string, opts: { paidAmount?: number | null; paymentMethod?: PaymentMethod } = {},
 ): Promise<Txn> {
   return db.transaction('rw', [...LEDGER_TABLES, ...READ_TABLES, 'reservations'], async () => {
     const r = await db.reservations.get(id);
@@ -71,6 +71,7 @@ export async function handReservation(
     if (statusOf(r, active) !== 'held') throw new Error('この取り置きは、もう渡したか取り消しています');
     const t = await recordSale(db, ctx, {
       eventId: r.event_id, lines: [{ itemId: r.item_id, qty: r.qty }], paidAmount: opts.paidAmount ?? null,
+      paymentMethod: opts.paymentMethod,
     });
     await putAndQueue(db, 'reservations', { ...r, status: 'handed', transaction_id: t.id, client_updated_at: stamp() });
     return t;

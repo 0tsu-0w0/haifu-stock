@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import type { GiveawayKind, Item } from '../../db/types';
+import { PayMethodChips } from '../../components/PayMethodChips';
+import type { GiveawayKind, Item, PaymentMethod } from '../../db/types';
 import { GIVE_LABEL } from '../../domain/history';
 import { yen } from '../../lib/format';
 import { DISCOUNT_REASONS, MANY_QTY } from './constants';
@@ -16,7 +17,9 @@ export function ItemSheet(props: {
   cartBusy: boolean;
   onClose: () => void;
   onSale: (qty: number, zero: boolean) => void;
-  onDiscount: (qty: number, pay: number, reason: string) => void;
+  onDiscount: (qty: number, pay: number, reason: string, method: PaymentMethod) => void;
+  /** この端末で使う支払い方法(#15) */
+  payMethods: PaymentMethod[];
   onGive: (qty: number, kind: GiveawayKind) => void;
 }) {
   const { item, remaining, price, inCart, cartBusy } = props;
@@ -25,6 +28,7 @@ export function ItemSheet(props: {
   const [qty, setQty] = useState(1);
   const [payInput, setPayInput] = useState('');
   const [reason, setReason] = useState('');
+  const [method, setMethod] = useState<PaymentMethod>('cash');
   const full = price * qty;
   const pay = payInput === '' ? null : Number(payInput);
   const discountError = choice !== 'discount' ? null
@@ -75,6 +79,7 @@ export function ItemSheet(props: {
                     <button key={r} className="chip" aria-pressed={reason === r} onClick={() => setReason((x) => (x === r ? '' : r))}>{r}</button>
                   ))}
                 </div>
+                <PayMethodChips methods={props.payMethods} value={method} onChange={setMethod} />
                 {pay !== null && pay < full && <p className="k">値引き <span className="num">{yen(full - pay)}</span>(理由と一緒に履歴に残ります)</p>}
                 {pay !== null && pay >= full && <p className="warnnote">元の金額より安い金額を入れてください</p>}
                 {soldOut && <p className="warnnote">残数0なので、残数がマイナスになります。</p>}
@@ -98,7 +103,7 @@ export function ItemSheet(props: {
           onClick={() => {
             if (discountError) return;
             props.onClose();
-            if (choice === 'discount') props.onDiscount(qty, pay!, reason);
+            if (choice === 'discount') props.onDiscount(qty, pay!, reason, method);
             else if (isSale) props.onSale(qty, choice === 'zero');
             else props.onGive(qty, choice as GiveawayKind);
           }}

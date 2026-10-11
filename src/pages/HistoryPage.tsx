@@ -7,6 +7,7 @@ import { EventNav } from '../components/EventNav';
 import { useToast } from '../components/Toast';
 import { deviceLabel } from '../domain/devices';
 import { filterHistory, historyRows, type HistoryFilter, type HistoryRow } from '../domain/history';
+import { PAYMENT_LABEL, methodOf } from '../domain/payment';
 import { voidTransaction } from '../domain/record';
 import { hhmm, yen } from '../lib/format';
 import { useEventData } from './useEventData';
@@ -89,6 +90,7 @@ export function HistoryPage() {
                 <span className="label">{r.label}</span>
                 <small>
                   {labelOf(r.txn.device_id)}
+                  {r.kind === 'sale' && methodOf(r.txn) !== 'cash' && `・${PAYMENT_LABEL[methodOf(r.txn)]}`}
                   {r.discount > 0 && `・値引き ${yen(r.discount)}${r.txn.note ? `(${r.txn.note})` : ''}`}
                   {r.txn.paid_amount !== null && `・預かり ${yen(r.txn.paid_amount)}`}
                   {r.txn.zero_stock_override && '・残数0で記録'}

@@ -358,6 +358,8 @@ create table transactions (
   giveaway_kind       giveaway_kind,
   voids_txn_id        uuid references transactions(id),
   paid_amount         int check (paid_amount >= 0),    -- 預かり金額(任意。F-402)
+  payment_method      text not null default 'cash'     -- 支払い方法(#15)。現金以外は現金の数え合わせに入れない
+                      check (payment_method in ('cash','qr','card','other')),
   zero_stock_override boolean not null default false,  -- 残数0で記録した(F-406a)
   is_correction       boolean not null default false,  -- 確定後にサークル主が加えた訂正
   note                text,                            -- 値引きや手入力の金額にした理由(F-409)

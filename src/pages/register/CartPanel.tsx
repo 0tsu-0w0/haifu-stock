@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
-import type { Item } from '../../db/types';
+import { PayMethodChips } from '../../components/PayMethodChips';
+import type { Item, PaymentMethod } from '../../db/types';
 import { changeBreakdown, denomLabel, paidSuggestions } from '../../domain/change';
 import { colorVar } from '../../domain/colors';
 import { yen } from '../../lib/format';
@@ -36,10 +37,15 @@ export function CartPanel(props: {
   paidAmount: number | null;
   tallyOpen: boolean;
   setTallyOpen: Setter<boolean>;
+  /** この端末で使う支払い方法(#15) */
+  payMethods: PaymentMethod[];
+  method: PaymentMethod;
+  setMethod: (m: PaymentMethod) => void;
 }) {
   const {
     cart, setCart, itemById, priceOf, available, addToCart, onSoldOut, showLines, setShowLines, cartTotal, payTotal, discount,
     discountOpen, setDiscountOpen, payInput, setPayInput, reason, setReason, paid, setPaid, paidAmount, tallyOpen, setTallyOpen,
+    payMethods, method, setMethod,
   } = props;
   return (
     <section className="cart" aria-label="カート">
@@ -107,7 +113,16 @@ export function CartPanel(props: {
       ) : (
         cart.size > 0 && <button className="link-btn" onClick={() => setDiscountOpen(true)}>値引き・金額を変える</button>
       )}
-      <div className="paid" role="group" aria-label="預かり金額">
+      <PayMethodChips
+        methods={payMethods} value={method}
+        onChange={(m) => {
+          setMethod(m);
+          // 現金以外では、預かり金額とお釣りの欄を閉じる
+          if (m !== 'cash') { setPaid(null); setTallyOpen(false); setShowLines(true); }
+        }}
+      />
+      {method !== 'cash' && cart.size > 0 && <p className="k pay-note">現金では受け取らないので、預かり金額とお釣りの欄は出しません。現金の数え合わせにも入りません。</p>}
+      {method === 'cash' && <div className="paid" role="group" aria-label="預かり金額">
         <button aria-pressed={paid === 'exact'} onClick={() => { setTallyOpen(false); setPaid((p) => (p === 'exact' ? null : 'exact')); }}>ちょうど</button>
         {paidSuggestions(payTotal).map((v) => (
           <button key={v} className="num" aria-pressed={!tallyOpen && paid === v} onClick={() => { setTallyOpen(false); setPaid((p) => (p === v && !tallyOpen ? null : v)); }}>
@@ -115,8 +130,8 @@ export function CartPanel(props: {
           </button>
         ))}
         <button aria-pressed={tallyOpen} onClick={() => { setShowLines(tallyOpen); setTallyOpen((o) => !o); setPaid(tallyOpen ? null : 0); }}>その他</button>
-      </div>
-      {tallyOpen && (
+      </div>}
+      {method === 'cash' && tallyOpen && (
         <div className="tally">
           <div className="rowx">
             <span className="k">受け取った金額</span>

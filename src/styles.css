@@ -621,3 +621,4 @@ details[open] summary { margin-bottom: 6px; }
 .update-go { min-height: 36px; padding: 0 14px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
 .update-later { min-height: 36px; padding: 0 10px; color: var(--bg); opacity: .8; }
 .app-version { text-align: center; }
+.pay-methods { margin: 2px 0; } .pay-note { margin: 0; font-size: 12px; }

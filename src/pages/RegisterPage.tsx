@@ -3,20 +3,21 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEven
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
-import { useChoice, usePref } from '../app/prefs';
+import { useChoice, usePayMethods, usePref } from '../app/prefs';
 import { useCtx } from '../app/useCtx';
 import { EventNav } from '../components/EventNav';
 import { RegisterTour, tourSeen } from '../components/RegisterTour';
 import { useReservations } from '../components/Reservations';
 import { SyncPill } from '../components/SyncPill';
 import { useToast } from '../components/Toast';
-import type { Item, Txn } from '../db/types';
+import type { Item, PaymentMethod, Txn } from '../db/types';
 import { endBreak, openBreak, startBreak } from '../domain/breaks';
 import { GIVE_LABEL, describeTxn } from '../domain/history';
 import { recordGiveaway, recordSale, voidTransaction } from '../domain/record';
 import { handReservation } from '../domain/reservations';
 import { profitTimeline } from '../domain/report';
 import { colorVar } from '../domain/colors';
+import { PAYMENT_LABEL } from '../domain/payment';
 import { hhmm, yen } from '../lib/format';
 import { useWakeLock } from '../app/useWakeLock';
 import { setUpdateBlocked } from '../app/update';
@@ -61,6 +62,9 @@ export function RegisterPage() {
   const [instant] = usePref('instantSale');
   const [soldOutLast] = usePref('soldOutLast');
   const [lastOneRed] = usePref('lastOneRed');
+  // この端末で使う支払い方法(#15)。現金だけなら、選ぶ欄は出さない
+  const [payMethods] = usePayMethods();
+  const [method, setMethod] = useState<PaymentMethod>('cash');
   const [haptics] = usePref('haptics');
   const [regSize] = useChoice('regSize');
   const [regCols] = useChoice('regCols');
@@ -279,13 +283,14 @@ export function RegisterPage() {
     setDiscountOpen(false);
     setPayInput('');
     setReason('');
+    setMethod('cash');
   };
   const cartTotal = [...(cart ?? [])].reduce((a, [id, q]) => a + priceOf(itemById.get(id)!) * q, 0);
   // 値引き(F-409): 受け取る金額を入れると、元の合計との差を値引きとして記録する
   const payTotal = discountOpen && payInput !== '' ? Number(payInput) : cartTotal;
   const discount = cartTotal - payTotal;
-  // 「その他」を開いただけ(0円)のときは、預かり金額を入れていないものとして扱う
-  const paidAmount = paid === 'exact' ? payTotal : paid ? paid : null;
+  // 「その他」を開いただけ(0円)のときは、預かり金額を入れていないものとして扱う。現金以外は預かり金額を持たない
+  const paidAmount = method !== 'cash' ? null : paid === 'exact' ? payTotal : paid ? paid : null;
 
   // 下の左のボタン: カートが空(またはカートを使っていない)なら「取り消し」、品目が入っていれば「やめる」
   const showUndo = !cart || (!instant && cart.size === 0);
@@ -307,12 +312,13 @@ export function RegisterPage() {
         zeroStockOverride: cartZero,
         discount: Math.max(0, discount),
         note: reason || undefined,
+        paymentMethod: method,
       }),
-      `${instant ? '' : '決済 '}${yen(payTotal)}${instant ? ' を記録' : ''}${discount > 0 ? `(値引き ${yen(discount)})` : ''}${change}`,
+      `${instant ? '' : '決済 '}${yen(payTotal)}${method !== 'cash' ? `(${PAYMENT_LABEL[method]})` : ''}${instant ? ' を記録' : ''}${discount > 0 ? `(値引き ${yen(discount)})` : ''}${change}`,
       [15, 60, 15],
       );
       if (ok) {
-        setFlash((f) => ({ total: payTotal, change: paidAmount !== null ? paidAmount - payTotal : null, discount: Math.max(0, discount), n: (f?.n ?? 0) + 1 }));
+        setFlash((f) => ({ total: payTotal, change: paidAmount !== null ? paidAmount - payTotal : null, discount: Math.max(0, discount), method, n: (f?.n ?? 0) + 1 }));
         exitCart();
       }
     } finally {
@@ -351,7 +357,7 @@ export function RegisterPage() {
         <div className="sum">
           <div><small>売上</small><strong className="num">{yen(totals.amount)}</strong></div>
           <div><small>部数</small><strong className="num">{totals.count}</strong></div>
-          <div><small>現金(理論)</small><strong className="num">{yen(float + totals.amount)}</strong></div>
+          <div><small>現金(理論)</small><strong className="num">{yen(float + totals.cash)}</strong></div>
         </div>
         {be && be.fixed > 0 && (
           <div className={`be-line${be.current >= 0 ? ' black' : ''}`}>
@@ -444,6 +450,7 @@ export function RegisterPage() {
           cartTotal={cartTotal} payTotal={payTotal} discount={discount}
           discountOpen={discountOpen} setDiscountOpen={setDiscountOpen} payInput={payInput} setPayInput={setPayInput} reason={reason} setReason={setReason}
           paid={paid} setPaid={setPaid} paidAmount={paidAmount} tallyOpen={tallyOpen} setTallyOpen={setTallyOpen}
+          payMethods={payMethods} method={method} setMethod={setMethod}
         />
       )}
 
@@ -504,8 +511,8 @@ export function RegisterPage() {
 
       {resvOpen && reservations && (
         <ReservationSheet
-          reservations={reservations} itemById={itemById} priceOf={priceOf} onClose={() => setResvOpen(false)}
-          onHand={(r, it) => void undoable(handReservation(db, ctx, r.id), `${r.name} に ${it.name}${r.qty > 1 ? ` ×${r.qty}` : ''} を渡しました ${yen(priceOf(it) * r.qty)}`)}
+          reservations={reservations} itemById={itemById} priceOf={priceOf} onClose={() => setResvOpen(false)} payMethods={payMethods}
+          onHand={(r, it, m) => void undoable(handReservation(db, ctx, r.id, { paymentMethod: m }), `${r.name} に ${it.name}${r.qty > 1 ? ` ×${r.qty}` : ''} を渡しました ${yen(priceOf(it) * r.qty)}${m !== 'cash' ? `(${PAYMENT_LABEL[m]})` : ''}`)}
         />
       )}
 
@@ -517,15 +524,16 @@ export function RegisterPage() {
           inCart={!!cart}
           cartBusy={!!cart && cart.size > 0}
           onClose={() => setSheetItem(null)}
-          onDiscount={(qty, pay, why) => {
+          payMethods={payMethods}
+          onDiscount={(qty, pay, why, m) => {
             // カートを通さず、この品目だけを値引きした金額で1回の販売として記録する(F-409)
             const full = priceOf(sheetItem) * qty;
             void undoable(
               recordSale(db, ctx, {
                 eventId, lines: [{ itemId: sheetItem.id, qty }], zeroStockOverride: available(sheetItem) < qty,
-                discount: full - pay, note: why || undefined,
+                discount: full - pay, note: why || undefined, paymentMethod: m,
               }),
-              `${sheetItem.name}${qty > 1 ? ` ×${qty}` : ''} を ${yen(pay)} で記録(値引き ${yen(full - pay)})`,
+              `${sheetItem.name}${qty > 1 ? ` ×${qty}` : ''} を ${yen(pay)} で記録(値引き ${yen(full - pay)}${m !== 'cash' ? `・${PAYMENT_LABEL[m]}` : ''})`,
             );
           }}
           onSale={(qty, zero) => {

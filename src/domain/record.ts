@@ -1,5 +1,5 @@
 import { putAndQueue, type HaifuDB } from '../db/local';
-import type { GiveawayKind, Movement, MovementReason, Txn, TxnLine } from '../db/types';
+import type { GiveawayKind, Movement, MovementReason, PaymentMethod, Txn, TxnLine } from '../db/types';
 import { uuidv7 } from '../lib/uuid';
 
 // 販売・無償出庫・取り消し・在庫移動を台帳に追記する。
@@ -75,6 +75,8 @@ export interface SaleInput {
   discount?: number;
   /** 値引きの理由 */
   note?: string;
+  /** 支払い方法(#15)。省くと現金。現金以外では預かり金額は持たない */
+  paymentMethod?: PaymentMethod;
 }
 
 /**
@@ -110,7 +112,8 @@ export async function recordSale(db: HaifuDB, ctx: Ctx, input: SaleInput): Promi
       event_id: input.eventId,
       type: 'sale',
       source: input.source ?? 'register',
-      paid_amount: input.paidAmount ?? null,
+      paid_amount: (input.paymentMethod ?? 'cash') === 'cash' ? input.paidAmount ?? null : null,
+      payment_method: input.paymentMethod ?? 'cash',
       zero_stock_override: input.zeroStockOverride ?? false,
       note: discount > 0 ? input.note?.trim() || null : null,
     });

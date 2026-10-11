@@ -5,6 +5,7 @@ import { GIVE_LABEL } from './history';
 import { activeTxnIds, lineAmount } from './ledger';
 import { eventReport } from './report';
 import { loadEventSnapshot } from './snapshot';
+import { PAYMENT_LABEL, methodOf } from './payment';
 
 // バックアップの書き出しと読み込み(F-1002)、CSVの書き出し(F-707)
 
@@ -121,7 +122,7 @@ export async function salesCsv(db: HaifuDB, circleId: string): Promise<string> {
   const lines = await db.transaction_lines.where('transaction_id').anyOf(txns.map((t) => t.id)).toArray();
   const txnById = new Map(txns.map((t) => [t.id, t]));
   const out: (string | number | null)[][] = [
-    ['日時', 'イベント', '開催日', '種類', '取り消し', '品目', '持ち主', '部数', '単価', '値引き', '金額', '値引きの理由', '取引ID', '端末'],
+    ['日時', 'イベント', '開催日', '種類', '取り消し', '品目', '持ち主', '部数', '単価', '値引き', '金額', '値引きの理由', '支払い方法', '取引ID', '端末'],
   ];
   const sorted = lines
     .map((l) => ({ l, t: txnById.get(l.transaction_id)! }))
@@ -135,7 +136,7 @@ export async function salesCsv(db: HaifuDB, circleId: string): Promise<string> {
       t.type === 'sale' ? '販売' : GIVE_LABEL[t.giveaway_kind as GiveawayKind] ?? '無償出庫',
       active.has(t.id) ? '' : '取り消し済み',
       item?.name ?? '', ownerName(item), l.qty, l.unit_price, l.discount ?? 0, t.type === 'sale' ? lineAmount(l) : 0,
-      t.note ?? '', t.id, t.device_id,
+      t.note ?? '', t.type === 'sale' ? PAYMENT_LABEL[methodOf(t)] : '', t.id, t.device_id,
     ]);
   }
   return toCsv(out);
