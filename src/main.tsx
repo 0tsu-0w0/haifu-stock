@@ -4,11 +4,15 @@ import { registerSW } from 'virtual:pwa-register';
 import { App } from './App';
 import './app/install';
 import { db } from './app/db';
+import { applyTheme } from './app/prefs';
 import { ensureIdentity } from './domain/setup';
 import './styles.css';
 
 // 画面と資源を端末に置き、オフラインでも開けるようにする。新しい版は次に開いたときに反映される
 registerSW({ immediate: true });
+
+// 設定で選んだ画面の明るさを、最初の描画の前に反映する
+applyTheme();
 
 await ensureIdentity(db);
 

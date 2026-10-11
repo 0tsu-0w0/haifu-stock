@@ -9,6 +9,7 @@ import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../components/Toast';
 import type { ItemKind } from '../db/types';
 import { addPrintRun, deleteItem, restoreItem, saveItem, saveOwner, setItemArchived } from '../domain/catalog';
+import { COLOR_LABEL, ITEM_COLORS, colorVar } from '../domain/colors';
 import { breakEvenQty, stockByLocation } from '../domain/ledger';
 import { yen } from '../lib/format';
 
@@ -38,7 +39,7 @@ export function ItemEditPage() {
     return { item, owners: owners.filter((o) => !o.archived_at || o.id === item?.owner_id), items, storages, runs, comps, stock: stockByLocation(movements, txns) };
   }, [ctx?.circleId, itemId]);
 
-  const [form, setForm] = useState({ name: '', kind: 'book' as ItemKind, price: '', ownerId: '', low: '3' });
+  const [form, setForm] = useState({ name: '', kind: 'book' as ItemKind, price: '', ownerId: '', low: '3', color: null as string | null });
   const [newOwner, setNewOwner] = useState({ name: '', fee: '0' });
   const [components, setComponents] = useState<Map<string, number>>(new Map());
   const [run, setRun] = useState({ qty: '', cost: '', date: '', printer: '' });
@@ -50,7 +51,7 @@ export function ItemEditPage() {
     if (!data || loaded) return;
     const self = data.owners.find((o) => o.is_self);
     if (data.item) {
-      setForm({ name: data.item.name, kind: data.item.kind, price: String(data.item.price), ownerId: data.item.owner_id, low: String(data.item.low_threshold) });
+      setForm({ name: data.item.name, kind: data.item.kind, price: String(data.item.price), ownerId: data.item.owner_id, low: String(data.item.low_threshold), color: data.item.color ?? null });
     } else if (self) {
       setForm((f) => ({ ...f, ownerId: self.id }));
     }
@@ -80,6 +81,7 @@ export function ItemEditPage() {
       const saved = await saveItem(db, ctx!, {
         id: item?.id, name: form.name, kind: form.kind, price: Number(form.price === '' ? NaN : form.price), ownerId,
         lowThreshold: Number(form.low === '' ? NaN : form.low),
+        color: form.color,
         components: [...components].filter(([, q]) => q > 0).map(([id, q]) => ({ itemId: id, qty: q })),
       });
       toast(item ? '保存しました' : `${saved.name} を登録しました`);
@@ -130,6 +132,19 @@ export function ItemEditPage() {
 
         <label htmlFor="item-price">頒布価格(円)</label>
         <input id="item-price" inputMode="numeric" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value.replace(/\D/g, '') })} placeholder="800" />
+
+        <span className="label-like" id="item-color-label">レジでの色(任意)</span>
+        <div className="color-picks" role="radiogroup" aria-labelledby="item-color-label">
+          <button type="button" role="radio" aria-checked={form.color === null} aria-pressed={form.color === null} aria-label="色なし" onClick={() => setForm({ ...form, color: null })}>なし</button>
+          {ITEM_COLORS.map((c) => (
+            <button
+              key={c} type="button" role="radio" aria-checked={form.color === c} aria-pressed={form.color === c} aria-label={COLOR_LABEL[c]}
+              style={{ '--item-color': colorVar(c) } as React.CSSProperties}
+              onClick={() => setForm({ ...form, color: c })}
+            />
+          ))}
+        </div>
+        <small className="k">レジのボタンの左端に色の帯が付きます。似た品目を見分けるのに使います。</small>
 
         {form.kind !== 'set' && (
           <>

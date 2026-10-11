@@ -2,6 +2,7 @@ import { putAndQueue, type HaifuDB } from '../db/local';
 import type { CashCount, EventItem, EventRow, Expense, ExpenseCategory, Item, ItemKind, Owner, PrintRun, SetComponent } from '../db/types';
 import { uuidv7 } from '../lib/uuid';
 import { assertOpen } from './closing';
+import { isItemColor } from './colors';
 import { eventItemSummary, stockByLocation } from './ledger';
 import { moveStock, type Ctx } from './record';
 import { createEvent } from './setup';
@@ -34,6 +35,8 @@ export interface ItemInput {
   ownerId: string;
   lowThreshold: number;
   printLot?: number | null;
+  /** レジで見分けるための色。渡さなければ今の色のまま */
+  color?: string | null;
   /** セットの構成。作るときだけ指定できる(構成を変えると過去の在庫の意味が変わるため) */
   components?: { itemId: string; qty: number }[];
 }
@@ -45,6 +48,7 @@ export async function saveItem(db: HaifuDB, ctx: Ctx, input: ItemInput): Promise
   if (!Number.isInteger(input.lowThreshold) || input.lowThreshold < 0) throw new Error('「残りわずか」の部数は0以上で入れてください');
   const cur = input.id ? await db.items.get(input.id) : undefined;
   if (cur && cur.kind !== input.kind) throw new Error('作った後で種類は変えられません');
+  if (input.color != null && !isItemColor(input.color)) throw new Error('色が正しくありません');
   const isNew = !cur;
   if (input.kind === 'set' && isNew) {
     const comps = input.components ?? [];
@@ -54,6 +58,7 @@ export async function saveItem(db: HaifuDB, ctx: Ctx, input: ItemInput): Promise
   const item: Item = {
     id: cur?.id ?? uuidv7(), circle_id: ctx.circleId, owner_id: input.ownerId, kind: input.kind, name,
     price: input.price, print_lot: input.printLot ?? null, low_threshold: input.lowThreshold,
+    color: input.color === undefined ? cur?.color ?? null : input.color,
     archived_at: cur?.archived_at ?? null, deleted_at: cur?.deleted_at ?? null, client_updated_at: stamp(),
   };
   await db.transaction('rw', ['items', 'set_components', 'outbox'], async () => {

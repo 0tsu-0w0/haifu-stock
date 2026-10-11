@@ -16,8 +16,9 @@
   --f-num: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, monospace;
   color-scheme: light;
 }
+/* 暗い表示。端末の設定に合わせる(設定で「明るい」を選んだ端末は除く)か、設定で「暗い」を選んだとき */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0F1218; --surface: #1A1F29; --sunk: #141820; --ink: #ECEEF3; --ink-2: #AEB5C4; --ink-3: #768096;
     --line: #2C3340; --line-2: #3D4656;
     --accent: #7D93FF; --accent-ink: #0B0F1E; --accent-soft: #232C52;
@@ -29,6 +30,18 @@
     --series-1: #6F86F2; --series-2: #D2762C;
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #0F1218; --surface: #1A1F29; --sunk: #141820; --ink: #ECEEF3; --ink-2: #AEB5C4; --ink-3: #768096;
+  --line: #2C3340; --line-2: #3D4656;
+  --accent: #7D93FF; --accent-ink: #0B0F1E; --accent-soft: #232C52;
+  --warn: #F2C35B; --warn-bg: #3A2E10; --warn-line: #7A6020;
+  --danger: #FF8A7D; --danger-bg: #3E1B18; --danger-line: #7E3029;
+  --ok: #6FD3A0; --ok-bg: #143326;
+  --consign: #C6A3F2; --consign-bg: #2D2140;
+  --scrim: rgba(0, 0, 0, .6);
+  --series-1: #6F86F2; --series-2: #D2762C;
+  color-scheme: dark;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -461,3 +474,57 @@ details[open] summary { margin-bottom: 6px; }
 .jump::-webkit-scrollbar { display: none; }
 .jump button { flex: none; min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font-size: 13px; font-weight: 600; }
 .jump button:active { background: var(--accent-soft); color: var(--accent); }
+
+/* 品目の色(レジで見分けるため)。色だけに頼らず、品目名はいつも出す */
+:root {
+  --tag-red: #D92D20; --tag-orange: #E8620C; --tag-yellow: #C99700; --tag-green: #2E9D4F;
+  --tag-teal: #0F9488; --tag-blue: #2563EB; --tag-purple: #7C3AED; --tag-pink: #DB2777;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --tag-red: #FF6B5E; --tag-orange: #FF9A4D; --tag-yellow: #F5CD47; --tag-green: #5CCB7D;
+    --tag-teal: #3CC7B8; --tag-blue: #6E9BFF; --tag-purple: #B794FF; --tag-pink: #FF7AB8;
+  }
+}
+:root[data-theme="dark"] {
+  --tag-red: #FF6B5E; --tag-orange: #FF9A4D; --tag-yellow: #F5CD47; --tag-green: #5CCB7D;
+  --tag-teal: #3CC7B8; --tag-blue: #6E9BFF; --tag-purple: #B794FF; --tag-pink: #FF7AB8;
+}
+.item.colored { box-shadow: inset 6px 0 0 var(--item-color); padding-left: 17px; }
+.color-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: var(--item-color); flex: none; vertical-align: -1px; margin-right: 6px; }
+.color-picks { display: flex; flex-wrap: wrap; gap: 8px; }
+.color-picks button {
+  width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--line-2); background: var(--item-color, var(--surface));
+  display: grid; place-items: center; color: var(--ink-2); font-size: 12px;
+}
+.color-picks button[aria-pressed="true"] { outline: 3px solid var(--accent); outline-offset: 2px; border-color: var(--surface); }
+
+/* レジ: 列の数と、文字の大きさ(この端末だけの設定) */
+.grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.grid.cols-3 .item { min-height: 76px; padding: 8px 8px; }
+.grid.cols-3 .item.colored { padding-left: 13px; box-shadow: inset 5px 0 0 var(--item-color); }
+.grid.cols-3 .item .nm { font-size: 13px; }
+.grid.cols-3 .item .meta { flex-direction: column; align-items: flex-start; gap: 0; }
+.grid.cols-3 .item .price { font-size: 13px; }
+.grid.cols-3 .item .rem { font-size: 12px; }
+.register.large .sum strong { font-size: 20px; }
+.register.large .sum small, .register.large .mode { font-size: 13px; }
+.register.large .item { min-height: 100px; }
+.register.large .item .nm { font-size: 18px; }
+.register.large .item .price { font-size: 17px; }
+.register.large .item .rem { font-size: 15px; }
+.register.large .grid.cols-3 .item .nm { font-size: 15px; }
+.register.large .grid.cols-3 .item .price { font-size: 15px; }
+.register.large .grid.cols-3 .item .rem { font-size: 13px; }
+.register.large .fbtn { height: 64px; font-size: 17px; }
+.register.large .fbtn small { font-size: 13px; }
+.register.large .cl, .register.large .total { font-size: 17px; }
+
+/* 設定: 選ぶ形の設定 */
+.seg-row { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; }
+.seg-row + .seg-row { border-top: 1px solid var(--line); padding-top: 10px; }
+
+/* レジ: 長押しメニューの値引き */
+.sheet-discount { display: flex; flex-direction: column; gap: 8px; padding: 8px 2px 2px; }
+.sheet-discount .rowx input { width: 120px; }
+.go:disabled { opacity: .5; }

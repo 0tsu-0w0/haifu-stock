@@ -35,6 +35,8 @@ export interface Item extends FromServer {
   price: number;
   print_lot: number | null;
   low_threshold: number;
+  /** レジで見分けるための色(ITEM_COLORS の名前)。なしは null */
+  color?: string | null;
   archived_at: Iso | null;
   /** 削除した時刻(表示から消す。記録は残す) */
   deleted_at?: Iso | null;

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
-import { usePref } from '../app/prefs';
+import { useChoice, usePref } from '../app/prefs';
 import { useCtx } from '../app/useCtx';
 import { AccountBar } from '../components/AccountBar';
 import { DataExport } from '../components/DataExport';
@@ -29,8 +29,6 @@ export function SettingsPage() {
   const [circleName, setCircleName] = useState('');
   const [newOwner, setNewOwner] = useState({ name: '', fee: '' });
   const [showArchived, setShowArchived] = useState(false);
-  const [showBE, setShowBE] = usePref('showBreakEven');
-  const [instant, setInstant] = usePref('instantSale');
 
   useEffect(() => {
     if (data?.circle) setCircleName(data.circle.name);
@@ -40,7 +38,9 @@ export function SettingsPage() {
   if (role !== 'owner') {
     return (
       <main className="page">
-        <p className="lead">設定はサークル主が変えます。</p>
+        <p className="lead">サークルの設定はサークル主が変えます。この端末の表示は、ここで変えられます。</p>
+        <h3 className="section">レジと表示(この端末だけ)</h3>
+        <DisplaySettings owner={false} />
         <AccountBar />
         <Link className="link-btn" to="/">ホームに戻る</Link>
       </main>
@@ -118,22 +118,7 @@ export function SettingsPage() {
       </div>
 
       <h3 className="section">レジと表示(この端末だけ)</h3>
-      <div className="card">
-        <label className="check">
-          <input type="checkbox" checked={instant} onChange={(e) => setInstant(e.target.checked)} />
-          <span>
-            <b>レジでタップしたらすぐ記録する</b>
-            <small className="k">オフ(おすすめ)のときは、タップした品目をカートに入れ、「決済」を押して記録します。オンにすると、タップした瞬間に1部ずつ記録し、まとめ買いは「カート」から入れます。</small>
-          </span>
-        </label>
-        <label className="check">
-          <input type="checkbox" checked={showBE} onChange={(e) => setShowBE(e.target.checked)} />
-          <span>
-            <b>レジに黒字までの残り金額を出す</b>
-            <small className="k">経費を入れたイベントで、レジの上に「黒字まで あと◯円」を小さく出します。サークル主の端末だけに出ます。</small>
-          </span>
-        </label>
-      </div>
+      <DisplaySettings owner />
 
       <h3 className="section">データ</h3>
       <DataExport ctx={ctx} />
@@ -176,6 +161,69 @@ function OwnerRow({ owner, onSave, onArchive }: {
       <button className="link-btn small-link" onClick={() => void onArchive(!owner.archived_at)}>
         {owner.archived_at ? '戻す' : 'しまう'}
       </button>
+    </div>
+  );
+}
+
+const SEG = {
+  theme: [['auto', '端末に合わせる'], ['light', '明るい'], ['dark', '暗い']],
+  regSize: [['normal', '標準'], ['large', '大きい']],
+  regCols: [['2', '2列'], ['3', '3列']],
+} as const;
+
+/** この端末だけの表示の設定。スタッフの端末でも変えられる */
+function DisplaySettings({ owner }: { owner: boolean }) {
+  const [showBE, setShowBE] = usePref('showBreakEven');
+  const [instant, setInstant] = usePref('instantSale');
+  const [soldOutLast, setSoldOutLast] = usePref('soldOutLast');
+  const [theme, setTheme] = useChoice('theme');
+  const [regSize, setRegSize] = useChoice('regSize');
+  const [regCols, setRegCols] = useChoice('regCols');
+  return (
+    <div className="card">
+      <div className="seg-row">
+        <span className="k">画面の明るさ</span>
+        <div className="chips" role="radiogroup" aria-label="画面の明るさ">
+          {SEG.theme.map(([v, l]) => <button key={v} className="chip" role="radio" aria-checked={theme === v} aria-pressed={theme === v} onClick={() => setTheme(v)}>{l}</button>)}
+        </div>
+        <small className="k">会場が明るくて画面が見づらいときは「明るい」にします。</small>
+      </div>
+      <div className="seg-row">
+        <span className="k">レジの文字とボタンの大きさ</span>
+        <div className="chips" role="radiogroup" aria-label="レジの文字とボタンの大きさ">
+          {SEG.regSize.map(([v, l]) => <button key={v} className="chip" role="radio" aria-checked={regSize === v} aria-pressed={regSize === v} onClick={() => setRegSize(v)}>{l}</button>)}
+        </div>
+      </div>
+      <div className="seg-row">
+        <span className="k">レジの品目の列</span>
+        <div className="chips" role="radiogroup" aria-label="レジの品目の列">
+          {SEG.regCols.map(([v, l]) => <button key={v} className="chip" role="radio" aria-checked={regCols === v} aria-pressed={regCols === v} onClick={() => setRegCols(v)}>{l}</button>)}
+        </div>
+        <small className="k">品目が多いときは3列にすると、スクロールせずに全部見えます。</small>
+      </div>
+      <label className="check">
+        <input type="checkbox" checked={soldOutLast} onChange={(e) => setSoldOutLast(e.target.checked)} />
+        <span>
+          <b>レジで完売した品目を最後に回す</b>
+          <small className="k">準備画面で決めた並び順は変わりません。この端末のレジの表示だけが変わります。</small>
+        </span>
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={instant} onChange={(e) => setInstant(e.target.checked)} />
+        <span>
+          <b>レジでタップしたらすぐ記録する</b>
+          <small className="k">オフ(おすすめ)のときは、タップした品目をカートに入れ、「決済」を押して記録します。オンにすると、タップした瞬間に1部ずつ記録し、まとめ買いは「カート」から入れます。</small>
+        </span>
+      </label>
+      {owner && (
+        <label className="check">
+          <input type="checkbox" checked={showBE} onChange={(e) => setShowBE(e.target.checked)} />
+          <span>
+            <b>レジに黒字までの残り金額を出す</b>
+            <small className="k">経費を入れたイベントで、レジの上に「黒字まで あと◯円」を小さく出します。サークル主の端末だけに出ます。</small>
+          </span>
+        </label>
+      )}
     </div>
   );
 }

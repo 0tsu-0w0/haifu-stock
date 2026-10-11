@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEven
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
-import { usePref } from '../app/prefs';
+import { useChoice, usePref } from '../app/prefs';
 import { useCtx } from '../app/useCtx';
 import { EventNav } from '../components/EventNav';
 import { SyncPill } from '../components/SyncPill';
@@ -12,6 +12,7 @@ import { GIVE_LABEL, describeTxn } from '../domain/history';
 import { recordGiveaway, recordSale, voidTransaction } from '../domain/record';
 import { profitTimeline } from '../domain/report';
 import { changeBreakdown, denomLabel, paidSuggestions } from '../domain/change';
+import { colorVar } from '../domain/colors';
 import { hhmm, yen } from '../lib/format';
 import { useWakeLock } from '../app/useWakeLock';
 import { useEventData } from './useEventData';
@@ -55,6 +56,9 @@ export function RegisterPage() {
   const { role } = useAuth();
   const [showBE] = usePref('showBreakEven');
   const [instant] = usePref('instantSale');
+  const [soldOutLast] = usePref('soldOutLast');
+  const [regSize] = useChoice('regSize');
+  const [regCols] = useChoice('regCols');
   const data = useEventData(eventId);
   const toast = useToast();
   const [sheetItem, setSheetItem] = useState<Item | null>(null);
@@ -131,6 +135,15 @@ export function RegisterPage() {
     const comps = data.setComponents.filter((c) => c.set_item_id === item.id);
     return comps.length ? Math.min(...comps.map((c) => Math.floor(atClose(c.component_item_id) / c.qty))) : 0;
   };
+
+  // 完売した品目を末尾に回す(この端末の設定)。並び順そのものは変えない
+  const shownItems = soldOutLast
+    ? [...eventItems].sort((a, b) => {
+      const ia = itemById.get(a.item_id);
+      const ib = itemById.get(b.item_id);
+      return Number(!!ia && shownRemaining(ia) <= 0) - Number(!!ib && shownRemaining(ib) <= 0);
+    })
+    : eventItems;
 
   const describe = (t: Txn) => describeTxn(t, linesByTxn.get(t.id) ?? [], itemById);
 
@@ -266,7 +279,7 @@ export function RegisterPage() {
   }
 
   return (
-    <div className="register">
+    <div className={`register${regSize === 'large' ? ' large' : ''}`}>
       <header className="top">
         <div className="bar">
           {cart && cart.size > 0 ? (
@@ -307,19 +320,21 @@ export function RegisterPage() {
       </header>
 
       <main className="grid-wrap" onScroll={() => { lastScroll.current = Date.now(); }}>
-        <div className="grid" onContextMenu={(e) => e.preventDefault()}>
-          {eventItems.map((ei) => {
+        <div className={`grid${regCols === '3' ? ' cols-3' : ''}`} onContextMenu={(e) => e.preventDefault()}>
+          {shownItems.map((ei) => {
             const item = itemById.get(ei.item_id);
             if (!item) return null;
             const s = summary.get(item.id);
             const r = shownRemaining(item);
             const owner = ownerById.get(item.owner_id);
             const state = r < 0 ? 'out neg' : r === 0 ? 'out' : r <= item.low_threshold ? 'low' : '';
+            const color = colorVar(item.color);
             const remText = r < 0 ? `残 −${-r}` : r === 0 ? (s?.soldOutAt ? `完売 ${hhmm(s.soldOutAt)}` : '完売') : `残${r}`;
             return (
               <button
                 key={item.id}
-                className={`item ${state}${pressing === item.id ? ' pressing' : ''}`}
+                className={`item ${state}${color ? ' colored' : ''}${pressing === item.id ? ' pressing' : ''}`}
+                style={color ? ({ '--item-color': color } as React.CSSProperties) : undefined}
                 aria-label={`${item.name} ${priceOf(item)}円 ${r <= 0 ? '完売' : `残り${r}`}${owner && !owner.is_self ? ` 受託 ${owner.name}` : ''}${inCart(item.id) ? ` カートに${inCart(item.id)}` : ''}`}
                 onPointerDown={(e) => onDown(e, item)}
                 onPointerMove={onMove}
@@ -366,7 +381,7 @@ export function RegisterPage() {
               const item = itemById.get(id)!;
               return (
                 <div className="cl" key={id}>
-                  <span>{item.name}</span>
+                  <span>{colorVar(item.color) && <i className="color-dot" style={{ '--item-color': colorVar(item.color) } as React.CSSProperties} />}{item.name}</span>
                   <span className="qty small">
                     <button
                       aria-label={`${item.name}を1部減らす`}
@@ -515,7 +530,19 @@ export function RegisterPage() {
           remaining={available(sheetItem)}
           price={priceOf(sheetItem)}
           inCart={!!cart}
+          cartBusy={!!cart && cart.size > 0}
           onClose={() => setSheetItem(null)}
+          onDiscount={(qty, pay, why) => {
+            // カートを通さず、この品目だけを値引きした金額で1回の販売として記録する(F-409)
+            const full = priceOf(sheetItem) * qty;
+            void undoable(
+              recordSale(db, ctx, {
+                eventId, lines: [{ itemId: sheetItem.id, qty }], zeroStockOverride: available(sheetItem) < qty,
+                discount: full - pay, note: why || undefined,
+              }),
+              `${sheetItem.name}${qty > 1 ? ` ×${qty}` : ''} を ${yen(pay)} で記録(値引き ${yen(full - pay)})`,
+            );
+          }}
           onSale={(qty, zero) => {
             if (cart) return addToCart(sheetItem, qty, zero);
             void undoable(
@@ -568,24 +595,37 @@ function LockCover(props: { title: string; sales: string; count: number; onUnloc
   );
 }
 
-type Choice = 'sale' | 'zero' | GiveawayKind;
+type Choice = 'sale' | 'zero' | 'discount' | GiveawayKind;
 
 function ItemSheet(props: {
   item: Item;
   remaining: number;
   price: number;
   inCart: boolean;
+  /** カートに品目が入っている(このときは、値引きはカートの「値引き・金額を変える」で行う) */
+  cartBusy: boolean;
   onClose: () => void;
   onSale: (qty: number, zero: boolean) => void;
+  onDiscount: (qty: number, pay: number, reason: string) => void;
   onGive: (qty: number, kind: GiveawayKind) => void;
 }) {
-  const { item, remaining, price, inCart } = props;
+  const { item, remaining, price, inCart, cartBusy } = props;
   const soldOut = remaining <= 0;
   const [choice, setChoice] = useState<Choice>(soldOut ? 'zero' : item.kind === 'set' ? 'sale' : 'sample');
   const [qty, setQty] = useState(1);
+  const [payInput, setPayInput] = useState('');
+  const [reason, setReason] = useState('');
+  const full = price * qty;
+  const pay = payInput === '' ? null : Number(payInput);
+  const discountError = choice !== 'discount' ? null
+    : cartBusy ? 'カートの途中です。カートの「値引き・金額を変える」を使ってください'
+    : pay === null ? '受け取る金額を入れてください'
+    : pay >= full ? '元の金額より安い金額を入れてください'
+    : null;
   const saleLabel = inCart ? 'カートに追加' : '販売を記録';
   const options: [Choice, string][] = [
     soldOut ? ['zero', `${saleLabel}(残数0)`] : ['sale', `${saleLabel}(部数を指定)`],
+    ['discount', '値引きして記録'],
     ...(item.kind === 'set' ? [] : (['sample', 'gift', 'damage'] as const).map((k): [Choice, string] => [k, GIVE_LABEL[k]])),
   ];
   const isSale = choice === 'sale' || choice === 'zero';
@@ -604,6 +644,35 @@ function ItemSheet(props: {
             {k === 'zero' && <p className="warnnote">残数がマイナスになります。終了処理で持ち込み数を確認できます。</p>}
           </div>
         ))}
+        {choice === 'discount' && (
+          <div className="sheet-discount">
+            {cartBusy ? (
+              <p className="warnnote">{discountError}</p>
+            ) : (
+              <>
+                <div className="rowx">
+                  <label className="k" htmlFor="sheet-pay">受け取る金額(元は <span className="num">{yen(full)}</span>)</label>
+                  <span className="exp-amount">
+                    <input
+                      id="sheet-pay" className="price-in" inputMode="numeric" placeholder={String(full)} value={payInput}
+                      onChange={(e) => setPayInput(e.target.value.replace(/\D/g, ''))}
+                    />
+                    <small className="k">円</small>
+                  </span>
+                </div>
+                <div className="chips" role="group" aria-label="値引きの理由">
+                  {DISCOUNT_REASONS.map((r) => (
+                    <button key={r} className="chip" aria-pressed={reason === r} onClick={() => setReason((x) => (x === r ? '' : r))}>{r}</button>
+                  ))}
+                </div>
+                {pay !== null && pay < full && <p className="k">値引き <span className="num">{yen(full - pay)}</span>(理由と一緒に履歴に残ります)</p>}
+                {pay !== null && pay >= full && <p className="warnnote">元の金額より安い金額を入れてください</p>}
+                {soldOut && <p className="warnnote">残数0なので、残数がマイナスになります。</p>}
+                <p className="note">カートを通さず、この品目だけを1回の販売として記録します。</p>
+              </>
+            )}
+          </div>
+        )}
         <div className="qrow">
           <span>部数</span>
           <span className="qty">
@@ -615,13 +684,17 @@ function ItemSheet(props: {
         {qty >= MANY_QTY && <p className="warnnote">{qty}部です。数を確かめてから記録してください。</p>}
         <button
           className="go"
+          disabled={!!discountError}
           onClick={() => {
+            if (discountError) return;
             props.onClose();
-            if (isSale) props.onSale(qty, choice === 'zero');
+            if (choice === 'discount') props.onDiscount(qty, pay!, reason);
+            else if (isSale) props.onSale(qty, choice === 'zero');
             else props.onGive(qty, choice as GiveawayKind);
           }}
         >
-          {isSale ? (inCart ? 'カートに追加' : `記録する ${yen(price * qty)}`) : `${GIVE_LABEL[choice as GiveawayKind]}として記録`}
+          {choice === 'discount' ? (pay !== null && pay < full ? `${yen(pay)} で記録する` : '値引きして記録')
+            : isSale ? (inCart ? 'カートに追加' : `記録する ${yen(price * qty)}`) : `${GIVE_LABEL[choice as GiveawayKind]}として記録`}
         </button>
         <button className="cancel" onClick={props.onClose}>キャンセル</button>
       </div>

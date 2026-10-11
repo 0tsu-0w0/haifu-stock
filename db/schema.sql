@@ -130,6 +130,7 @@ create table items (
   name              text not null check (length(name) between 1 and 100),
   price             int  not null check (price >= 0),
   cover_path        text,                                   -- Supabase Storage のパス
+  color             text check (color ~ '^[a-z]{1,12}$'),   -- レジで見分けるための色の名前
   issued_on         date,
   spec              jsonb not null default '{}',            -- 判型・ページ数など
   memo              text,
