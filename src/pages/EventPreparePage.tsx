@@ -17,7 +17,7 @@ import {
   type PrepareLine,
 } from '../domain/catalog';
 import { DENOMINATIONS } from '../domain/closing';
-import { stockByLocation } from '../domain/ledger';
+import { storageStock } from '../domain/stock';
 import { yen } from '../lib/format';
 
 const toLocalTime = (iso: string | null) => {
@@ -37,7 +37,7 @@ export function EventPreparePage() {
 
   const data = useLiveQuery(async () => {
     if (!ctx) return null;
-    const [event, items, owners, storages, eventItems, prepared, cash, expenses, closings, movements, txns, events] = await Promise.all([
+    const [event, items, owners, storages, eventItems, prepared, cash, expenses, closings, stock, events] = await Promise.all([
       isNew ? undefined : db.events.get(eventId!),
       db.items.where('circle_id').equals(ctx.circleId).toArray(),
       db.owners.where('circle_id').equals(ctx.circleId).toArray(),
@@ -47,15 +47,14 @@ export function EventPreparePage() {
       isNew ? [] : db.cash_counts.where('event_id').equals(eventId!).toArray(),
       isNew ? [] : db.expenses.where('event_id').equals(eventId!).toArray(),
       isNew ? [] : db.event_closings.where('event_id').equals(eventId!).toArray(),
-      db.stock_movements.toArray(),
-      db.transactions.toArray(),
+      storageStock(db, ctx.circleId),
       db.events.where('circle_id').equals(ctx.circleId).toArray(),
     ]);
     // コピー元にできるイベント(F-303): 削除していない、ほかのイベント。新しい順
     const others = events.filter((e) => !e.deleted_at && e.id !== eventId).sort((a, b) => b.held_on.localeCompare(a.held_on));
     return {
       event, items, owners, storages, eventItems, prepared, cash, expenses, others,
-      closed: closings.some((c) => !c.reopened_at), stock: stockByLocation(movements, txns),
+      closed: closings.some((c) => !c.reopened_at), stock,
     };
   }, [ctx?.circleId, eventId]);
 

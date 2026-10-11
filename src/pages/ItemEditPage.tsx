@@ -11,7 +11,8 @@ import { useToast } from '../components/Toast';
 import type { ItemKind } from '../db/types';
 import { addPrintRun, deleteItem, productionCost, restoreItem, saveItem, saveOwner, saveProductionCost, setItemArchived } from '../domain/catalog';
 import { COLOR_LABEL, ITEM_COLORS, colorVar } from '../domain/colors';
-import { breakEvenQty, stockByLocation } from '../domain/ledger';
+import { breakEvenQty } from '../domain/ledger';
+import { storageStock } from '../domain/stock';
 import { yen } from '../lib/format';
 
 const NEW_OWNER = '__new__';
@@ -26,19 +27,18 @@ export function ItemEditPage() {
 
   const data = useLiveQuery(async () => {
     if (!ctx) return null;
-    const [item, owners, items, storages, runs, comps, movements, txns, prodCost] = await Promise.all([
+    const [item, owners, items, storages, runs, comps, stock, prodCost] = await Promise.all([
       isNew ? undefined : db.items.get(itemId!),
       db.owners.where('circle_id').equals(ctx.circleId).toArray(),
       db.items.where('circle_id').equals(ctx.circleId).filter((i) => !i.archived_at && !i.deleted_at).toArray(),
       db.locations.where('circle_id').equals(ctx.circleId).filter((l) => l.kind === 'storage').toArray(),
       isNew ? [] : db.print_runs.where('item_id').equals(itemId!).sortBy('edition'),
       isNew ? [] : db.set_components.where('set_item_id').equals(itemId!).toArray(),
-      isNew ? [] : db.stock_movements.where('item_id').equals(itemId!).toArray(),
-      db.transactions.toArray(),
+      isNew ? new Map<string, number>() : storageStock(db, ctx.circleId),
       isNew ? 0 : productionCost(db, itemId!),
     ]);
     // しまった受託元は選べないようにする(この品目の今の持ち主だけは残す)
-    return { item, owners: owners.filter((o) => !o.archived_at || o.id === item?.owner_id), items, storages, runs, comps, prodCost, stock: stockByLocation(movements, txns) };
+    return { item, owners: owners.filter((o) => !o.archived_at || o.id === item?.owner_id), items, storages, runs, comps, prodCost, stock };
   }, [ctx?.circleId, itemId]);
 
   const [form, setForm] = useState({ name: '', kind: 'book' as ItemKind, price: '', ownerId: '', low: '3', color: null as string | null });

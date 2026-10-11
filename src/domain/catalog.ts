@@ -3,8 +3,9 @@ import type { CashCount, EventItem, EventRow, Expense, ExpenseCategory, Item, It
 import { uuidv7 } from '../lib/uuid';
 import { assertOpen } from './closing';
 import { isItemColor } from './colors';
-import { eventItemSummary, stockByLocation } from './ledger';
+import { eventItemSummary } from './ledger';
 import { moveStock, type Ctx } from './record';
+import { locationStock } from './stock';
 import { createEvent } from './setup';
 
 // 品目・持ち主・刷り記録・イベントの準備(F-101〜108、F-301〜309)。
@@ -468,7 +469,7 @@ export async function recordStocktake(
 ): Promise<{ adjusted: number }> {
   const loc = await db.locations.get(input.locationId);
   if (!loc || loc.kind !== 'storage') throw new Error('保管場所が見つかりません');
-  const stock = stockByLocation(await db.stock_movements.toArray(), await db.transactions.toArray());
+  const stock = await locationStock(db, [loc.id]);
   let adjusted = 0;
   for (const l of input.lines) {
     if (!Number.isInteger(l.counted) || l.counted < 0) throw new Error('数は0以上の整数で入れてください');

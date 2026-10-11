@@ -6,7 +6,7 @@ import { useCtx } from '../app/useCtx';
 import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../components/Toast';
 import { restoreItem } from '../domain/catalog';
-import { stockByLocation } from '../domain/ledger';
+import { storageStock } from '../domain/stock';
 import { yen } from '../lib/format';
 
 const KIND_LABEL = { book: '本', goods: 'グッズ', set: 'セット' } as const;
@@ -19,14 +19,13 @@ export function ItemsPage() {
   const toast = useToast();
   const data = useLiveQuery(async () => {
     if (!ctx) return null;
-    const [items, owners, storages, movements, txns] = await Promise.all([
+    const [items, owners, storages, stock] = await Promise.all([
       db.items.where('circle_id').equals(ctx.circleId).toArray(),
       db.owners.where('circle_id').equals(ctx.circleId).toArray(),
       db.locations.where('circle_id').equals(ctx.circleId).filter((l) => l.kind === 'storage').toArray(),
-      db.stock_movements.toArray(),
-      db.transactions.toArray(),
+      storageStock(db, ctx.circleId),
     ]);
-    return { items, owners, storages, stock: stockByLocation(movements, txns) };
+    return { items, owners, storages, stock };
   }, [ctx?.circleId]);
 
   if (!data) return <main className="page" />;

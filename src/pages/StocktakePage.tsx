@@ -6,7 +6,7 @@ import { NumberField } from '../components/NumberField';
 import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../components/Toast';
 import { STOCKTAKE_REASON, recordStocktake, type StocktakeReason } from '../domain/catalog';
-import { stockByLocation } from '../domain/ledger';
+import { storageStock } from '../domain/stock';
 
 // 棚卸し(F-204): 保管場所の実際の数を入れ、帳簿との差を理由つきで合わせる
 export function StocktakePage() {
@@ -14,15 +14,14 @@ export function StocktakePage() {
   const toast = useToast();
   const data = useLiveQuery(async () => {
     if (!ctx) return null;
-    const [items, owners, storages, movements, txns] = await Promise.all([
+    const [items, owners, storages, stock] = await Promise.all([
       db.items.where('circle_id').equals(ctx.circleId).filter((i) => !i.deleted_at && i.kind !== 'set').toArray(),
       db.owners.where('circle_id').equals(ctx.circleId).toArray(),
       db.locations.where('circle_id').equals(ctx.circleId).filter((l) => l.kind === 'storage' && !l.archived_at).toArray(),
-      db.stock_movements.toArray(),
-      db.transactions.toArray(),
+      storageStock(db, ctx.circleId),
     ]);
     const self = new Set(owners.filter((o) => o.is_self).map((o) => o.id));
-    return { items: items.filter((i) => self.has(i.owner_id)), storages, stock: stockByLocation(movements, txns) };
+    return { items: items.filter((i) => self.has(i.owner_id)), storages, stock };
   }, [ctx?.circleId]);
   const [locId, setLocId] = useState('');
   const [counted, setCounted] = useState<Map<string, number>>(new Map());

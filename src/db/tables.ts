@@ -25,7 +25,7 @@ export const TABLES: TableSpec[] = [
   { name: 'event_items', label: 'イベントの品目', pk: ['event_id', 'item_id'], ledger: false, indexes: ['event_id'], parents: ['events', 'items'] },
   { name: 'transactions', label: '販売の記録', pk: ['id'], ledger: true, indexes: ['event_id', 'voids_txn_id', 'recorded_at'], parents: ['events'] },
   { name: 'transaction_lines', label: '販売の明細', pk: ['id'], ledger: true, indexes: ['transaction_id', 'item_id'], parents: ['transactions', 'items'] },
-  { name: 'stock_movements', label: '在庫の動き', pk: ['id'], ledger: true, indexes: ['event_id', 'item_id', 'transaction_id'], parents: ['items', 'locations', 'events', 'transactions', 'print_runs'] },
+  { name: 'stock_movements', label: '在庫の動き', pk: ['id'], ledger: true, indexes: ['event_id', 'item_id', 'transaction_id', 'from_location_id', 'to_location_id'], parents: ['items', 'locations', 'events', 'transactions', 'print_runs'] },
   { name: 'devices', label: '端末の名前', pk: ['id'], ledger: false, indexes: ['circle_id'], parents: ['circles'] },
   { name: 'production_costs', label: '制作費', pk: ['id'], ledger: false, indexes: ['item_id'], parents: ['items'] },
   { name: 'print_price_tiers', label: '印刷所の価格表', pk: ['id'], ledger: false, indexes: ['item_id'], parents: ['items'] },

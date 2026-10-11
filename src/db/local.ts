@@ -36,7 +36,8 @@ export class HaifuDB extends Dexie {
   constructor(name = 'haifu-stock') {
     super(name);
     // 2: 端末の名前(devices)を追加 / 3: 取り置き(reservations)を追加 / 4: 使っていなかった event_devices を消す
-    this.version(4).stores({ ...dexieStores(), event_devices: null });
+    // 5: 在庫の動きに置き場所の索引を足す(保管場所の在庫を、関係する行だけ読んで出すため)
+    this.version(5).stores({ ...dexieStores(), event_devices: null });
   }
 }
 
