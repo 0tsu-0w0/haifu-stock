@@ -211,7 +211,7 @@ export async function assertOpen(db: HaifuDB, eventId: string): Promise<void> {
 const CLOSE_TABLES = [
   'events', 'locations', 'event_items', 'items', 'owners', 'set_components', 'transactions', 'transaction_lines',
   'stock_movements', 'cash_counts', 'closing_counts', 'event_closings', 'consignment_settlements', 'expenses',
-  'print_runs', 'event_breaks', 'outbox',
+  'print_runs', 'event_breaks', 'reservations', 'outbox',
 ];
 
 /**

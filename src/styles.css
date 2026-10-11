@@ -587,3 +587,12 @@ details[open] summary { margin-bottom: 6px; }
 .chart-head .chart-title { padding-bottom: 0; }
 .chart-save { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; min-height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line-2); font-size: 12px; color: var(--ink-2); background: var(--surface); flex: none; }
 .chart-save:disabled { opacity: .5; }
+
+/* 取り置き(#11) */
+.resv-row { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.resv-row > span:first-child { display: flex; flex-direction: column; gap: 1px; }
+.resv-row.done { color: var(--ink-3); }
+.resv-add { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; }
+.resv-add input, .resv-add select { height: 44px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font: inherit; padding: 0 10px; min-width: 0; }
+.resv-add-row { display: grid; grid-template-columns: 1fr 64px auto; gap: 8px; }
+.resv-chip { background: var(--consign-bg); color: var(--consign); border-radius: 10px; padding: 8px 12px; font-size: 13px; font-weight: 700; text-align: left; }

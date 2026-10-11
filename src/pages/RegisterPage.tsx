@@ -7,12 +7,14 @@ import { useChoice, usePref } from '../app/prefs';
 import { useCtx } from '../app/useCtx';
 import { EventNav } from '../components/EventNav';
 import { RegisterTour, tourSeen } from '../components/RegisterTour';
+import { useReservations } from '../components/Reservations';
 import { SyncPill } from '../components/SyncPill';
 import { useToast } from '../components/Toast';
 import type { GiveawayKind, Item, Txn } from '../db/types';
 import { endBreak, openBreak, startBreak } from '../domain/breaks';
 import { GIVE_LABEL, describeTxn } from '../domain/history';
 import { recordGiveaway, recordSale, voidTransaction } from '../domain/record';
+import { handReservation } from '../domain/reservations';
 import { profitTimeline } from '../domain/report';
 import { changeBreakdown, denomLabel, paidSuggestions } from '../domain/change';
 import { colorVar } from '../domain/colors';
@@ -126,6 +128,9 @@ export function RegisterPage() {
   }, [flash]);
   // 招待から入ったスタッフの端末では、最初に使い方を出す
   const [tour, setTour] = useState(false);
+  // 取り置きの一覧(当日に渡したら記録する)
+  const [resvOpen, setResvOpen] = useState(false);
+  const reservations = useReservations(eventId);
   useEffect(() => {
     if (role === 'staff' && !tourSeen()) setTour(true);
   }, [role]);
@@ -143,10 +148,15 @@ export function RegisterPage() {
     );
   }
 
-  const { event, eventItems, itemById, ownerById, summary, totals, float, last, linesByTxn, priceOf, closing } = data;
+  const { event, eventItems, itemById, ownerById, summary, totals, float, last, linesByTxn, priceOf, closing, held } = data;
   const locked = !!closing;
   const inCart = (id: string) => cart?.get(id) ?? 0;
-  const available = (item: Item) => (summary.get(item.id)?.remaining ?? 0) - inCart(item.id);
+  // 売れる部数 = 残り − カートの分 − 取り置きの分(#11)
+  const heldOf = (id: string) => held.get(id) ?? 0;
+  const available = (item: Item) => (summary.get(item.id)?.remaining ?? 0) - inCart(item.id) - heldOf(item.id);
+  const soldOutMsg = (item: Item) => (heldOf(item.id) > 0 && (summary.get(item.id)?.remaining ?? 0) - inCart(item.id) > 0
+    ? '残りは取り置きの分です。渡すときは上の「取り置き」から記録します'
+    : '完売です。長押しで記録できます');
   // 確定後は残りを持ち帰っているので、持ち帰る前(撤収時点)の残数を見せる
   const atClose = (id: string) => (summary.get(id)?.remaining ?? 0) + (summary.get(id)?.takenBack ?? 0);
   const shownRemaining = (item: Item): number => {
@@ -161,7 +171,7 @@ export function RegisterPage() {
     ? [...eventItems].sort((a, b) => {
       const ia = itemById.get(a.item_id);
       const ib = itemById.get(b.item_id);
-      return Number(!!ia && shownRemaining(ia) <= 0) - Number(!!ib && shownRemaining(ib) <= 0);
+      return Number(!!ia && shownRemaining(ia) - (locked ? 0 : heldOf(ia.id)) <= 0) - Number(!!ib && shownRemaining(ib) - (locked ? 0 : heldOf(ib.id)) <= 0);
     })
     : eventItems;
 
@@ -208,14 +218,14 @@ export function RegisterPage() {
     if (guard()) return;
     setFlash(null);
     if (cart) {
-      if (available(item) <= 0) return toast('完売です。長押しで記録できます');
+      if (available(item) <= 0) return toast(soldOutMsg(item));
       addToCart(item, 1);
       return;
     }
     if (lastTap.current?.id === item.id && now - lastTap.current.at < DOUBLE_TAP_MS) return;
     lastTap.current = { id: item.id, at: now };
     if (available(item) <= 0) {
-      toast('完売です。長押しで記録できます');
+      toast(soldOutMsg(item));
       return;
     }
     setHit((h) => ({ id: item.id, n: (h?.n ?? 0) + 1 }));
@@ -351,6 +361,11 @@ export function RegisterPage() {
             : <span>タップでカートに入れ、「決済」で記録</span>}
           <span>{awake ? '画面は消えません・' : ''}{eventItems.length}品目</span>
         </div>
+        {!locked && (reservations?.some((r) => r.status === 'held') ?? false) && (
+          <button className="resv-chip" onClick={() => setResvOpen(true)}>
+            取り置き {reservations!.filter((r) => r.status === 'held').length}件(押すと一覧・渡したら記録)
+          </button>
+        )}
         {onBreak && !locked && (
           <button className="break-banner" onClick={() => void endBreak(db, ctx, eventId).then(() => toast('休憩を終えました'))}>
             休憩中({hhmm(onBreak.starts_at)}〜)。この時間は販売時間から除きます。押すと再開します(販売を記録しても再開します)
@@ -389,15 +404,19 @@ export function RegisterPage() {
             const s = summary.get(item.id);
             const r = shownRemaining(item);
             const owner = ownerById.get(item.owner_id);
-            const state = r < 0 ? 'out neg' : r === 0 ? 'out' : r === 1 && lastOneRed ? 'last' : r <= item.low_threshold ? 'low' : '';
+            const h = locked ? 0 : heldOf(item.id);
+            const free = r - h; // 取り置きを除いた、売れる部数
+            const state = r < 0 ? 'out neg' : free <= 0 ? 'out' : free === 1 && lastOneRed ? 'last' : free <= item.low_threshold ? 'low' : '';
             const color = colorVar(item.color);
-            const remText = r < 0 ? `残 −${-r}` : r === 0 ? (s?.soldOutAt ? `完売 ${hhmm(s.soldOutAt)}` : '完売') : r === 1 && lastOneRed ? '残1・最後' : `残${r}`;
+            const remText = r < 0 ? `残 −${-r}` : r === 0 ? (s?.soldOutAt ? `完売 ${hhmm(s.soldOutAt)}` : '完売')
+              : h > 0 ? (free <= 0 ? `取置${h}のみ` : `残${free}・取置${h}`)
+              : r === 1 && lastOneRed ? '残1・最後' : `残${r}`;
             return (
               <button
                 key={item.id}
                 className={`item ${state}${color ? ' colored' : ''}${pressing === item.id ? ' pressing' : ''}`}
                 style={color ? ({ '--item-color': color } as React.CSSProperties) : undefined}
-                aria-label={`${item.name} ${priceOf(item)}円 ${r <= 0 ? '完売' : r === 1 ? '残り1部・最後の1部' : `残り${r}`}${owner && !owner.is_self ? ` 受託 ${owner.name}` : ''}${inCart(item.id) ? ` カートに${inCart(item.id)}` : ''}`}
+                aria-label={`${item.name} ${priceOf(item)}円 ${r <= 0 ? '完売' : free <= 0 ? `残り${r}部はすべて取り置き` : free === 1 ? '残り1部・最後の1部' : `残り${free}`}${h > 0 && free > 0 ? ` 取り置き${h}部` : ''}${owner && !owner.is_self ? ` 受託 ${owner.name}` : ''}${inCart(item.id) ? ` カートに${inCart(item.id)}` : ''}`}
                 onPointerDown={(e) => onDown(e, item)}
                 onPointerMove={onMove}
                 onPointerUp={(e) => onUp(e, item)}
@@ -587,6 +606,33 @@ export function RegisterPage() {
       )}
 
       {tour && !screenLock && <RegisterTour instant={instant} onClose={() => setTour(false)} />}
+
+      {resvOpen && reservations && (
+        <div className="scrim" onClick={(e) => e.target === e.currentTarget && setResvOpen(false)}>
+          <div className="sheet" role="dialog" aria-modal="true" aria-label="取り置き">
+            <div className="grab" />
+            <h2>取り置き</h2>
+            <p className="sub">渡したら「渡した」を押すと、販売として記録します(イベント価格)。</p>
+            {reservations.filter((r) => r.status === 'held').length === 0 && <p className="note">取り置き中のものはありません。</p>}
+            {reservations.filter((r) => r.status === 'held').map((r) => {
+              const it = itemById.get(r.item_id);
+              return (
+                <div className="rowx resv-row" key={r.id}>
+                  <span><b>{r.name}</b><small className="k">{it?.name ?? '不明な品目'} ×{r.qty}</small></span>
+                  <button
+                    className="sbtn acc"
+                    onClick={() => {
+                      if (!it) return;
+                      void undoable(handReservation(db, ctx, r.id), `${r.name} に ${it.name}${r.qty > 1 ? ` ×${r.qty}` : ''} を渡しました ${yen(priceOf(it) * r.qty)}`);
+                    }}
+                  >渡した {it ? yen(priceOf(it) * r.qty) : ''}</button>
+                </div>
+              );
+            })}
+            <button className="cancel" onClick={() => setResvOpen(false)}>閉じる</button>
+          </div>
+        </div>
+      )}
 
       {sheetItem && (
         <ItemSheet

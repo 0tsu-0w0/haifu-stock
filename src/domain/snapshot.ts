@@ -1,6 +1,7 @@
 import type { HaifuDB } from '../db/local';
 import type { EventClosing, Item, Txn } from '../db/types';
 import { eventItemSummary, lastActiveTxn, salesTotals } from './ledger';
+import { heldByItem } from './reservations';
 
 // 1つのイベントに関わるデータをまとめて読み、集計する。レジと終了処理とテストで同じものを使う
 
@@ -8,7 +9,7 @@ export async function loadEventSnapshot(db: HaifuDB, eventId: string) {
   const event = await db.events.get(eventId);
   if (!event) return null;
   const c = event.circle_id;
-  const [location, storages, allEventItems, items, owners, setComponents, txns, movements, cash, closingCounts, closings, expenses, printRuns, breaks] =
+  const [location, storages, allEventItems, items, owners, setComponents, txns, movements, cash, closingCounts, closings, expenses, printRuns, breaks, reservations] =
     await Promise.all([
       db.locations.where('event_id').equals(eventId).first(),
       db.locations.where('circle_id').equals(c).filter((l) => l.kind === 'storage' && !l.archived_at).toArray(),
@@ -24,6 +25,7 @@ export async function loadEventSnapshot(db: HaifuDB, eventId: string) {
       db.expenses.where('event_id').equals(eventId).toArray(),
       db.print_runs.toArray(),
       db.event_breaks.where('event_id').equals(eventId).toArray(),
+      db.reservations.where('event_id').equals(eventId).toArray(),
     ]);
   const lines = await db.transaction_lines.where('transaction_id').anyOf(txns.map((t) => t.id)).toArray();
   return {
@@ -35,6 +37,8 @@ export async function loadEventSnapshot(db: HaifuDB, eventId: string) {
     cash, closingCounts, expenses, printRuns,
     /** 休憩・離席の時間帯(F-411) */
     breaks,
+    /** 取り置き(Issue #11) */
+    reservations,
     closing: closings.find((x) => !x.reopened_at) ?? null as EventClosing | null,
   };
 }
@@ -55,6 +59,8 @@ export function deriveEvent(s: EventSnapshot) {
   const priceOf = (item: Item) => s.allEventItems.find((e) => e.item_id === item.id)?.price_override ?? item.price;
   return {
     summary, totals, itemById, ownerById, linesByTxn, priceOf,
+    /** 品目ごとの取り置き中の部数。レジで売れる部数から除く */
+    held: heldByItem(s.reservations, s.txns),
     float: sumCash('float'),
     counted: sumCash('close'),
     last: lastActiveTxn(s.txns) as Txn | undefined,

@@ -255,6 +255,25 @@ create table event_items (
   primary key (event_id, item_id)
 );
 
+-- 取り置き。事前に頼まれた分を、レジで売れる部数から除いておく(在庫は動かさない)
+-- held: 取り置き中 / handed: 渡した(販売として記録済み) / cancelled: 取り消した・来なかった
+create table reservations (
+  id                uuid primary key,
+  circle_id         uuid not null references circles(id) on delete cascade,
+  event_id          uuid not null references events(id) on delete cascade,
+  item_id           uuid not null references items(id),
+  qty               int  not null check (qty > 0),
+  name              text not null check (length(name) between 1 and 50),  -- 頼んだ人(呼び名やメモ)
+  status            text not null default 'held' check (status in ('held','handed','cancelled')),
+  transaction_id    uuid,                                -- 渡したときの販売
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  client_updated_at timestamptz not null default now(),
+  server_seq        bigint not null default 0
+);
+create index reservations_event on reservations (event_id);
+create index reservations_seq on reservations (server_seq);
+
 -- 休憩・離席(F-411)。完売補正で販売時間から除く
 create table event_breaks (
   id                uuid primary key,
@@ -491,7 +510,7 @@ begin
   foreach t in array array[
     'circles','circle_members','event_types','owners','items','set_components','print_runs',
     'production_costs','print_price_tiers','events','locations','event_items','event_breaks',
-    'expenses','invites','event_staff','event_devices','devices','transactions','transaction_lines',
+    'expenses','invites','event_staff','event_devices','devices','reservations','transactions','transaction_lines',
     'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements']
   loop
     execute format('create trigger %I before insert or update on %I for each row execute function app.touch_sync()',
@@ -501,7 +520,7 @@ begin
   -- 後勝ち
   foreach t in array array[
     'circles','event_types','owners','items','print_runs','production_costs','print_price_tiers',
-    'events','locations','event_items','event_breaks','expenses','cash_counts','closing_counts','devices']
+    'events','locations','event_items','event_breaks','expenses','cash_counts','closing_counts','devices','reservations']
   loop
     execute format('create trigger %I before update on %I for each row execute function app.last_write_wins()',
                    t || '_lww', t);
@@ -647,7 +666,7 @@ begin
   foreach t in array array[
     'circles','circle_members','event_types','owners','items','set_components','print_runs',
     'production_costs','print_price_tiers','events','locations','event_items','event_breaks',
-    'expenses','invites','event_staff','event_devices','devices','transactions','transaction_lines',
+    'expenses','invites','event_staff','event_devices','devices','reservations','transactions','transaction_lines',
     'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements']
   loop
     execute format('alter table %I enable row level security', t);
@@ -657,7 +676,7 @@ begin
   foreach t in array array[
     'event_types','owners','items','set_components','print_runs','production_costs',
     'print_price_tiers','events','locations','event_items','event_breaks','expenses','invites',
-    'event_staff','event_devices','devices','cash_counts','closing_counts','event_closings','consignment_settlements']
+    'event_staff','event_devices','devices','reservations','cash_counts','closing_counts','event_closings','consignment_settlements']
   loop
     execute format('create policy %I on %I for all to authenticated
                       using (app.is_owner(circle_id)) with check (app.is_owner(circle_id))',
@@ -706,6 +725,11 @@ create policy event_devices_staff_rw on event_devices for all to authenticated
 
 -- 売り子: 参加中のイベントの休憩・離席(F-411)
 create policy event_breaks_staff_rw on event_breaks for all to authenticated
+  using (app.is_event_staff(event_id))
+  with check (app.is_event_staff(event_id));
+
+-- 売り子: 参加中のイベントの取り置き(当日の受け渡しを記録するため)
+create policy reservations_staff_rw on reservations for all to authenticated
   using (app.is_event_staff(event_id))
   with check (app.is_event_staff(event_id));
 

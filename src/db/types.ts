@@ -203,6 +203,23 @@ export interface EventBreak extends FromServer {
   client_updated_at: Iso;
 }
 
+export type ReservationStatus = 'held' | 'handed' | 'cancelled';
+
+/** 取り置き。held の間は、レジで売れる部数から除く(在庫は動かさない) */
+export interface Reservation extends FromServer {
+  id: Uuid;
+  circle_id: Uuid;
+  event_id: Uuid;
+  item_id: Uuid;
+  qty: number;
+  /** 頼んだ人(呼び名やメモ) */
+  name: string;
+  status: ReservationStatus;
+  /** 渡したときの販売 */
+  transaction_id: Uuid | null;
+  client_updated_at: Iso;
+}
+
 export type ExpenseCategory = 'booth_fee' | 'transport' | 'lodging' | 'shipping' | 'supplies' | 'other';
 
 export interface Expense extends FromServer {

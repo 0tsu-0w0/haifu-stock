@@ -193,6 +193,20 @@ await as(U2, async () => {
   await expectError(db.query(`insert into event_breaks (id, circle_id, event_id, starts_at) values ($1,$2,$3,now())`, [id(), C, id()]), '売り子は参加していないイベントの休憩を記録できない');
 });
 
+// 取り置き(#11): サークル主が入れ、売り子は当日「渡した」を記録できる
+const R1 = id();
+await as(U1, async () => {
+  await db.query(`insert into reservations (id, circle_id, event_id, item_id, qty, name) values ($1,$2,$3,$4,2,'Xさん')`, [R1, C, EV, A]);
+  await expectError(db.query(`insert into reservations (id, circle_id, event_id, item_id, qty, name, status) values ($1,$2,$3,$4,1,'Y','lost')`, [id(), C, EV, A]), '取り置きの状態は held / handed / cancelled だけ');
+});
+await as(U2, async () => {
+  const seen = await db.query(`select name from reservations where id = $1`, [R1]);
+  ok(seen.rows.length === 1, '売り子は参加中のイベントの取り置きが見える');
+  const r = await db.query(`update reservations set status = 'handed', client_updated_at = now() + interval '1 second' where id = $1`, [R1]);
+  ok(r.affectedRows === 1, '売り子は取り置きを「渡した」にできる');
+  await expectError(db.query(`insert into reservations (id, circle_id, event_id, item_id, qty, name) values ($1,$2,$3,$4,1,'Z')`, [id(), C, id(), A]), '売り子は参加していないイベントに取り置きを入れられない');
+});
+
 // 端末の名前: 売り子は自分の端末だけ、サークル主はすべて
 await as(U1, async () => {
   await db.query(`insert into devices (id, circle_id, user_id, name) values ($1,$2,$3,'主のスマホ')`, [DEV1, C, U1]);

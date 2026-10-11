@@ -21,8 +21,8 @@ async function assertOpenForRegister(db: HaifuDB, eventId: string, source: 'regi
   if (closed > 0) throw new Error('このイベントは終了処理を確定済みです');
 }
 
-const LEDGER_TABLES = ['transactions', 'transaction_lines', 'stock_movements', 'outbox', 'event_closings'] as const;
-const READ_TABLES = ['locations', 'items', 'set_components', 'event_items'] as const;
+export const LEDGER_TABLES = ['transactions', 'transaction_lines', 'stock_movements', 'outbox', 'event_closings'] as const;
+export const READ_TABLES = ['locations', 'items', 'set_components', 'event_items'] as const;
 
 export async function eventLocationId(db: HaifuDB, eventId: string): Promise<string> {
   const loc = await db.locations.where('event_id').equals(eventId).first();

@@ -89,6 +89,12 @@ export function ClosingPage() {
       <div className="c-steps">{STEPS.map((s, i) => <span key={s} className={done || i <= step ? 'on' : ''} />)}</div>
 
       <main className="c-body" ref={body}>
+        {!done && data.held.size > 0 && (
+          <p className="warnnote">
+            渡していない取り置きが {[...data.held.values()].reduce((a, n) => a + n, 0)}部あります(在庫には残っています)。
+            渡したなら、先にレジの「取り置き」から記録してください。来なかった分は、このまま持ち帰りの数に入ります。
+          </p>
+        )}
         {done ? <DoneView data={data} ctx={ctx} onReopened={() => go(1)} />
           : step === 0 ? <SyncStep data={data} ctx={ctx} />
           : step === 1 ? <CountStep data={data} ctx={ctx} rows={rows} />

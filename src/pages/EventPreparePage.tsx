@@ -6,6 +6,7 @@ import { useCtx } from '../app/useCtx';
 import { ConfirmButton } from '../components/ConfirmButton';
 import { EventNav } from '../components/EventNav';
 import { FloatSuggest } from '../components/FloatSuggest';
+import { ReservationsCard } from '../components/Reservations';
 import { NewItemForEvent } from '../components/NewItemForEvent';
 import { NumberField } from '../components/NumberField';
 import { PageHeader } from '../components/PageHeader';
@@ -192,7 +193,7 @@ export function EventPreparePage() {
         title={isNew ? 'イベントを作る' : 'イベントの準備'} sub={isNew ? undefined : data.event?.name}
         below={!isNew && lines ? (
           <nav className="jump" aria-label="この画面の中を移動">
-            {([['prep-info', '基本'], ['prep-items', '品目'], ...(regOrder.length > 1 ? [['prep-order', '並び順']] : []), ['prep-float', '釣り銭'], ['prep-expenses', '経費']] as [string, string][]).map(([id, label]) => (
+            {([['prep-info', '基本'], ['prep-items', '品目'], ['prep-resv', '取り置き'], ...(regOrder.length > 1 ? [['prep-order', '並び順']] : []), ['prep-float', '釣り銭'], ['prep-expenses', '経費']] as [string, string][]).map(([id, label]) => (
               <button key={id} type="button" onClick={() => jumpTo(id)}>{label}</button>
             ))}
           </nav>
@@ -298,6 +299,13 @@ export function EventPreparePage() {
             {changed ? '持ち込みを反映する' : '持ち込みは反映済みです'}
           </button>
           <p className="note">反映すると、自分の品目は{home?.name ?? '自宅'}からイベントへ、受託品は預かりとして在庫が動きます。あとで数を変えると、差の分だけ動きます。</p>
+
+          <h3 id="prep-resv" className="section">取り置き</h3>
+          <ReservationsCard
+            ctx={ctx} eventId={eventId!} locked={locked}
+            items={regOrder.map((id) => data.items.find((i) => i.id === id)).filter((i): i is NonNullable<typeof i> => !!i && i.kind !== 'set')}
+            remaining={(id) => data.prepared.get(id) ?? 0}
+          />
 
           {regOrder.length > 1 && (
             <>
