@@ -2,8 +2,10 @@ import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { db } from '../app/db';
 import { useCtx } from '../app/useCtx';
+import { useDeviceNames } from '../app/useDeviceNames';
 import { EventNav } from '../components/EventNav';
 import { useToast } from '../components/Toast';
+import { deviceLabel } from '../domain/devices';
 import { filterHistory, historyRows, type HistoryFilter, type HistoryRow } from '../domain/history';
 import { voidTransaction } from '../domain/record';
 import { hhmm, yen } from '../lib/format';
@@ -16,6 +18,7 @@ const FILTERS: [HistoryFilter, string][] = [['all', 'すべて'], ['sale', '販�
 export function HistoryPage() {
   const { eventId = '' } = useParams();
   const ctx = useCtx();
+  const names = useDeviceNames(ctx?.circleId);
   const data = useEventData(eventId);
   const toast = useToast();
   const [filter, setFilter] = useState<HistoryFilter>('all');
@@ -37,7 +40,7 @@ export function HistoryPage() {
   const locked = !!data.closing;
   const active = rows.filter((r) => !r.voided);
   const sales = active.filter((r) => r.kind === 'sale');
-  const deviceLabel = (id: string) => (id === ctx.deviceId ? 'この端末' : `端末 …${id.slice(-6)}`);
+  const labelOf = (id: string) => deviceLabel(names, id, ctx.deviceId);
 
   async function undo(r: HistoryRow) {
     if (armed !== r.txn.id) {
@@ -85,7 +88,7 @@ export function HistoryPage() {
               <span className="what">
                 <span className="label">{r.label}</span>
                 <small>
-                  {deviceLabel(r.txn.device_id)}
+                  {labelOf(r.txn.device_id)}
                   {r.discount > 0 && `・値引き ${yen(r.discount)}${r.txn.note ? `(${r.txn.note})` : ''}`}
                   {r.txn.paid_amount !== null && `・預かり ${yen(r.txn.paid_amount)}`}
                   {r.txn.zero_stock_override && '・残数0で記録'}

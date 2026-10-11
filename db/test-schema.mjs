@@ -184,6 +184,26 @@ await as(U2, async () => {
   await db.exec(`select set_config('test.anon', '', false)`);
 });
 
+// 端末の名前: 売り子は自分の端末だけ、サークル主はすべて
+await as(U1, async () => {
+  await db.query(`insert into devices (id, circle_id, user_id, name) values ($1,$2,$3,'主のスマホ')`, [DEV1, C, U1]);
+});
+await as(U2, async () => {
+  await db.query(`insert into devices (id, circle_id, user_id, name) values ($1,$2,$3,'売り子A') on conflict (id) do update set name = excluded.name`, [DEV2, C, U2]);
+  await db.query(`insert into devices (id, circle_id, user_id, name, client_updated_at) values ($1,$2,$3,'売り子Aのスマホ', now() + interval '1 second') on conflict (id) do update set name = excluded.name, client_updated_at = excluded.client_updated_at`, [DEV2, C, U2]);
+  const mine = await db.query(`select name from devices`);
+  ok(mine.rows.length === 1 && mine.rows[0].name === '売り子Aのスマホ', '売り子は自分の端末の名前を付け直せ、ほかの端末の名前は見えない');
+  const r = await db.query(`update devices set name = '乗っ取り' where id = $1`, [DEV1]);
+  ok(r.affectedRows === 0, '売り子はサークル主の端末の名前を変えられない');
+  await expectError(db.query(`insert into devices (id, circle_id, user_id, name) values ($1,$2,$3,'なりすまし')`, [id(), C, U1]), '売り子はほかの人として端末の名前を作れない');
+});
+await as(U1, async () => {
+  const all = await db.query(`select name from devices order by name`);
+  ok(all.rows.length === 2, 'サークル主はサークルの全端末の名前が見える');
+  const r = await db.query(`update devices set name = 'レジ係のスマホ', client_updated_at = now() + interval '2 second' where id = $1`, [DEV2]);
+  ok(r.affectedRows === 1, 'サークル主は売り子の端末の名前も付け直せる');
+});
+
 await expectError(db.query(`update transactions set paid_amount = 0 where id=$1`, [T1]), 'RLSを通らない管理者でもトリガーで更新を拒否');
 await expectError(db.query(`delete from stock_movements where transaction_id=$1`, [T1]), 'RLSを通らない管理者でもトリガーで削除を拒否');
 

@@ -557,3 +557,8 @@ details[open] summary { margin-bottom: 6px; }
 .tour-dots span.on { background: var(--accent); }
 .tour-nav { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; }
 .tour-nav .btn:disabled { opacity: .4; }
+
+/* レポート: 端末の名前(押すと付け直せる) */
+.tbl .dev-name { min-height: 32px; padding: 0; justify-content: flex-start; text-align: left; font-size: inherit; }
+.dev-edit { display: flex; gap: 6px; align-items: center; min-width: 180px; }
+.dev-edit input { flex: 1; min-width: 0; height: 34px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font: inherit; padding: 0 8px; }

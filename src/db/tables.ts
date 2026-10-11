@@ -12,6 +12,7 @@ export const TABLES: TableSpec[] = [
   { name: 'circles', pk: ['id'], ledger: false, indexes: [] },
   { name: 'event_types', pk: ['id'], ledger: false, indexes: ['circle_id'] },
   { name: 'owners', pk: ['id'], ledger: false, indexes: ['circle_id'] },
+  { name: 'devices', pk: ['id'], ledger: false, indexes: ['circle_id'] },
   { name: 'items', pk: ['id'], ledger: false, indexes: ['circle_id'] },
   { name: 'set_components', pk: ['set_item_id', 'component_item_id'], ledger: false, indexes: ['set_item_id'] },
   { name: 'print_runs', pk: ['id'], ledger: false, indexes: ['item_id'] },

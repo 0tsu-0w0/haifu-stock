@@ -4,14 +4,16 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
 import { useChoice, usePref } from '../app/prefs';
-import { RegisterTour } from '../components/RegisterTour';
 import { useCtx } from '../app/useCtx';
+import { useDeviceNames } from '../app/useDeviceNames';
 import { AccountBar } from '../components/AccountBar';
 import { DataExport } from '../components/DataExport';
 import { PageHeader } from '../components/PageHeader';
+import { RegisterTour } from '../components/RegisterTour';
 import { useToast } from '../components/Toast';
 import type { Owner } from '../db/types';
 import { renameLocation, saveCircleName, saveOwner, setOwnerArchived } from '../domain/catalog';
+import { saveDeviceName } from '../domain/devices';
 
 // 設定: サークル名、保管場所の名前、受託元(持ち主)、ログイン
 export function SettingsPage() {
@@ -40,6 +42,8 @@ export function SettingsPage() {
     return (
       <main className="page">
         <p className="lead">サークルの設定はサークル主が変えます。この端末の表示は、ここで変えられます。</p>
+        <h3 className="section">この端末の名前</h3>
+        <DeviceNameCard />
         <h3 className="section">レジと表示(この端末だけ)</h3>
         <DisplaySettings owner={false} />
         <AccountBar />
@@ -117,6 +121,9 @@ export function SettingsPage() {
         </form>
         <p className="note">受託手数料は、売上から差し引いて自分の収入にする割合です。しまった受託元は、品目の登録で選べなくなります。過去の記録と精算は残ります。</p>
       </div>
+
+      <h3 className="section">この端末の名前</h3>
+      <DeviceNameCard />
 
       <h3 className="section">レジと表示(この端末だけ)</h3>
       <DisplaySettings owner />
@@ -245,5 +252,37 @@ function DisplaySettings({ owner }: { owner: boolean }) {
       <button className="btn" onClick={() => setTour(true)}>レジの使い方を見る</button>
       {tour && <RegisterTour instant={instant} onClose={() => setTour(false)} />}
     </div>
+  );
+}
+
+/** この端末の名前。レポートと履歴で「誰が売ったか」を見分けるのに使う */
+function DeviceNameCard() {
+  const ctx = useCtx();
+  const toast = useToast();
+  const names = useDeviceNames(ctx?.circleId);
+  const saved = ctx ? names.get(ctx.deviceId) ?? '' : '';
+  const [v, setV] = useState(saved);
+  useEffect(() => setV(saved), [saved]);
+  if (!ctx) return null;
+  return (
+    <form
+      className="card form"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        try {
+          await saveDeviceName(db, ctx, ctx.deviceId, v);
+          toast('この端末の名前を保存しました');
+        } catch (err) {
+          toast(err instanceof Error ? err.message : String(err));
+        }
+      }}
+    >
+      <label htmlFor="device-name">名前</label>
+      <div className="copy-row">
+        <input id="device-name" value={v} maxLength={30} onChange={(e) => setV(e.target.value)} placeholder="Aさんのスマホ" />
+        <button className="sbtn acc" disabled={!v.trim() || v.trim() === saved}>保存</button>
+      </div>
+      <small className="k">レポートの「記録した端末ごと」と履歴に出ます。同期すると、サークル主の端末にも出ます。</small>
+    </form>
   );
 }

@@ -173,6 +173,15 @@ export interface EventDevice extends FromServer {
   pending_count: number;
 }
 
+/** 端末の名前(誰が売ったかを見分けるため)。id は取引の device_id と同じ */
+export interface Device extends FromServer {
+  id: Uuid;
+  circle_id: Uuid;
+  user_id: Uuid;
+  name: string;
+  client_updated_at: Iso;
+}
+
 export type ExpenseCategory = 'booth_fee' | 'transport' | 'lodging' | 'shipping' | 'supplies' | 'other';
 
 export interface Expense extends FromServer {

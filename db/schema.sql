@@ -324,6 +324,20 @@ create table event_devices (
   server_seq        bigint not null default 0
 );
 
+-- 端末の名前(誰が売ったかを見分けるため)。id は取引の device_id と同じ
+create table devices (
+  id                uuid primary key,
+  circle_id         uuid not null references circles(id) on delete cascade,
+  user_id           uuid not null,           -- 名前を付けた人
+  name              text not null check (length(name) between 1 and 30),
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  client_updated_at timestamptz not null default now(),
+  server_seq        bigint not null default 0
+);
+create index devices_circle on devices (circle_id);
+create index devices_seq on devices (server_seq);
+
 -- ---------------------------------------------------------------------
 -- 台帳(追記だけ)
 -- ---------------------------------------------------------------------
@@ -476,7 +490,7 @@ begin
   foreach t in array array[
     'circles','circle_members','event_types','owners','items','set_components','print_runs',
     'production_costs','print_price_tiers','events','locations','event_items','event_breaks',
-    'expenses','invites','event_staff','event_devices','transactions','transaction_lines',
+    'expenses','invites','event_staff','event_devices','devices','transactions','transaction_lines',
     'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements']
   loop
     execute format('create trigger %I before insert or update on %I for each row execute function app.touch_sync()',
@@ -486,7 +500,7 @@ begin
   -- 後勝ち
   foreach t in array array[
     'circles','event_types','owners','items','print_runs','production_costs','print_price_tiers',
-    'events','locations','event_items','event_breaks','expenses','cash_counts','closing_counts']
+    'events','locations','event_items','event_breaks','expenses','cash_counts','closing_counts','devices']
   loop
     execute format('create trigger %I before update on %I for each row execute function app.last_write_wins()',
                    t || '_lww', t);
@@ -632,7 +646,7 @@ begin
   foreach t in array array[
     'circles','circle_members','event_types','owners','items','set_components','print_runs',
     'production_costs','print_price_tiers','events','locations','event_items','event_breaks',
-    'expenses','invites','event_staff','event_devices','transactions','transaction_lines',
+    'expenses','invites','event_staff','event_devices','devices','transactions','transaction_lines',
     'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements']
   loop
     execute format('alter table %I enable row level security', t);
@@ -642,7 +656,7 @@ begin
   foreach t in array array[
     'event_types','owners','items','set_components','print_runs','production_costs',
     'print_price_tiers','events','locations','event_items','event_breaks','expenses','invites',
-    'event_staff','event_devices','cash_counts','closing_counts','event_closings','consignment_settlements']
+    'event_staff','event_devices','devices','cash_counts','closing_counts','event_closings','consignment_settlements']
   loop
     execute format('create policy %I on %I for all to authenticated
                       using (app.is_owner(circle_id)) with check (app.is_owner(circle_id))',
@@ -688,6 +702,17 @@ create policy event_staff_self_select on event_staff for select to authenticated
 create policy event_devices_staff_rw on event_devices for all to authenticated
   using (user_id = (select auth.uid()) and app.is_event_staff(event_id))
   with check (user_id = (select auth.uid()) and role = 'staff' and app.is_event_staff(event_id));
+
+-- 売り子: 自分の端末の名前(参加中のイベントがあるサークルだけ)
+create function app.is_circle_staff(c uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from event_staff
+                 where circle_id = c and user_id = auth.uid()
+                   and revoked_at is null and expires_at > now())
+$$;
+create policy devices_staff_rw on devices for all to authenticated
+  using (user_id = (select auth.uid()) and app.is_circle_staff(circle_id))
+  with check (user_id = (select auth.uid()) and app.is_circle_staff(circle_id));
 
 -- 売り子: 販売・無償出庫・取り消しの追記と、そのイベントの台帳の読み取り(F-1004、F-1008)
 create policy transactions_staff_select on transactions for select to authenticated

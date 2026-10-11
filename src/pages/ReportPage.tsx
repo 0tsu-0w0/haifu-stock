@@ -2,7 +2,11 @@ import { useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { EventNav } from '../components/EventNav';
 import { PageHeader } from '../components/PageHeader';
+import { db } from '../app/db';
 import { useCtx } from '../app/useCtx';
+import { useDeviceNames } from '../app/useDeviceNames';
+import { useToast } from '../components/Toast';
+import { deviceLabel, saveDeviceName } from '../domain/devices';
 import {
   deviceBreakdown, eventReport, ownerBreakdown, profitTimeline, scopeSnapshot, SLOT_MIN, type ProfitTimeline, type ReportScope, type ReportSlot,
 } from '../domain/report';
@@ -16,6 +20,7 @@ export function ReportPage() {
   const { eventId = '' } = useParams();
   const data = useEventData(eventId);
   const ctx = useCtx();
+  const names = useDeviceNames(ctx?.circleId);
   const [params, setParams] = useSearchParams();
   // 集計の範囲(F-708)。既定は全体(受託分を含む)
   const consignors = useMemo(() => {
@@ -134,7 +139,7 @@ export function ReportPage() {
                 <tbody>
                   {devices.map((d) => (
                     <tr key={d.deviceId}>
-                      <td>{d.deviceId === ctx?.deviceId ? 'この端末' : `端末 …${d.deviceId.slice(-4)}`}</td>
+                      <td><DeviceName deviceId={d.deviceId} label={deviceLabel(names, d.deviceId, ctx?.deviceId)} current={names.get(d.deviceId) ?? ''} /></td>
                       <td className="num">{d.sales}件</td>
                       <td className="num">{d.qty}</td>
                       <td className="num">{yen(d.amount)}</td>
@@ -146,7 +151,7 @@ export function ReportPage() {
                 </tbody>
               </table>
             </div>
-            <p className="note">取消は、その端末で取り消しを押した件数です(取り消された販売は、販売に数えません)。ほかの端末の名前は、末尾の4文字で見分けます。</p>
+            <p className="note">取消は、その端末で取り消しを押した件数です(取り消された販売は、販売に数えません)。端末の名前を押すと付け直せます。名前のない端末は、末尾の4文字で見分けます。</p>
           </>
         )}
         <Link className="sub-link" to={`/analysis?tab=event&event=${eventId}`}>このイベントの損益分岐のグラフを見る</Link>
@@ -316,5 +321,34 @@ function ProfitChart({ pt }: { pt: ProfitTimeline }) {
         </p>
       </figure>
     </>
+  );
+}
+
+/** 端末の名前。押すとその場で付け直せる(サークル主) */
+function DeviceName({ deviceId, label, current }: { deviceId: string; label: string; current: string }) {
+  const ctx = useCtx();
+  const toast = useToast();
+  const [editing, setEditing] = useState(false);
+  const [v, setV] = useState(current);
+  if (!editing) {
+    return <button className="link-btn dev-name" onClick={() => { setV(current); setEditing(true); }}>{label}</button>;
+  }
+  return (
+    <form
+      className="dev-edit"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        try {
+          await saveDeviceName(db, ctx!, deviceId, v);
+          setEditing(false);
+          toast('端末の名前を保存しました');
+        } catch (err) {
+          toast(err instanceof Error ? err.message : String(err));
+        }
+      }}
+    >
+      <input aria-label="端末の名前" value={v} maxLength={30} autoFocus onChange={(e) => setV(e.target.value)} placeholder="Aさんのスマホ" />
+      <button className="sbtn">保存</button>
+    </form>
   );
 }
