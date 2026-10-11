@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type {
-  CashCount, Circle, ClosingCount, ConsignmentSettlement, Device, EventBreak, EventClosing, EventDevice, EventItem, EventRow, Expense,
+  CashCount, Circle, ClosingCount, ConsignmentSettlement, Device, EventBreak, EventClosing, EventItem, EventRow, Expense,
   Item, Location, LooseRow, MetaEntry,
   Movement, OutboxEntry, Owner, PriceTier, PrintRun, Reservation, SetComponent, Txn, TxnLine,
 } from './types';
@@ -23,7 +23,6 @@ export class HaifuDB extends Dexie {
   reservations!: Table<Reservation, string>;
   event_breaks!: Table<EventBreak, string>;
   expenses!: Table<Expense, string>;
-  event_devices!: Table<EventDevice, string>;
   cash_counts!: Table<CashCount, [string, string, number]>;
   transactions!: Table<Txn, string>;
   transaction_lines!: Table<TxnLine, string>;
@@ -36,8 +35,8 @@ export class HaifuDB extends Dexie {
 
   constructor(name = 'haifu-stock') {
     super(name);
-    // 2: 端末の名前(devices)を追加 / 3: 取り置き(reservations)を追加
-    this.version(3).stores(dexieStores());
+    // 2: 端末の名前(devices)を追加 / 3: 取り置き(reservations)を追加 / 4: 使っていなかった event_devices を消す
+    this.version(4).stores({ ...dexieStores(), event_devices: null });
   }
 }
 

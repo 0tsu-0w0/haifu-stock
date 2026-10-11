@@ -24,7 +24,6 @@ export const TABLES: TableSpec[] = [
   { name: 'reservations', pk: ['id'], ledger: false, indexes: ['event_id'] },
   { name: 'event_breaks', pk: ['id'], ledger: false, indexes: ['event_id'] },
   { name: 'expenses', pk: ['id'], ledger: false, indexes: ['event_id'] },
-  { name: 'event_devices', pk: ['id'], ledger: false, indexes: ['event_id'] },
   { name: 'cash_counts', pk: ['event_id', 'phase', 'denomination'], ledger: false, indexes: ['event_id'] },
   { name: 'transactions', pk: ['id'], ledger: true, indexes: ['event_id', 'voids_txn_id', 'recorded_at'] },
   { name: 'transaction_lines', pk: ['id'], ledger: true, indexes: ['transaction_id', 'item_id'] },

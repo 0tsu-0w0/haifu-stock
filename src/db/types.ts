@@ -173,17 +173,6 @@ export interface CashCount extends FromServer {
   client_updated_at: Iso;
 }
 
-export interface EventDevice extends FromServer {
-  id: Uuid;
-  circle_id: Uuid;
-  event_id: Uuid;
-  user_id: Uuid;
-  label: string;
-  role: 'owner' | 'staff';
-  last_synced_at: Iso | null;
-  pending_count: number;
-}
-
 /** 端末の名前(誰が売ったかを見分けるため)。id は取引の device_id と同じ */
 export interface Device extends FromServer {
   id: Uuid;

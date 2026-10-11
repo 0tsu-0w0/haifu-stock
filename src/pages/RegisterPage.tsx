@@ -10,28 +10,27 @@ import { RegisterTour, tourSeen } from '../components/RegisterTour';
 import { useReservations } from '../components/Reservations';
 import { SyncPill } from '../components/SyncPill';
 import { useToast } from '../components/Toast';
-import type { GiveawayKind, Item, Txn } from '../db/types';
+import type { Item, Txn } from '../db/types';
 import { endBreak, openBreak, startBreak } from '../domain/breaks';
 import { GIVE_LABEL, describeTxn } from '../domain/history';
 import { recordGiveaway, recordSale, voidTransaction } from '../domain/record';
 import { handReservation } from '../domain/reservations';
 import { profitTimeline } from '../domain/report';
-import { changeBreakdown, denomLabel, paidSuggestions } from '../domain/change';
 import { colorVar } from '../domain/colors';
 import { hhmm, yen } from '../lib/format';
 import { useWakeLock } from '../app/useWakeLock';
 import { useEventData } from './useEventData';
+import { CartPanel, type Paid } from './register/CartPanel';
+import { ItemSheet } from './register/ItemSheet';
+import { LockCover } from './register/LockCover';
+import { PaidFlash, type Flash } from './register/PaidFlash';
+import { ReservationSheet } from './register/ReservationSheet';
 
 const LONG_PRESS_MS = 550;
-// 「その他」で受け取ったお金を足していくボタン
-const TALLY = [10000, 5000, 1000, 500, 100, 50, 10] as const;
-const DISCOUNT_REASONS = ['まとめ買い', '知り合い', 'おまけ', 'その他'] as const;
-const UNLOCK_MS = 800;
 // 誤操作の防止
 const DOUBLE_TAP_MS = 300; // 同じボタンをこれより速く続けて押したら、1回として扱う(指のぶれ)
 const SCROLL_GUARD_MS = 250; // スクロールを止めるためのタップは記録しない
 const ARM_MS = 3000; // 「もう一度押すと…」の待ち時間
-const MANY_QTY = 10; // これ以上の部数は、記録の前に注意を出す
 
 const lockKey = (eventId: string) => `register-lock:${eventId}`;
 function readLock(eventId: string): boolean {
@@ -49,8 +48,6 @@ function writeLock(eventId: string, on: boolean) {
     /* 保存できなくてもロック自体は効く */
   }
 }
-
-type Paid = number | 'exact' | null;
 
 // レジ画面(F-401〜406a)。既定はタップでカートに入れ、「決済」で記録する。
 // 設定で「タップですぐ記録」にすると、タップで即1部記録し、まとめ買いは「カート」から(F-402)
@@ -119,7 +116,7 @@ export function RegisterPage() {
     return () => clearTimeout(t);
   }, [armed]);
   // 決済できたことを、品目の上に大きく出す(合計とお釣り)。次の品目をタップしたら消す
-  const [flash, setFlash] = useState<{ total: number; change: number | null; discount: number; n: number } | null>(null);
+  const [flash, setFlash] = useState<Flash | null>(null);
   useEffect(() => {
     if (!flash) return;
     // お釣りを渡す間は長めに出す
@@ -379,24 +376,7 @@ export function RegisterPage() {
       </header>
 
       <main className="grid-wrap" onScroll={() => { lastScroll.current = Date.now(); }}>
-        {flash && (
-          <div key={flash.n} className="paid-flash" role="status" aria-live="polite">
-            <div className="pf-row">
-              <span>{instant ? '記録しました' : '決済しました'}</span>
-              <strong className="num">{yen(flash.total)}</strong>
-            </div>
-            {flash.discount > 0 && <p className="pf-sub">値引き {yen(flash.discount)}</p>}
-            {flash.change !== null && (
-              <div className="pf-row pf-change">
-                <span>{flash.change > 0 ? 'お釣り' : 'お釣りなし'}</span>
-                {flash.change > 0 && <strong className="num">{yen(flash.change)}</strong>}
-              </div>
-            )}
-            {flash.change !== null && flash.change > 0 && (
-              <p className="pf-sub">{changeBreakdown(flash.change).map((x) => `${denomLabel(x.denom)}×${x.count}`).join('・')}</p>
-            )}
-          </div>
-        )}
+        {flash && <PaidFlash flash={flash} instant={instant} />}
         <div className={`grid${regCols === '3' ? ' cols-3' : ''}`} onContextMenu={(e) => e.preventDefault()}>
           {shownItems.map((ei) => {
             const item = itemById.get(ei.item_id);
@@ -450,106 +430,14 @@ export function RegisterPage() {
       </main>
 
       {cart && (instant || cart.size > 0) && (
-        <section className="cart" aria-label="カート">
-          {!showLines && (
-            <button className="cart-summary" onClick={() => setShowLines(true)}>
-              カートの品目 {cart.size}件・{[...cart.values()].reduce((a, q) => a + q, 0)}部(押すと表示)
-            </button>
-          )}
-          {showLines && <div className="cart-lines">
-            {cart.size === 0 && <p className="empty-cart">品目をタップしてカートに入れてください</p>}
-            {[...cart].map(([id, q]) => {
-              const item = itemById.get(id)!;
-              return (
-                <div className="cl" key={id}>
-                  <span>{colorVar(item.color) && <i className="color-dot" style={{ '--item-color': colorVar(item.color) } as React.CSSProperties} />}{item.name}</span>
-                  <span className="qty small">
-                    <button
-                      aria-label={`${item.name}を1部減らす`}
-                      onClick={() => setCart((c) => {
-                        const m = new Map(c ?? []);
-                        if (q <= 1) m.delete(id);
-                        else m.set(id, q - 1);
-                        return m;
-                      })}
-                    >−</button>
-                    <span className="num">{q}</span>
-                    <button
-                      aria-label={`${item.name}を1部増やす`}
-                      onClick={() => (available(item) > 0 ? addToCart(item, 1) : toast('完売です。長押しで記録できます'))}
-                    >+</button>
-                  </span>
-                  <span className="num">{yen(priceOf(item) * q)}</span>
-                </div>
-              );
-            })}
-          </div>}
-          <div className="total">
-            <span>合計</span>
-            <span>
-              {discount > 0 && <s className="num was">{yen(cartTotal)}</s>}
-              <strong className="num">{yen(payTotal)}</strong>
-            </span>
-          </div>
-          {discountOpen ? (
-            <div className="discount">
-              <div className="rowx">
-                <label className="k" htmlFor="pay-in">受け取る金額</label>
-                <span className="exp-amount">
-                  <input
-                    id="pay-in" className="price-in" inputMode="numeric" placeholder={String(cartTotal)} value={payInput}
-                    onChange={(e) => setPayInput(e.target.value.replace(/\D/g, ''))}
-                  />
-                  <small className="k">円</small>
-                </span>
-              </div>
-              <div className="chips" role="group" aria-label="値引きの理由">
-                {DISCOUNT_REASONS.map((r) => (
-                  <button key={r} className="chip" aria-pressed={reason === r} onClick={() => setReason((x) => (x === r ? '' : r))}>{r}</button>
-                ))}
-              </div>
-              {discount > 0 && <p className="k">値引き <span className="num">{yen(discount)}</span>(理由と一緒に履歴に残ります)</p>}
-              {discount < 0 && <p className="msg">元の合計より高い金額は入れられません</p>}
-              <button className="link-btn" onClick={() => { setDiscountOpen(false); setPayInput(''); setReason(''); }}>値引きをやめる</button>
-            </div>
-          ) : (
-            cart.size > 0 && <button className="link-btn" onClick={() => setDiscountOpen(true)}>値引き・金額を変える</button>
-          )}
-          <div className="paid" role="group" aria-label="預かり金額">
-            <button aria-pressed={paid === 'exact'} onClick={() => { setTallyOpen(false); setPaid((p) => (p === 'exact' ? null : 'exact')); }}>ちょうど</button>
-            {paidSuggestions(payTotal).map((v) => (
-              <button key={v} className="num" aria-pressed={!tallyOpen && paid === v} onClick={() => { setTallyOpen(false); setPaid((p) => (p === v && !tallyOpen ? null : v)); }}>
-                {yen(v)}
-              </button>
-            ))}
-            <button aria-pressed={tallyOpen} onClick={() => { setShowLines(tallyOpen); setTallyOpen((o) => !o); setPaid(tallyOpen ? null : 0); }}>その他</button>
-          </div>
-          {tallyOpen && (
-            <div className="tally">
-              <div className="rowx">
-                <span className="k">受け取った金額</span>
-                <strong className="num">{yen(typeof paid === 'number' ? paid : 0)}</strong>
-              </div>
-              <div className="tally-keys">
-                {TALLY.map((d) => (
-                  <button key={d} className="num" onClick={() => setPaid((p) => (typeof p === 'number' ? p : 0) + d)}>+{d.toLocaleString('ja-JP')}</button>
-                ))}
-                <button onClick={() => setPaid(0)}>クリア</button>
-              </div>
-            </div>
-          )}
-          {paidAmount !== null && paidAmount > 0 && cart.size > 0 && (
-            <div className={`change${paidAmount < payTotal ? ' short' : ''}`}>
-              <div className="change-main">
-                <span>{paidAmount < payTotal ? '足りません' : paidAmount === payTotal ? 'お釣りなし' : 'お釣り'}</span>
-                <strong className="num">{yen(Math.abs(paidAmount - payTotal))}</strong>
-              </div>
-              {paidAmount > payTotal && (
-                <p className="change-parts">{changeBreakdown(paidAmount - payTotal).map((x) => `${denomLabel(x.denom)}×${x.count}`).join('・')}</p>
-              )}
-            </div>
-          )}
-        </section>
+        <CartPanel
+          cart={cart} setCart={setCart} itemById={itemById} priceOf={priceOf} available={available} addToCart={addToCart}
+          onSoldOut={() => toast('完売です。長押しで記録できます')}
+          showLines={showLines} setShowLines={setShowLines}
+          cartTotal={cartTotal} payTotal={payTotal} discount={discount}
+          discountOpen={discountOpen} setDiscountOpen={setDiscountOpen} payInput={payInput} setPayInput={setPayInput} reason={reason} setReason={setReason}
+          paid={paid} setPaid={setPaid} paidAmount={paidAmount} tallyOpen={tallyOpen} setTallyOpen={setTallyOpen}
+        />
       )}
 
       <footer className="foot">
@@ -608,30 +496,10 @@ export function RegisterPage() {
       {tour && !screenLock && <RegisterTour instant={instant} onClose={() => setTour(false)} />}
 
       {resvOpen && reservations && (
-        <div className="scrim" onClick={(e) => e.target === e.currentTarget && setResvOpen(false)}>
-          <div className="sheet" role="dialog" aria-modal="true" aria-label="取り置き">
-            <div className="grab" />
-            <h2>取り置き</h2>
-            <p className="sub">渡したら「渡した」を押すと、販売として記録します(イベント価格)。</p>
-            {reservations.filter((r) => r.status === 'held').length === 0 && <p className="note">取り置き中のものはありません。</p>}
-            {reservations.filter((r) => r.status === 'held').map((r) => {
-              const it = itemById.get(r.item_id);
-              return (
-                <div className="rowx resv-row" key={r.id}>
-                  <span><b>{r.name}</b><small className="k">{it?.name ?? '不明な品目'} ×{r.qty}</small></span>
-                  <button
-                    className="sbtn acc"
-                    onClick={() => {
-                      if (!it) return;
-                      void undoable(handReservation(db, ctx, r.id), `${r.name} に ${it.name}${r.qty > 1 ? ` ×${r.qty}` : ''} を渡しました ${yen(priceOf(it) * r.qty)}`);
-                    }}
-                  >渡した {it ? yen(priceOf(it) * r.qty) : ''}</button>
-                </div>
-              );
-            })}
-            <button className="cancel" onClick={() => setResvOpen(false)}>閉じる</button>
-          </div>
-        </div>
+        <ReservationSheet
+          reservations={reservations} itemById={itemById} priceOf={priceOf} onClose={() => setResvOpen(false)}
+          onHand={(r, it) => void undoable(handReservation(db, ctx, r.id), `${r.name} に ${it.name}${r.qty > 1 ? ` ×${r.qty}` : ''} を渡しました ${yen(priceOf(it) * r.qty)}`)}
+        />
       )}
 
       {sheetItem && (
@@ -668,146 +536,6 @@ export function RegisterPage() {
           }
         />
       )}
-    </div>
-  );
-}
-
-/** 画面のロック(F-410)。カバンやポケットの中での誤タップを防ぐ。長押しで解除する */
-function LockCover(props: { title: string; sales: string; count: number; onUnlock: () => void }) {
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [holding, setHolding] = useState(false);
-  const stop = () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-    setHolding(false);
-  };
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-  return (
-    <div className="lock-cover" role="dialog" aria-modal="true" aria-label="画面はロック中です" onContextMenu={(e) => e.preventDefault()}>
-      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
-      <b>ロック中</b>
-      <p className="k">{props.title}</p>
-      <p className="lock-sum"><span className="num">{props.sales}</span><small>{props.count}部</small></p>
-      <button
-        className={`unlock${holding ? ' holding' : ''}`}
-        onPointerDown={() => {
-          setHolding(true);
-          timer.current = setTimeout(() => { stop(); props.onUnlock(); }, UNLOCK_MS);
-        }}
-        onPointerUp={stop}
-        onPointerLeave={stop}
-        onPointerCancel={stop}
-        onKeyDown={(e) => { if (e.key === 'Enter') props.onUnlock(); }}
-      >
-        <span>長押しで解除</span>
-      </button>
-    </div>
-  );
-}
-
-type Choice = 'sale' | 'zero' | 'discount' | GiveawayKind;
-
-function ItemSheet(props: {
-  item: Item;
-  remaining: number;
-  price: number;
-  inCart: boolean;
-  /** カートに品目が入っている(このときは、値引きはカートの「値引き・金額を変える」で行う) */
-  cartBusy: boolean;
-  onClose: () => void;
-  onSale: (qty: number, zero: boolean) => void;
-  onDiscount: (qty: number, pay: number, reason: string) => void;
-  onGive: (qty: number, kind: GiveawayKind) => void;
-}) {
-  const { item, remaining, price, inCart, cartBusy } = props;
-  const soldOut = remaining <= 0;
-  const [choice, setChoice] = useState<Choice>(soldOut ? 'zero' : item.kind === 'set' ? 'sale' : 'sample');
-  const [qty, setQty] = useState(1);
-  const [payInput, setPayInput] = useState('');
-  const [reason, setReason] = useState('');
-  const full = price * qty;
-  const pay = payInput === '' ? null : Number(payInput);
-  const discountError = choice !== 'discount' ? null
-    : cartBusy ? 'カートの途中です。カートの「値引き・金額を変える」を使ってください'
-    : pay === null ? '受け取る金額を入れてください'
-    : pay >= full ? '元の金額より安い金額を入れてください'
-    : null;
-  const saleLabel = inCart ? 'カートに追加' : '販売を記録';
-  const options: [Choice, string][] = [
-    soldOut ? ['zero', `${saleLabel}(残数0)`] : ['sale', `${saleLabel}(部数を指定)`],
-    ['discount', '値引きして記録'],
-    ...(item.kind === 'set' ? [] : (['sample', 'gift', 'damage'] as const).map((k): [Choice, string] => [k, GIVE_LABEL[k]])),
-  ];
-  const isSale = choice === 'sale' || choice === 'zero';
-
-  return (
-    <div className="scrim" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
-      <div className="sheet" role="dialog" aria-modal="true" aria-label={`${item.name}のメニュー`}>
-        <div className="grab" />
-        <h2>{item.name}</h2>
-        <p className="sub">{soldOut ? '残数0' : `残り ${remaining}`}・{yen(price)}</p>
-        {options.map(([k, label]) => (
-          <div key={k}>
-            <button className={`opt${k === 'zero' ? ' warn' : ''}`} aria-pressed={choice === k} onClick={() => setChoice(k)}>
-              {label}
-            </button>
-            {k === 'zero' && <p className="warnnote">残数がマイナスになります。終了処理で持ち込み数を確認できます。</p>}
-          </div>
-        ))}
-        {choice === 'discount' && (
-          <div className="sheet-discount">
-            {cartBusy ? (
-              <p className="warnnote">{discountError}</p>
-            ) : (
-              <>
-                <div className="rowx">
-                  <label className="k" htmlFor="sheet-pay">受け取る金額(元は <span className="num">{yen(full)}</span>)</label>
-                  <span className="exp-amount">
-                    <input
-                      id="sheet-pay" className="price-in" inputMode="numeric" placeholder={String(full)} value={payInput}
-                      onChange={(e) => setPayInput(e.target.value.replace(/\D/g, ''))}
-                    />
-                    <small className="k">円</small>
-                  </span>
-                </div>
-                <div className="chips" role="group" aria-label="値引きの理由">
-                  {DISCOUNT_REASONS.map((r) => (
-                    <button key={r} className="chip" aria-pressed={reason === r} onClick={() => setReason((x) => (x === r ? '' : r))}>{r}</button>
-                  ))}
-                </div>
-                {pay !== null && pay < full && <p className="k">値引き <span className="num">{yen(full - pay)}</span>(理由と一緒に履歴に残ります)</p>}
-                {pay !== null && pay >= full && <p className="warnnote">元の金額より安い金額を入れてください</p>}
-                {soldOut && <p className="warnnote">残数0なので、残数がマイナスになります。</p>}
-                <p className="note">カートを通さず、この品目だけを1回の販売として記録します。</p>
-              </>
-            )}
-          </div>
-        )}
-        <div className="qrow">
-          <span>部数</span>
-          <span className="qty">
-            <button aria-label="1部減らす" onClick={() => setQty((q) => Math.max(1, q - 1))}>−</button>
-            <span className="num">{qty}</span>
-            <button aria-label="1部増やす" onClick={() => setQty((q) => Math.min(99, q + 1))}>+</button>
-          </span>
-        </div>
-        {qty >= MANY_QTY && <p className="warnnote">{qty}部です。数を確かめてから記録してください。</p>}
-        <button
-          className="go"
-          disabled={!!discountError}
-          onClick={() => {
-            if (discountError) return;
-            props.onClose();
-            if (choice === 'discount') props.onDiscount(qty, pay!, reason);
-            else if (isSale) props.onSale(qty, choice === 'zero');
-            else props.onGive(qty, choice as GiveawayKind);
-          }}
-        >
-          {choice === 'discount' ? (pay !== null && pay < full ? `${yen(pay)} で記録する` : '値引きして記録')
-            : isSale ? (inCart ? 'カートに追加' : `記録する ${yen(price * qty)}`) : `${GIVE_LABEL[choice as GiveawayKind]}として記録`}
-        </button>
-        <button className="cancel" onClick={props.onClose}>キャンセル</button>
-      </div>
     </div>
   );
 }

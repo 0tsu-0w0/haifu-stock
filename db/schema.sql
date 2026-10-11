@@ -330,20 +330,6 @@ create table event_staff (
   primary key (event_id, user_id)
 );
 
-create table event_devices (
-  id                uuid primary key,        -- 端末で発行して保存しておく
-  circle_id         uuid not null references circles(id) on delete cascade,
-  event_id          uuid not null references events(id) on delete cascade,
-  user_id           uuid not null,
-  label             text not null,           -- 「自分」「売り子」など
-  role              member_role not null,
-  last_synced_at    timestamptz,
-  pending_count     int not null default 0,  -- 端末が申告する未送信件数(F-500)
-  created_at        timestamptz not null default now(),
-  updated_at        timestamptz not null default now(),
-  server_seq        bigint not null default 0
-);
-
 -- 端末の名前(誰が売ったかを見分けるため)。id は取引の device_id と同じ
 create table devices (
   id                uuid primary key,
@@ -510,7 +496,7 @@ begin
   foreach t in array array[
     'circles','circle_members','event_types','owners','items','set_components','print_runs',
     'production_costs','print_price_tiers','events','locations','event_items','event_breaks',
-    'expenses','invites','event_staff','event_devices','devices','reservations','transactions','transaction_lines',
+    'expenses','invites','event_staff','devices','reservations','transactions','transaction_lines',
     'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements']
   loop
     execute format('create trigger %I before insert or update on %I for each row execute function app.touch_sync()',
@@ -666,7 +652,7 @@ begin
   foreach t in array array[
     'circles','circle_members','event_types','owners','items','set_components','print_runs',
     'production_costs','print_price_tiers','events','locations','event_items','event_breaks',
-    'expenses','invites','event_staff','event_devices','devices','reservations','transactions','transaction_lines',
+    'expenses','invites','event_staff','devices','reservations','transactions','transaction_lines',
     'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements']
   loop
     execute format('alter table %I enable row level security', t);
@@ -676,7 +662,7 @@ begin
   foreach t in array array[
     'event_types','owners','items','set_components','print_runs','production_costs',
     'print_price_tiers','events','locations','event_items','event_breaks','expenses','invites',
-    'event_staff','event_devices','devices','reservations','cash_counts','closing_counts','event_closings','consignment_settlements']
+    'event_staff','devices','reservations','cash_counts','closing_counts','event_closings','consignment_settlements']
   loop
     execute format('create policy %I on %I for all to authenticated
                       using (app.is_owner(circle_id)) with check (app.is_owner(circle_id))',
@@ -717,11 +703,6 @@ create policy locations_staff_select on locations for select to authenticated
   using (event_id is not null and app.is_event_staff(event_id));
 create policy event_staff_self_select on event_staff for select to authenticated
   using (user_id = (select auth.uid()));
-
--- 売り子: 自分の端末の行
-create policy event_devices_staff_rw on event_devices for all to authenticated
-  using (user_id = (select auth.uid()) and app.is_event_staff(event_id))
-  with check (user_id = (select auth.uid()) and role = 'staff' and app.is_event_staff(event_id));
 
 -- 売り子: 参加中のイベントの休憩・離席(F-411)
 create policy event_breaks_staff_rw on event_breaks for all to authenticated

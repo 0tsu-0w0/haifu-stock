@@ -8,3 +8,6 @@ dev-dist/
 !.env.example
 
 .vercel
+
+# 型チェックが作るファイル
+*.tsbuildinfo

@@ -69,6 +69,10 @@ export function LineChart(props: {
     setHover(x < 0 || x > xMax ? null : Math.round(x));
   };
   const clipY = (y: number) => Math.min(Math.max(y, yMin), yMax);
+  const labelY = endLabelYs(series.map((sr) => {
+    const y1 = clipY(sr.y(xMax));
+    return sy(y1) + (y1 > (yMax + yMin) / 2 ? 14 : -6);
+  }), PAD.t + 10, H - PAD.b - 4);
 
   return (
     <figure className="chart">
@@ -108,15 +112,14 @@ export function LineChart(props: {
             </g>
           ))}
 
-          {series.map((s) => {
-            const y1 = clipY(s.y(xMax));
+          {series.map((s, si) => {
             const xs = [0, ...(s.breaks ?? []).filter((x) => x > 0 && x < xMax).sort((a, b) => a - b), xMax];
             const pts = xs.map((x) => `${sx(x)},${sy(clipY(s.y(x)))}`).join(' ');
             return (
               <g key={s.key}>
                 <polyline points={pts} fill="none" stroke={s.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={s.dashed ? '6 4' : undefined} />
                 {series.length >= 2 && (
-                  <text x={sx(xMax) - 2} y={sy(y1) + (y1 > (yMax + yMin) / 2 ? 14 : -6)} className="series-label" textAnchor="end">{s.label}</text>
+                  <text x={sx(xMax) - 2} y={labelY[si]} className="series-label" textAnchor="end">{s.label}</text>
                 )}
               </g>
             );
@@ -146,4 +149,18 @@ export function LineChart(props: {
       {props.children}
     </figure>
   );
+}
+
+/** 線の端の名前が重ならないよう、上下に1行ぶん以上あける(描く範囲の中に収める) */
+function endLabelYs(ys: number[], top: number, bottom: number, gap = 13): number[] {
+  const order = ys.map((y, i) => ({ y: Math.min(Math.max(y, top), bottom), i })).sort((a, b) => a.y - b.y);
+  for (let k = 1; k < order.length; k++) {
+    if (order[k].y - order[k - 1].y < gap) order[k].y = order[k - 1].y + gap;
+  }
+  // 下にはみ出したら、全体を上にずらす
+  const over = order.length ? order[order.length - 1].y - bottom : 0;
+  if (over > 0) for (const o of order) o.y -= over;
+  const out = new Array<number>(ys.length);
+  for (const o of order) out[o.i] = o.y;
+  return out;
 }
