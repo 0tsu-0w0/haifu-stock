@@ -138,6 +138,12 @@ export function ItemEditPage() {
               {data.owners.map((o) => <option key={o.id} value={o.id}>{o.is_self ? '自分' : `受託: ${o.name}`}</option>)}
               <option value={NEW_OWNER}>受託元を新しく追加…</option>
             </select>
+            {item && form.ownerId !== item.owner_id && (
+              <p className="warnnote">
+                持ち主を付け替えると、過去のイベントのレポート・収支・精算書も、新しい持ち主で計算し直します(終了処理を済ませたイベントも含む)。
+                在庫の数は変わりません。手元の数が合わなくなったら、品目の一覧の「棚卸し」で直してください。
+              </p>
+            )}
             {form.ownerId === NEW_OWNER && (
               <div className="subform">
                 <label htmlFor="owner-name">受託元のサークル名</label>

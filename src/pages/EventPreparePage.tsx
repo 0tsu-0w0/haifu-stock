@@ -187,10 +187,19 @@ export function EventPreparePage() {
   return (
     <>
     <main className="page">
-      <PageHeader title={isNew ? 'イベントを作る' : 'イベントの準備'} sub={isNew ? undefined : data.event?.name} />
+      <PageHeader
+        title={isNew ? 'イベントを作る' : 'イベントの準備'} sub={isNew ? undefined : data.event?.name}
+        below={!isNew && lines ? (
+          <nav className="jump" aria-label="この画面の中を移動">
+            {([['prep-info', '基本'], ['prep-items', '品目'], ...(regOrder.length > 1 ? [['prep-order', '並び順']] : []), ['prep-float', '釣り銭'], ['prep-expenses', '経費']] as [string, string][]).map(([id, label]) => (
+              <button key={id} type="button" onClick={() => jumpTo(id)}>{label}</button>
+            ))}
+          </nav>
+        ) : undefined}
+      />
       {locked && <p className="note">このイベントは終了処理を確定済みです。準備の内容は変えられません。</p>}
 
-      <form className="card form" onSubmit={(e) => { e.preventDefault(); void saveInfo(); }}>
+      <form id="prep-info" className="card form" onSubmit={(e) => { e.preventDefault(); void saveInfo(); }}>
         <label htmlFor="ev-name">イベント名</label>
         <input id="ev-name" value={info.name} onChange={(e) => setInfo({ ...info, name: e.target.value })} placeholder="コミティア150" />
         <div className="two">
@@ -220,7 +229,7 @@ export function EventPreparePage() {
 
       {!isNew && lines && (
         <>
-          <h3 className="section">持ち込む品目</h3>
+          <h3 id="prep-items" className="section">持ち込む品目</h3>
           {!locked && fromId && (
             <div className="card copy-prev">
               <label className="k" htmlFor="copy-from">前回のイベントからコピー</label>
@@ -291,7 +300,7 @@ export function EventPreparePage() {
 
           {regOrder.length > 1 && (
             <>
-              <h3 className="section">レジの並び順</h3>
+              <h3 id="prep-order" className="section">レジの並び順</h3>
               <div className="card order-list">
                 {regOrder.map((id, i) => (
                   <div key={id} className="order-row">
@@ -306,7 +315,7 @@ export function EventPreparePage() {
             </>
           )}
 
-          <h3 className="section">釣り銭準備金 {yen(floatTotal)}</h3>
+          <h3 id="prep-float" className="section">釣り銭準備金 {yen(floatTotal)}</h3>
           <div className="card">
             {DENOMINATIONS.filter((d) => d <= 5000).map((d) => (
               <div className="dn" key={d}>
@@ -320,7 +329,7 @@ export function EventPreparePage() {
             ))}
           </div>
 
-          <h3 className="section">経費</h3>
+          <h3 id="prep-expenses" className="section">経費</h3>
           <div className="card">
             {shownExpenses.length === 0 && <span className="k">まだありません。出展費や交通費を入れると、収支と損益分岐に使います。</span>}
             {shownExpenses.map((e) => (
@@ -389,4 +398,15 @@ export function EventPreparePage() {
     {!isNew && <EventNav eventId={eventId!} current="prepare" />}
     </>
   );
+}
+
+// 画面の中の見出しへ移動する。上に固定した見出しの下に来るように、見出しの高さの分だけ手前で止める
+function jumpTo(id: string) {
+  const el = document.getElementById(id);
+  const page = el?.closest('.page');
+  if (!el || !page) return;
+  const head = page.querySelector('.phead')?.getBoundingClientRect().height ?? 0;
+  const top = el.getBoundingClientRect().top - page.getBoundingClientRect().top + page.scrollTop - head - 4;
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  page.scrollTo({ top, behavior: reduce ? 'auto' : 'smooth' });
 }

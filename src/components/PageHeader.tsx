@@ -5,8 +5,8 @@ import { Link } from 'react-router-dom';
  * 画面の上に固定する見出し。左に大きな「戻る」ボタン(指で押しやすい 44px 以上)を置く。
  * スクロールしても上に残るので、いつでも1タップで戻れる
  */
-export function PageHeader(props: { title: string; sub?: string; back?: string; backLabel?: string; right?: ReactNode }) {
-  const { title, sub, back = '/', backLabel = 'ホーム', right } = props;
+export function PageHeader(props: { title: string; sub?: string; back?: string; backLabel?: string; right?: ReactNode; below?: ReactNode }) {
+  const { title, sub, back = '/', backLabel = 'ホーム', right, below } = props;
   return (
     <header className="phead">
       <Link className="back-btn" to={back} aria-label={`${backLabel}に戻る`}>
@@ -18,6 +18,7 @@ export function PageHeader(props: { title: string; sub?: string; back?: string; 
         {sub && <span>{sub}</span>}
       </div>
       {right}
+      {below && <div className="phead-below">{below}</div>}
     </header>
   );
 }

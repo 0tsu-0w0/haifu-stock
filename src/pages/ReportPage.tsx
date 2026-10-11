@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { EventNav } from '../components/EventNav';
 import { PageHeader } from '../components/PageHeader';
 import { useCtx } from '../app/useCtx';
-import { deviceBreakdown, eventReport, profitTimeline, SLOT_MIN, type ProfitTimeline, type ReportSlot } from '../domain/report';
+import {
+  deviceBreakdown, eventReport, ownerBreakdown, profitTimeline, scopeSnapshot, SLOT_MIN, type ProfitTimeline, type ReportScope, type ReportSlot,
+} from '../domain/report';
 import { hhmm, yen } from '../lib/format';
 import { useEventData } from './useEventData';
 
@@ -14,9 +16,22 @@ export function ReportPage() {
   const { eventId = '' } = useParams();
   const data = useEventData(eventId);
   const ctx = useCtx();
-  const r = useMemo(() => (data ? eventReport(data) : null), [data]);
-  const pt = useMemo(() => (data ? profitTimeline(data) : null), [data]);
-  const devices = useMemo(() => (data ? deviceBreakdown(data) : []), [data]);
+  const [params, setParams] = useSearchParams();
+  // 集計の範囲(F-708)。既定は全体(受託分を含む)
+  const consignors = useMemo(() => {
+    if (!data) return [];
+    const ids = new Set(data.allEventItems.map((e) => data.itemById.get(e.item_id)?.owner_id));
+    return data.owners.filter((o) => !o.is_self && ids.has(o.id));
+  }, [data]);
+  const raw = params.get('scope') ?? 'all';
+  const scope: ReportScope = raw === 'all' || raw === 'self' ? raw : consignors.some((o) => o.id === raw) ? { ownerId: raw } : 'all';
+  const scoped = useMemo(() => (data ? scopeSnapshot(data, scope) : null), [data, raw, consignors]); // eslint-disable-line react-hooks/exhaustive-deps
+  const r = useMemo(() => (scoped ? eventReport(scoped) : null), [scoped]);
+  const pt = useMemo(() => (scoped ? profitTimeline(scoped) : null), [scoped]);
+  const devices = useMemo(() => (scoped ? deviceBreakdown(scoped) : []), [scoped]);
+  const owners = useMemo(() => (data && consignors.length > 0 ? ownerBreakdown(data) : []), [data, consignors]);
+  const isConsignor = typeof scope !== 'string';
+  const scopeLabel = scope === 'all' ? '全体(受託分を含む)' : scope === 'self' ? '自分の分だけ' : `受託: ${consignors.find((o) => o.id === scope.ownerId)?.name}`;
 
   if (data === undefined) return <main className="page" />;
   if (data === null || !r) return <main className="page"><p>イベントが見つかりません。</p><Link to="/">ホームに戻る</Link></main>;
@@ -26,6 +41,19 @@ export function ReportPage() {
       <main className="page">
         <PageHeader title="レポート" sub={`${data.event.name}・${data.event.held_on}`} />
         {!data.closing && <p className="note">終了処理の前なので、途中経過です。</p>}
+        {consignors.length > 0 && (
+          <div className="scope-bar">
+            <div className="chips" role="radiogroup" aria-label="集計の範囲">
+              {([["all", "全体"], ["self", "自分の分"], ...consignors.map((o) => [o.id, o.name])] as [string, string][]).map(([k, label]) => (
+                <button
+                  key={k} className="chip" role="radio" aria-checked={raw === k} aria-pressed={raw === k}
+                  onClick={() => setParams(k === "all" ? {} : { scope: k }, { replace: true })}
+                >{label}</button>
+              ))}
+            </div>
+            <p className="note">いまの表示: {scopeLabel}。持ち主は品目のいまの持ち主で数えます。</p>
+          </div>
+        )}
 
         <div className="metrics">
           <div className="metric"><small>売上</small><strong className="num">{yen(r.amount)}</strong></div>
@@ -38,6 +66,29 @@ export function ReportPage() {
         <h3 className="section">時間帯ごとの売上({SLOT_MIN}分ごと)</h3>
         {r.slots.length === 0 ? <div className="card"><p className="note">まだ販売の記録がありません。</p></div> : <SlotChart slots={r.slots} soldOuts={r.soldOuts} />}
 
+        {scope === "all" && owners.length > 1 && (
+          <>
+            <h3 className="section">持ち主ごと</h3>
+            <div className="card table-scroll">
+              <table className="tbl small report-tbl">
+                <thead><tr><th>持ち主</th><th>部数</th><th>売上</th><th>手数料</th></tr></thead>
+                <tbody>
+                  {owners.map((o) => (
+                    <tr key={o.ownerId}>
+                      <td>{o.isSelf ? o.name : <button className="link-btn" onClick={() => setParams({ scope: o.ownerId }, { replace: true })}>{o.name}</button>}</td>
+                      <td className="num">{o.qty}</td>
+                      <td className="num">{yen(o.amount)}</td>
+                      <td className="num">{o.isSelf ? "—" : yen(o.fee)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="note">受託分の売上は受託元のものです。自分の収入になるのは手数料だけです。</p>
+          </>
+        )}
+
+        {isConsignor ? null : <>
         <h3 className="section">黒字になった時刻</h3>
         {pt && pt.fixed === 0 ? (
           <div className="card">
@@ -49,6 +100,8 @@ export function ReportPage() {
         ) : (
           <div className="card"><p className="note">まだ販売の記録がありません。</p></div>
         )}
+        {scope === "self" && <p className="note">自分の分だけの収支です(受託手数料を含みません)。</p>}
+        </>}
 
         <h3 className="section">品目ごと</h3>
         <div className="card table-scroll">

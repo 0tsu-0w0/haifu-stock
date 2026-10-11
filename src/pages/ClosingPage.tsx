@@ -1,4 +1,3 @@
-import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../app/AuthProvider';
@@ -11,7 +10,7 @@ import { useToast } from '../components/Toast';
 import type { CountHandling } from '../db/types';
 import {
   DENOMINATIONS, cashDiffHints, computeMoney, confirmClosing, planCounts, plannedExtraSales, reopenClosing, saveCash, saveCount,
-  saveCountFrom, settlementText, type CountRow,
+  moneyAfterClosing, saveCountFrom, settlementText, type CountRow,
 } from '../domain/closing';
 import type { Ctx } from '../domain/record';
 import { exportLedger, importLedger } from '../sync/file';
@@ -387,7 +386,13 @@ function SettleStep(props: {
 
 function DoneView({ data, ctx, onReopened }: { data: Data; ctx: Ctx; onReopened: () => void }) {
   const c = data.closing!;
-  const settlements = useLiveQuery(() => db.consignment_settlements.filter((x) => x.event_closing_id === c.id).toArray(), [c.id]);
+  const toast = useToast();
+  const [fallback, setFallback] = useState<{ owner: string; text: string } | null>(null);
+  // いまの記録と持ち主で計算し直す(F-709)。持ち主を付け替えると、確定したときの値から変わる
+  const money = useMemo(() => moneyAfterClosing(data), [data]);
+  const stale = money.total !== c.summary.sales || money.profit !== c.summary.profit
+    || money.settlements.length !== c.summary.payouts.length
+    || money.settlements.some((x) => c.summary.payouts.find((p) => p.owner_id === x.ownerId)?.amount !== x.payout);
   return (
     <>
       <div className="card good">
@@ -395,7 +400,7 @@ function DoneView({ data, ctx, onReopened }: { data: Data; ctx: Ctx; onReopened:
         <span className="note">このイベントの記録はロックされています。</span>
       </div>
       <div className="metrics">
-        <div className="metric"><small>売上(全体)</small><strong className="num">{yen(c.summary.sales)}</strong></div>
+        <div className="metric"><small>売上(全体)</small><strong className="num">{yen(money.total)}</strong></div>
         <div className="metric"><small>販売部数</small><strong className="num">{c.summary.count}</strong></div>
         <div className="metric">
           <small>現金の差異</small>
@@ -405,9 +410,20 @@ function DoneView({ data, ctx, onReopened }: { data: Data; ctx: Ctx; onReopened:
         </div>
         <div className="metric">
           <small>収支(自分の分)</small>
-          <strong className={`num ${c.summary.profit >= 0 ? 'pos' : 'neg-num'}`}>{c.summary.profit >= 0 ? '+' : ''}{yen(c.summary.profit)}</strong>
+          <strong className={`num ${money.profit >= 0 ? 'pos' : 'neg-num'}`}>{money.profit >= 0 ? '+' : ''}{yen(money.profit)}</strong>
         </div>
       </div>
+      {stale && (
+        <div className="card warn">
+          <b>確定したときから集計が変わっています</b>
+          <p className="note">
+            品目の持ち主の付け替えなどで、いまの記録から計算し直した値を出しています。
+            確定したときは 売上 {yen(c.summary.sales)}・収支 {c.summary.profit >= 0 ? '+' : ''}{yen(c.summary.profit)}
+            {c.summary.payouts.length > 0 && `・お支払い ${c.summary.payouts.map((p) => `${p.name} ${yen(p.amount)}`).join('、')}`} でした。
+            受託先にすでに精算書を送っていた場合は、下から送り直してください。
+          </p>
+        </div>
+      )}
       <h3>残数確認で反映したこと</h3>
       <div className="card">
         {c.summary.fixes.length === 0 && <span className="k">なし</span>}
@@ -417,10 +433,32 @@ function DoneView({ data, ctx, onReopened }: { data: Data; ctx: Ctx; onReopened:
       </div>
       <h3>受託分のお支払い</h3>
       <div className="card">
-        {(settlements ?? []).length === 0 && <span className="k">なし</span>}
-        {settlements?.map((x) => (
-          <div className="rowx" key={x.id}>
-            <span>{data.ownerById.get(x.owner_id)?.name}</span><b className="num">{yen(x.payout_amount)}</b>
+        {money.settlements.length === 0 && <span className="k">なし</span>}
+        {money.settlements.map((x) => (
+          <div key={x.ownerId}>
+            <div className="rowx">
+              <span>{x.name}</span>
+              <span className="rowx-end">
+                <b className="num">{yen(x.payout)}</b>
+                <button
+                  className="sbtn"
+                  onClick={async () => {
+                    const text = settlementText(data.event.name, x);
+                    try {
+                      await navigator.clipboard.writeText(text);
+                      toast('精算書をコピーしました');
+                    } catch {
+                      setFallback({ owner: x.ownerId, text });
+                    }
+                  }}
+                >
+                  精算書をコピー
+                </button>
+              </span>
+            </div>
+            {fallback?.owner === x.ownerId && (
+              <textarea className="copyfallback" readOnly value={fallback.text} onFocus={(e) => e.target.select()} autoFocus />
+            )}
           </div>
         ))}
       </div>

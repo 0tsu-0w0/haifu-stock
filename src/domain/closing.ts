@@ -131,6 +131,20 @@ export function computeMoney(s: EventSnapshot, rows: CountRow[]): Money {
   return { total, own, consigned, fee, expenses, cost, profit: own + fee - expenses - cost, settlements };
 }
 
+/**
+ * 確定したあとのイベントの収支と精算を、いまの記録から計算し直す(F-709)。
+ * 確定で追加した販売は台帳に入っているので、残数確認の扱いは使わない。返却数は数えた残数を使う
+ */
+export function moneyAfterClosing(s: EventSnapshot): Money {
+  const m = computeMoney(s, []);
+  const counted = new Map(s.closingCounts.map((c) => [c.item_id, c.counted_qty]));
+  for (const x of m.settlements) {
+    for (const l of x.lines) l.returnedQty = counted.get(l.item.id) ?? 0;
+    x.returnedQty = x.lines.reduce((a, l) => a + l.returnedQty, 0);
+  }
+  return m;
+}
+
 /** 現金の差異から考えられる原因(F-503) */
 export function cashDiffHints(diff: number, items: Item[], rows: CountRow[]): string[] {
   if (diff === 0) return [];

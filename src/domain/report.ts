@@ -213,3 +213,59 @@ export function deviceBreakdown(s: EventSnapshot): DeviceRow[] {
   }
   return [...rows.values()].sort((a, b) => b.amount - a.amount);
 }
+
+/** 集計の範囲(F-708)。全体(受託分を含む)/ 自分の分だけ / 受託元1つ */
+export type ReportScope = 'all' | 'self' | { ownerId: string };
+
+export const scopeKey = (s: ReportScope) => (typeof s === 'string' ? s : s.ownerId);
+
+/**
+ * 範囲に入る品目の記録だけを残したスナップショットを作る。持ち主はいまの品目の持ち主で決めるので、
+ * 持ち主を付け替える(F-709)と、過去のイベントもそのまま新しい持ち主で集計される
+ */
+export function scopeSnapshot(s: EventSnapshot, scope: ReportScope): EventSnapshot {
+  if (scope === 'all') return s;
+  const selfIds = new Set(s.owners.filter((o) => o.is_self).map((o) => o.id));
+  const inScope = (ownerId: string) => (scope === 'self' ? selfIds.has(ownerId) : ownerId === scope.ownerId);
+  const itemIds = new Set(s.items.filter((i) => inScope(i.owner_id)).map((i) => i.id));
+  const lines = s.lines.filter((l) => itemIds.has(l.item_id));
+  const withLines = new Set(lines.map((l) => l.transaction_id));
+  const kept = new Set(s.txns.filter((t) => t.type !== 'void' && withLines.has(t.id)).map((t) => t.id));
+  return {
+    ...s,
+    lines,
+    txns: s.txns.filter((t) => kept.has(t.id) || (t.type === 'void' && !!t.voids_txn_id && kept.has(t.voids_txn_id))),
+    movements: s.movements.filter((m) => itemIds.has(m.item_id)),
+    eventItems: s.eventItems.filter((e) => itemIds.has(e.item_id)),
+    allEventItems: s.allEventItems.filter((e) => itemIds.has(e.item_id)),
+  };
+}
+
+export interface OwnerRow {
+  ownerId: string;
+  name: string;
+  isSelf: boolean;
+  qty: number;
+  amount: number;
+  /** 受託手数料(自分の分は 0) */
+  fee: number;
+}
+
+/** 持ち主ごとの売上(F-708 の「持ち主別」)。売上のない受託元は出さない */
+export function ownerBreakdown(s: EventSnapshot): OwnerRow[] {
+  const { itemById, ownerById } = deriveEvent(s);
+  const active = activeTxnIds(s.txns);
+  const saleIds = new Set(s.txns.filter((t) => t.type === 'sale' && active.has(t.id)).map((t) => t.id));
+  const rows = new Map<string, OwnerRow>();
+  for (const l of s.lines) {
+    if (!saleIds.has(l.transaction_id)) continue;
+    const owner = ownerById.get(itemById.get(l.item_id)?.owner_id ?? '');
+    if (!owner) continue;
+    const r = rows.get(owner.id) ?? { ownerId: owner.id, name: owner.is_self ? '自分' : owner.name, isSelf: owner.is_self, qty: 0, amount: 0, fee: 0 };
+    r.qty += l.qty;
+    r.amount += lineAmount(l);
+    rows.set(owner.id, r);
+  }
+  for (const r of rows.values()) if (!r.isSelf) r.fee = Math.round(r.amount * (ownerById.get(r.ownerId)?.default_fee_rate ?? 0));
+  return [...rows.values()].sort((a, b) => Number(b.isSelf) - Number(a.isSelf) || b.amount - a.amount);
+}

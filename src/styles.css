@@ -448,3 +448,16 @@ details[open] summary { margin-bottom: 6px; }
 .form input[type="date"], .form input[type="time"] { padding: 0 12px; line-height: 42px; }
 .form input::-webkit-date-and-time-value { text-align: left; margin: 0; line-height: 42px; }
 .form input::-webkit-datetime-edit { padding: 0; line-height: 42px; }
+
+/* レポート: 集計の範囲の切り替え(F-708) */
+.scope-bar { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 12px; }
+.scope-bar .note { margin: 0; }
+.rowx-end { display: inline-flex; align-items: center; gap: 10px; }
+
+/* 準備画面: 見出しの下の「この画面の中を移動」 */
+.phead { flex-wrap: wrap; }
+.phead-below { flex-basis: 100%; min-width: 0; }
+.jump { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -2px; padding: 0 2px; }
+.jump::-webkit-scrollbar { display: none; }
+.jump button { flex: none; min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font-size: 13px; font-weight: 600; }
+.jump button:active { background: var(--accent-soft); color: var(--accent); }
