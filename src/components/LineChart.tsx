@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react';
 
-// 直線だけの折れ線グラフ(損益分岐用)。縦線の名前は、線の端の名前とぶつからないよう下に置く。縦軸は1本だけ。色は系列の役割で決め、文字は文字色のまま。
+// 折れ線グラフ(損益分岐・刷り部数のシミュレーション用)。縦線の名前は、線の端の名前とぶつからないよう下に置く。縦軸は1本だけ。色は系列の役割で決め、文字は文字色のまま。
 // 系列が2本以上なら凡例を出し、線の端にも名前を書く。なぞると、その位置の値を出す
 
 export interface Series {
@@ -8,8 +8,10 @@ export interface Series {
   label: string;
   /** CSS の色(トークン) */
   color: string;
-  /** x を受け取って y を返す(直線なので両端だけ描けばよい) */
+  /** x を受け取って y を返す。breaks がなければ直線なので両端だけ描く */
   y: (x: number) => number;
+  /** 線が折れる x(区間ごとに直線のとき)。両端との間を直線で結ぶ */
+  breaks?: number[];
   dashed?: boolean;
 }
 
@@ -106,11 +108,12 @@ export function LineChart(props: {
           ))}
 
           {series.map((s) => {
-            const y0 = clipY(s.y(0));
             const y1 = clipY(s.y(xMax));
+            const xs = [0, ...(s.breaks ?? []).filter((x) => x > 0 && x < xMax).sort((a, b) => a - b), xMax];
+            const pts = xs.map((x) => `${sx(x)},${sy(clipY(s.y(x)))}`).join(' ');
             return (
               <g key={s.key}>
-                <line x1={sx(0)} y1={sy(y0)} x2={sx(xMax)} y2={sy(y1)} stroke={s.color} strokeWidth={2} strokeLinecap="round" strokeDasharray={s.dashed ? '6 4' : undefined} />
+                <polyline points={pts} fill="none" stroke={s.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={s.dashed ? '6 4' : undefined} />
                 {series.length >= 2 && (
                   <text x={sx(xMax) - 2} y={sy(y1) + (y1 > (yMax + yMin) / 2 ? 14 : -6)} className="series-label" textAnchor="end">{s.label}</text>
                 )}

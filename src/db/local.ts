@@ -2,7 +2,7 @@ import Dexie, { type Table } from 'dexie';
 import type {
   CashCount, Circle, ClosingCount, ConsignmentSettlement, Device, EventClosing, EventDevice, EventItem, EventRow, Expense,
   Item, Location, LooseRow, MetaEntry,
-  Movement, OutboxEntry, Owner, PrintRun, SetComponent, Txn, TxnLine,
+  Movement, OutboxEntry, Owner, PriceTier, PrintRun, SetComponent, Txn, TxnLine,
 } from './types';
 import { dexieStores, outboxKey } from './tables';
 
@@ -16,7 +16,7 @@ export class HaifuDB extends Dexie {
   set_components!: Table<SetComponent, [string, string]>;
   print_runs!: Table<PrintRun, string>;
   production_costs!: Table<LooseRow, string>;
-  print_price_tiers!: Table<LooseRow, string>;
+  print_price_tiers!: Table<PriceTier, string>;
   events!: Table<EventRow, string>;
   locations!: Table<Location, string>;
   event_items!: Table<EventItem, [string, string]>;

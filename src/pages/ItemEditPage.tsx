@@ -6,6 +6,7 @@ import { useCtx } from '../app/useCtx';
 import { ConfirmButton } from '../components/ConfirmButton';
 import { NumberField } from '../components/NumberField';
 import { PageHeader } from '../components/PageHeader';
+import { PrintPlan } from '../components/PrintPlan';
 import { useToast } from '../components/Toast';
 import type { ItemKind } from '../db/types';
 import { addPrintRun, deleteItem, restoreItem, saveItem, saveOwner, setItemArchived } from '../domain/catalog';
@@ -255,6 +256,7 @@ export function ItemEditPage() {
             {runError && <p className="error">{runError}</p>}
             <button className="btn">追加して{home?.name ?? '自宅'}に入れる</button>
           </form>
+          <PrintPlan item={item} ctx={ctx} />
         </>
       )}
 

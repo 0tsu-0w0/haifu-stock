@@ -1,5 +1,5 @@
 import { putAndQueue, type HaifuDB } from '../db/local';
-import type { CashCount, EventItem, EventRow, Expense, ExpenseCategory, Item, ItemKind, Owner, PrintRun, SetComponent } from '../db/types';
+import type { CashCount, EventItem, EventRow, Expense, ExpenseCategory, Item, ItemKind, Owner, PriceTier, PrintRun, SetComponent } from '../db/types';
 import { uuidv7 } from '../lib/uuid';
 import { assertOpen } from './closing';
 import { isItemColor } from './colors';
@@ -49,6 +49,7 @@ export async function saveItem(db: HaifuDB, ctx: Ctx, input: ItemInput): Promise
   const cur = input.id ? await db.items.get(input.id) : undefined;
   if (cur && cur.kind !== input.kind) throw new Error('作った後で種類は変えられません');
   if (input.color != null && !isItemColor(input.color)) throw new Error('色が正しくありません');
+  if (input.printLot != null && (!Number.isInteger(input.printLot) || input.printLot <= 0)) throw new Error('部数の刻みは1以上の整数で入れてください');
   const isNew = !cur;
   if (input.kind === 'set' && isNew) {
     const comps = input.components ?? [];
@@ -57,7 +58,8 @@ export async function saveItem(db: HaifuDB, ctx: Ctx, input: ItemInput): Promise
   }
   const item: Item = {
     id: cur?.id ?? uuidv7(), circle_id: ctx.circleId, owner_id: input.ownerId, kind: input.kind, name,
-    price: input.price, print_lot: input.printLot ?? null, low_threshold: input.lowThreshold,
+    price: input.price, print_lot: input.printLot === undefined ? cur?.print_lot ?? null : input.printLot,
+    low_threshold: input.lowThreshold,
     color: input.color === undefined ? cur?.color ?? null : input.color,
     archived_at: cur?.archived_at ?? null, deleted_at: cur?.deleted_at ?? null, client_updated_at: stamp(),
   };
@@ -480,4 +482,44 @@ export async function recordStocktake(
     adjusted++;
   }
   return { adjusted };
+}
+
+/**
+ * 印刷所の価格表の1行を保存する(F-108)。同じ部数の行があれば(消した行も)上書きする。
+ * サーバーでは品目と部数の組が1つだけなので、新しい id では作らない
+ */
+export async function savePriceTier(db: HaifuDB, ctx: Ctx, input: { itemId: string; qty: number; totalCost: number }): Promise<void> {
+  if (!Number.isInteger(input.qty) || input.qty <= 0) throw new Error('部数は1以上の整数で入れてください');
+  if (!Number.isInteger(input.totalCost) || input.totalCost < 0) throw new Error('金額は0円以上の整数で入れてください');
+  await db.transaction('rw', ['print_price_tiers', 'outbox'], async () => {
+    const cur = await db.print_price_tiers.where('item_id').equals(input.itemId).filter((t) => t.qty === input.qty).first();
+    await putAndQueue(db, 'print_price_tiers', {
+      id: cur?.id ?? uuidv7(), circle_id: ctx.circleId, item_id: input.itemId, qty: input.qty, total_cost: input.totalCost,
+      deleted_at: null, client_updated_at: stamp(),
+    } satisfies PriceTier);
+  });
+}
+
+export async function deletePriceTier(db: HaifuDB, id: string): Promise<void> {
+  await db.transaction('rw', ['print_price_tiers', 'outbox'], async () => {
+    const cur = await db.print_price_tiers.get(id);
+    if (!cur) throw new Error('価格表の行が見つかりません');
+    await putAndQueue(db, 'print_price_tiers', { ...cur, deleted_at: stamp(), client_updated_at: stamp() });
+  });
+}
+
+export async function priceTiers(db: HaifuDB, itemId: string): Promise<PriceTier[]> {
+  return (await db.print_price_tiers.where('item_id').equals(itemId).toArray())
+    .filter((t) => !t.deleted_at)
+    .sort((a, b) => a.qty - b.qty);
+}
+
+/** 印刷所の部数の刻み(F-106)。刷り部数の提案とシミュレーションの丸めに使う。null で指定なし */
+export async function setPrintLot(db: HaifuDB, itemId: string, lot: number | null): Promise<void> {
+  if (lot !== null && (!Number.isInteger(lot) || lot <= 0)) throw new Error('部数の刻みは1以上の整数で入れてください');
+  await db.transaction('rw', ['items', 'outbox'], async () => {
+    const cur = await db.items.get(itemId);
+    if (!cur) throw new Error('品目が見つかりません');
+    await putAndQueue(db, 'items', { ...cur, print_lot: lot, client_updated_at: stamp() });
+  });
 }

@@ -196,6 +196,7 @@ create table print_price_tiers (
   item_id           uuid not null references items(id) on delete cascade,
   qty               int  not null check (qty > 0),
   total_cost        int  not null check (total_cost >= 0),
+  deleted_at        timestamptz,                            -- 消した行(同期で消したことを伝えるため、行は残す)
   updated_at        timestamptz not null default now(),
   client_updated_at timestamptz not null default now(),
   server_seq        bigint not null default 0,

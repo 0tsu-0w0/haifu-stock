@@ -43,6 +43,17 @@ export interface Item extends FromServer {
   client_updated_at: Iso;
 }
 
+/** 印刷所の価格表の1行(F-108)。部数ごとの総額 */
+export interface PriceTier extends FromServer {
+  id: Uuid;
+  circle_id: Uuid;
+  item_id: Uuid;
+  qty: number;
+  total_cost: number;
+  deleted_at?: Iso | null;
+  client_updated_at: Iso;
+}
+
 export interface SetComponent extends FromServer {
   set_item_id: Uuid;
   component_item_id: Uuid;
