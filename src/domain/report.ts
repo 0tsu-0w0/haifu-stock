@@ -1,4 +1,5 @@
 import { activeTxnIds, lineAmount } from './ledger';
+import { breakOverlapMs } from './breaks';
 import { deriveEvent, type EventSnapshot } from './snapshot';
 
 // イベント後のレポート(F-701〜703)。サマリー、品目ごとの消化率と完売時刻、30分ごとの売れ方
@@ -268,4 +269,63 @@ export function ownerBreakdown(s: EventSnapshot): OwnerRow[] {
   }
   for (const r of rows.values()) if (!r.isSelf) r.fee = Math.round(r.amount * (ownerById.get(r.ownerId)?.default_fee_rate ?? 0));
   return [...rows.values()].sort((a, b) => Number(b.isSelf) - Number(a.isSelf) || b.amount - a.amount);
+}
+
+export interface PairRow {
+  a: string;
+  b: string;
+  /** 2つとも入っていた取引の数 */
+  count: number;
+  /** 2品目以上の取引のうちの割合 */
+  share: number;
+}
+
+/**
+ * よく一緒に買われた組み合わせ(F-706)。2品目以上を一緒に買った取引から、品目の組を数える。
+ * セットを作る参考にする。取り消した販売は数えない
+ */
+export function boughtTogether(s: EventSnapshot, limit = 5): { pairs: PairRow[]; multiTxns: number } {
+  const active = activeTxnIds(s.txns);
+  const byTxn = new Map<string, Set<string>>();
+  const saleIds = new Set(s.txns.filter((t) => t.type === 'sale' && active.has(t.id)).map((t) => t.id));
+  for (const l of s.lines) {
+    if (!saleIds.has(l.transaction_id)) continue;
+    const set = byTxn.get(l.transaction_id) ?? new Set<string>();
+    set.add(l.item_id);
+    byTxn.set(l.transaction_id, set);
+  }
+  const counts = new Map<string, number>();
+  let multiTxns = 0;
+  for (const items of byTxn.values()) {
+    if (items.size < 2) continue;
+    multiTxns++;
+    const ids = [...items].sort();
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const k = `${ids[i]}|${ids[j]}`;
+        counts.set(k, (counts.get(k) ?? 0) + 1);
+      }
+    }
+  }
+  const name = (id: string) => s.items.find((i) => i.id === id)?.name ?? '不明な品目';
+  const pairs = [...counts]
+    .map(([k, count]) => {
+      const [a, b] = k.split('|');
+      return { a: name(a), b: name(b), count, share: multiTxns ? count / multiTxns : 0 };
+    })
+    .sort((x, y) => y.count - x.count || x.a.localeCompare(y.a, 'ja'))
+    .slice(0, limit);
+  return { pairs, multiTxns };
+}
+
+/** 販売時間(開始時刻か最初の販売から、最後の販売まで)と、そのうちの休憩(F-411) */
+export function salesDuration(s: EventSnapshot, now = Date.now()): { minutes: number; breakMinutes: number } | null {
+  const active = activeTxnIds(s.txns);
+  const times = s.txns.filter((t) => t.type === 'sale' && active.has(t.id)).map((t) => Date.parse(t.recorded_at));
+  if (times.length === 0) return null;
+  const first = Math.min(...times);
+  const start = s.event.starts_at && Date.parse(s.event.starts_at) <= first ? Date.parse(s.event.starts_at) : first;
+  const end = Math.max(...times);
+  const brk = breakOverlapMs(start, end, s.breaks, now);
+  return { minutes: Math.round((end - start - brk) / 60_000), breakMinutes: Math.round(brk / 60_000) };
 }

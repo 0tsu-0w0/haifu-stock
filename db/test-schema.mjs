@@ -184,6 +184,15 @@ await as(U2, async () => {
   await db.exec(`select set_config('test.anon', '', false)`);
 });
 
+// 休憩・離席(F-411): 売り子も参加中のイベントの休憩を記録できる
+await as(U2, async () => {
+  const B1 = id();
+  await db.query(`insert into event_breaks (id, circle_id, event_id, starts_at) values ($1,$2,$3,now())`, [B1, C, EV]);
+  const r = await db.query(`update event_breaks set ends_at = now() + interval '10 minute', client_updated_at = now() + interval '1 second' where id = $1`, [B1]);
+  ok(r.affectedRows === 1, '売り子は参加中のイベントの休憩を始めて終えられる');
+  await expectError(db.query(`insert into event_breaks (id, circle_id, event_id, starts_at) values ($1,$2,$3,now())`, [id(), C, id()]), '売り子は参加していないイベントの休憩を記録できない');
+});
+
 // 端末の名前: 売り子は自分の端末だけ、サークル主はすべて
 await as(U1, async () => {
   await db.query(`insert into devices (id, circle_id, user_id, name) values ($1,$2,$3,'主のスマホ')`, [DEV1, C, U1]);

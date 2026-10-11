@@ -1,3 +1,4 @@
+import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../app/AuthProvider';
@@ -9,6 +10,7 @@ import { RegisterTour, tourSeen } from '../components/RegisterTour';
 import { SyncPill } from '../components/SyncPill';
 import { useToast } from '../components/Toast';
 import type { GiveawayKind, Item, Txn } from '../db/types';
+import { endBreak, openBreak, startBreak } from '../domain/breaks';
 import { GIVE_LABEL, describeTxn } from '../domain/history';
 import { recordGiveaway, recordSale, voidTransaction } from '../domain/record';
 import { profitTimeline } from '../domain/report';
@@ -88,6 +90,8 @@ export function RegisterPage() {
   const [payInput, setPayInput] = useState('');
   const [reason, setReason] = useState('');
   const [screenLock, setScreenLock] = useState(() => readLock(eventId));
+  // 休憩・離席中(F-411)。販売を記録すると自動で終わる
+  const onBreak = useLiveQuery(() => openBreak(db, eventId), [eventId]);
   useEffect(() => writeLock(eventId, screenLock), [eventId, screenLock]);
   // レジを開いている間は画面を消さない(確定後は記録しないので不要)
   const awake = useWakeLock(!!data && !data.closing);
@@ -181,6 +185,7 @@ export function RegisterPage() {
     try {
       const t = await p;
       vibrate(buzz);
+      if (onBreak) void endBreak(db, ctx!, eventId);
       toast(message, {
         label: '元に戻す',
         run: () => void voidTransaction(db, ctx!, t.id).then(() => { setFlash(null); toast('取り消しました'); }, (e: Error) => toast(e.message)),
@@ -315,6 +320,16 @@ export function RegisterPage() {
             </Link>
           )}
           <SyncPill />
+          {!locked && (
+            <button
+              className={`icon-btn${onBreak ? ' on' : ''}`}
+              aria-label={onBreak ? '休憩を終える' : '休憩・離席を始める'}
+              aria-pressed={!!onBreak}
+              onClick={() => void (onBreak ? endBreak(db, ctx, eventId).then(() => toast('休憩を終えました')) : startBreak(db, ctx, eventId).then(() => toast('休憩を始めました。この時間は販売時間から除きます')))}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17 8h1a4 4 0 0 1 0 8h-1" /><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z" /><path d="M6 2v2M10 2v2M14 2v2" /></svg>
+            </button>
+          )}
           <button className="icon-btn" aria-label="画面をロックする" onClick={() => { cancelPress(); setSheetItem(null); setArmed(null); setScreenLock(true); }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
           </button>
@@ -336,6 +351,11 @@ export function RegisterPage() {
             : <span>タップでカートに入れ、「決済」で記録</span>}
           <span>{awake ? '画面は消えません・' : ''}{eventItems.length}品目</span>
         </div>
+        {onBreak && !locked && (
+          <button className="break-banner" onClick={() => void endBreak(db, ctx, eventId).then(() => toast('休憩を終えました'))}>
+            休憩中({hhmm(onBreak.starts_at)}〜)。この時間は販売時間から除きます。押すと再開します(販売を記録しても再開します)
+          </button>
+        )}
         {locked && (
           <button className="closed-banner" onClick={() => navigate(`/events/${eventId}/closing`)}>
             {hhmm(closing.closed_at)} に終了処理を確定しました。記録は変更できません。結果を見る

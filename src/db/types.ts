@@ -193,6 +193,16 @@ export interface Device extends FromServer {
   client_updated_at: Iso;
 }
 
+/** 休憩・離席の時間帯(F-411)。ends_at が null の間は休憩中 */
+export interface EventBreak extends FromServer {
+  id: Uuid;
+  circle_id: Uuid;
+  event_id: Uuid;
+  starts_at: Iso;
+  ends_at: Iso | null;
+  client_updated_at: Iso;
+}
+
 export type ExpenseCategory = 'booth_fee' | 'transport' | 'lodging' | 'shipping' | 'supplies' | 'other';
 
 export interface Expense extends FromServer {

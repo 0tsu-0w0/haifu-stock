@@ -1,6 +1,7 @@
 import type { HaifuDB } from '../db/local';
 import type { EventRow, Item, PrintRun } from '../db/types';
 import { activeTxnIds, eventItemSummary, lineAmount, stockByLocation, type ItemAtEvent } from './ledger';
+import { activeFraction } from './breaks';
 
 // 刷り部数の目安(要件 §6.1〜6.5)と損益分岐(§6.6)。
 // 機械学習は使わず、途中の値をすべて画面に見せられる計算にする
@@ -76,7 +77,7 @@ function eventWindow(ev: EventRow, firstSale: number | null, hours: number): [nu
 }
 
 export async function loadAnalysis(db: HaifuDB, circleId: string, opts: ForecastOptions = DEFAULT_FORECAST): Promise<AnalysisData> {
-  const [events, items, owners, locations, setComponents, txns, lines, movements, printRuns, prodCosts, closings] = await Promise.all([
+  const [events, items, owners, locations, setComponents, txns, lines, movements, printRuns, prodCosts, closings, breaks] = await Promise.all([
     db.events.where('circle_id').equals(circleId).toArray(),
     db.items.where('circle_id').equals(circleId).toArray(),
     db.owners.where('circle_id').equals(circleId).toArray(),
@@ -88,6 +89,7 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
     db.print_runs.toArray(),
     db.production_costs.toArray(),
     db.event_closings.toArray(),
+    db.event_breaks.toArray(),
   ]);
   const selfIds = new Set(owners.filter((o) => o.is_self).map((o) => o.id));
   // 削除した品目・イベントは、目安や損益分岐の対象にしない
@@ -109,17 +111,17 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
       : new Map();
     const sales = movements.filter((m) => m.event_id === ev.id && m.reason === 'sale' && m.transaction_id && active.has(m.transaction_id));
     const first = sales.length ? Math.min(...sales.map((m) => Date.parse(m.recorded_at))) : null;
-    return { ev, summary, sales, window: eventWindow(ev, first, opts.defaultHours) };
+    // 休憩・離席の時間は、開催時間から除いて数える(F-411)
+    return { ev, summary, sales, window: eventWindow(ev, first, opts.defaultHours), breaks: breaks.filter((b) => b.event_id === ev.id) };
   });
 
   // 累積販売曲線: 完売しなかった品目の販売が、開催時間のどの時点で起きたか(要件 §6.1)
   const fractions: { f: number; q: number }[] = [];
   for (const p of perEvent) {
     if (!p.window) continue;
-    const [s, e] = p.window;
     for (const m of p.sales) {
       if (p.summary.get(m.item_id)?.soldOutAt) continue;
-      fractions.push({ f: Math.min(Math.max((Date.parse(m.recorded_at) - s) / (e - s), 0), 1), q: m.qty });
+      fractions.push({ f: activeFraction(Date.parse(m.recorded_at), p.window, p.breaks), q: m.qty });
     }
   }
   const samples = fractions.reduce((a, x) => a + x.q, 0);
@@ -137,8 +139,7 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
       let fraction: number | null = null;
       let demand = s.sold;
       if (s.soldOutAt && p.window) {
-        const [st, en] = p.window;
-        fraction = Math.min(Math.max((Date.parse(s.soldOutAt) - st) / (en - st), 0), 1);
+        fraction = activeFraction(Date.parse(s.soldOutAt), p.window, p.breaks);
         if (fraction < 1 && s.sold > 0) {
           demand = Math.min(s.sold / Math.max(curve(fraction), 0.05), s.sold * opts.capFactor);
         }

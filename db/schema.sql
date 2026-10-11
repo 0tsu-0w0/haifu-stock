@@ -704,6 +704,11 @@ create policy event_devices_staff_rw on event_devices for all to authenticated
   using (user_id = (select auth.uid()) and app.is_event_staff(event_id))
   with check (user_id = (select auth.uid()) and role = 'staff' and app.is_event_staff(event_id));
 
+-- 売り子: 参加中のイベントの休憩・離席(F-411)
+create policy event_breaks_staff_rw on event_breaks for all to authenticated
+  using (app.is_event_staff(event_id))
+  with check (app.is_event_staff(event_id));
+
 -- 売り子: 自分の端末の名前(参加中のイベントがあるサークルだけ)
 create function app.is_circle_staff(c uuid) returns boolean
 language sql stable security definer set search_path = public as $$

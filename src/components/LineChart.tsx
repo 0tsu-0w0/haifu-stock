@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react';
+import { ChartSave } from './ChartSave';
 
 // 折れ線グラフ(損益分岐・刷り部数のシミュレーション用)。縦線の名前は、線の端の名前とぶつからないよう下に置く。縦軸は1本だけ。色は系列の役割で決め、文字は文字色のまま。
 // 系列が2本以上なら凡例を出し、線の端にも名前を書く。なぞると、その位置の値を出す
@@ -71,7 +72,7 @@ export function LineChart(props: {
 
   return (
     <figure className="chart">
-      <figcaption className="chart-title">{props.title}</figcaption>
+      <figcaption className="chart-head"><span className="chart-title">{props.title}</span><ChartSave name={props.title} /></figcaption>
       {series.length >= 2 && (
         <div className="legend" aria-hidden="true">
           {series.map((s) => (

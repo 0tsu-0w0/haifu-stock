@@ -5,6 +5,7 @@ import { db } from '../app/db';
 import { useCtx } from '../app/useCtx';
 import { ConfirmButton } from '../components/ConfirmButton';
 import { EventNav } from '../components/EventNav';
+import { FloatSuggest } from '../components/FloatSuggest';
 import { NewItemForEvent } from '../components/NewItemForEvent';
 import { NumberField } from '../components/NumberField';
 import { PageHeader } from '../components/PageHeader';
@@ -327,6 +328,11 @@ export function EventPreparePage() {
                 <span className="sub num">{yen(d * (floatCounts.get(d) ?? 0))}</span>
               </div>
             ))}
+            <FloatSuggest
+              ctx={ctx} eventId={eventId!} current={floatCounts} locked={locked}
+              lines={ordered.filter((i) => i.kind !== 'set').map((i) => lineOf(i.id)).filter((l) => l.included)
+                .map((l) => ({ price: l.priceOverride ?? data.items.find((x) => x.id === l.itemId)?.price ?? 0, qty: l.bring }))}
+            />
           </div>
 
           <h3 id="prep-expenses" className="section">経費</h3>

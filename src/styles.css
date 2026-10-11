@@ -576,3 +576,14 @@ details[open] summary { margin-bottom: 6px; }
 .trial-scale { display: flex; justify-content: space-between; font-size: 12px; margin-top: -6px; }
 .trial td span { margin-left: 6px; font-size: 12px; }
 .trial .link-btn { align-self: flex-start; }
+
+/* レジ: 休憩・離席中(F-411) */
+.break-banner { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-line); border-radius: 10px; padding: 8px 12px; font-size: 13px; text-align: left; }
+.icon-btn.on { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn); }
+.float-suggest { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; margin-top: 4px; }
+
+/* グラフ: 見出しと「画像で保存」(F-1109) */
+.chart-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.chart-head .chart-title { padding-bottom: 0; }
+.chart-save { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; min-height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line-2); font-size: 12px; color: var(--ink-2); background: var(--surface); flex: none; }
+.chart-save:disabled { opacity: .5; }

@@ -8,7 +8,7 @@ export async function loadEventSnapshot(db: HaifuDB, eventId: string) {
   const event = await db.events.get(eventId);
   if (!event) return null;
   const c = event.circle_id;
-  const [location, storages, allEventItems, items, owners, setComponents, txns, movements, cash, closingCounts, closings, expenses, printRuns] =
+  const [location, storages, allEventItems, items, owners, setComponents, txns, movements, cash, closingCounts, closings, expenses, printRuns, breaks] =
     await Promise.all([
       db.locations.where('event_id').equals(eventId).first(),
       db.locations.where('circle_id').equals(c).filter((l) => l.kind === 'storage' && !l.archived_at).toArray(),
@@ -23,6 +23,7 @@ export async function loadEventSnapshot(db: HaifuDB, eventId: string) {
       db.event_closings.where('event_id').equals(eventId).toArray(),
       db.expenses.where('event_id').equals(eventId).toArray(),
       db.print_runs.toArray(),
+      db.event_breaks.where('event_id').equals(eventId).toArray(),
     ]);
   const lines = await db.transaction_lines.where('transaction_id').anyOf(txns.map((t) => t.id)).toArray();
   return {
@@ -32,6 +33,8 @@ export async function loadEventSnapshot(db: HaifuDB, eventId: string) {
     /** 外したものも含む(終了処理で在庫が残っていないか確かめるため) */
     allEventItems, owners, setComponents, txns, movements, lines,
     cash, closingCounts, expenses, printRuns,
+    /** 休憩・離席の時間帯(F-411) */
+    breaks,
     closing: closings.find((x) => !x.reopened_at) ?? null as EventClosing | null,
   };
 }

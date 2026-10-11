@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { EventNav } from '../components/EventNav';
+import { ChartSave } from '../components/ChartSave';
 import { PageHeader } from '../components/PageHeader';
 import { db } from '../app/db';
 import { useCtx } from '../app/useCtx';
@@ -8,7 +9,7 @@ import { useDeviceNames } from '../app/useDeviceNames';
 import { useToast } from '../components/Toast';
 import { deviceLabel, saveDeviceName } from '../domain/devices';
 import {
-  deviceBreakdown, eventReport, ownerBreakdown, profitTimeline, scopeSnapshot, SLOT_MIN, type ProfitTimeline, type ReportScope, type ReportSlot,
+  boughtTogether, deviceBreakdown, eventReport, ownerBreakdown, profitTimeline, salesDuration, scopeSnapshot, SLOT_MIN, type ProfitTimeline, type ReportScope, type ReportSlot,
 } from '../domain/report';
 import { hhmm, yen } from '../lib/format';
 import { useEventData } from './useEventData';
@@ -34,6 +35,8 @@ export function ReportPage() {
   const r = useMemo(() => (scoped ? eventReport(scoped) : null), [scoped]);
   const pt = useMemo(() => (scoped ? profitTimeline(scoped) : null), [scoped]);
   const devices = useMemo(() => (scoped ? deviceBreakdown(scoped) : []), [scoped]);
+  const together = useMemo(() => (scoped ? boughtTogether(scoped) : null), [scoped]);
+  const duration = useMemo(() => (scoped ? salesDuration(scoped) : null), [scoped]);
   const owners = useMemo(() => (data && consignors.length > 0 ? ownerBreakdown(data) : []), [data, consignors]);
   const isConsignor = typeof scope !== 'string';
   const scopeLabel = scope === 'all' ? '全体(受託分を含む)' : scope === 'self' ? '自分の分だけ' : `受託: ${consignors.find((o) => o.id === scope.ownerId)?.name}`;
@@ -67,6 +70,13 @@ export function ReportPage() {
           <div className="metric"><small>客単価</small><strong className="num">{r.perCustomer === null ? '—' : yen(r.perCustomer)}</strong></div>
         </div>
         {r.discount > 0 && <p className="note">値引きの合計 {yen(r.discount)}(売上は値引き後の金額です)</p>}
+        {duration && (
+          <p className="note">
+            販売時間 {Math.floor(duration.minutes / 60)}時間{duration.minutes % 60}分
+            {duration.breakMinutes > 0 && `(休憩・離席 ${duration.breakMinutes}分を除く)`}
+            {duration.minutes > 0 && `・1時間あたり ${yen(Math.round((r.amount / duration.minutes) * 60))}`}
+          </p>
+        )}
 
         <h3 className="section">時間帯ごとの売上({SLOT_MIN}分ごと)</h3>
         {r.slots.length === 0 ? <div className="card"><p className="note">まだ販売の記録がありません。</p></div> : <SlotChart slots={r.slots} soldOuts={r.soldOuts} />}
@@ -130,6 +140,22 @@ export function ReportPage() {
           </table>
         </div>
         <p className="note">販売の部数には、セットで売れた分も含みます。セットの行は、セットとして売れた数です。消化率は 販売 ÷ 持ち込み です。</p>
+        {together && together.pairs.length > 0 && (
+          <>
+            <h3 className="section">よく一緒に買われた組み合わせ</h3>
+            <div className="card table-scroll">
+              <table className="tbl small report-tbl">
+                <thead><tr><th>組み合わせ</th><th>回数</th><th>割合</th></tr></thead>
+                <tbody>
+                  {together.pairs.map((x) => (
+                    <tr key={x.a + x.b}><td>{x.a} + {x.b}</td><td className="num">{x.count}回</td><td className="num">{pct(x.share)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="note">2品目以上を一緒に買った取引 {together.multiTxns}件のうち、その2つが入っていた割合です。セットを作る参考にしてください。</p>
+          </>
+        )}
         {devices.length > 0 && (
           <>
             <h3 className="section">記録した端末ごと</h3>
@@ -188,7 +214,7 @@ function SlotChart({ slots, soldOuts }: { slots: ReportSlot[]; soldOuts: { name:
 
   return (
     <figure className="chart">
-      <figcaption className="chart-title">売上(円)</figcaption>
+      <figcaption className="chart-head"><span className="chart-title">売上(円)</span><ChartSave name="時間帯ごとの売上" /></figcaption>
       <div className="chart-box">
         <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="30分ごとの売上の棒グラフ" onPointerLeave={() => setHover(null)}>
           {ticks.map((t) => (
@@ -282,7 +308,7 @@ function ProfitChart({ pt }: { pt: ProfitTimeline }) {
         </div>
       </div>
       <figure className="chart">
-        <figcaption className="chart-title">収支(円)</figcaption>
+        <figcaption className="chart-head"><span className="chart-title">収支(円)</span><ChartSave name="時刻ごとの収支" /></figcaption>
         <div className="chart-box">
           <svg
             viewBox={`0 0 ${W} ${H}`} role="img" aria-label="時刻ごとの収支の折れ線グラフ"
