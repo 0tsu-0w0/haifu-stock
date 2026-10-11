@@ -5,6 +5,7 @@ import { db } from '../app/db';
 import { useChoice, usePref } from '../app/prefs';
 import { useCtx } from '../app/useCtx';
 import { EventNav } from '../components/EventNav';
+import { RegisterTour, tourSeen } from '../components/RegisterTour';
 import { SyncPill } from '../components/SyncPill';
 import { useToast } from '../components/Toast';
 import type { GiveawayKind, Item, Txn } from '../db/types';
@@ -58,6 +59,7 @@ export function RegisterPage() {
   const [instant] = usePref('instantSale');
   const [soldOutLast] = usePref('soldOutLast');
   const [lastOneRed] = usePref('lastOneRed');
+  const [haptics] = usePref('haptics');
   const [regSize] = useChoice('regSize');
   const [regCols] = useChoice('regCols');
   const data = useEventData(eventId);
@@ -110,6 +112,19 @@ export function RegisterPage() {
     const t = setTimeout(() => setArmed(null), ARM_MS);
     return () => clearTimeout(t);
   }, [armed]);
+  // 決済できたことを、品目の上に大きく出す(合計とお釣り)。次の品目をタップしたら消す
+  const [flash, setFlash] = useState<{ total: number; change: number | null; discount: number; n: number } | null>(null);
+  useEffect(() => {
+    if (!flash) return;
+    // お釣りを渡す間は長めに出す
+    const t = setTimeout(() => setFlash(null), flash.change ? 4500 : 1800);
+    return () => clearTimeout(t);
+  }, [flash]);
+  // 招待から入ったスタッフの端末では、最初に使い方を出す
+  const [tour, setTour] = useState(false);
+  useEffect(() => {
+    if (role === 'staff' && !tourSeen()) setTour(true);
+  }, [role]);
   const [busy, setBusy] = useState(false);
   // 押した瞬間に立てる印(state は次の描画まで変わらないので、同時の連打を止められない)
   const busyRef = useRef(false);
@@ -148,7 +163,8 @@ export function RegisterPage() {
 
   const describe = (t: Txn) => describeTxn(t, linesByTxn.get(t.id) ?? [], itemById);
 
-  const vibrate = (ms: number) => {
+  const vibrate = (ms: number | number[]) => {
+    if (!haptics) return;
     try {
       navigator.vibrate?.(ms);
     } catch {
@@ -161,16 +177,18 @@ export function RegisterPage() {
     return locked;
   };
 
-  async function undoable(p: Promise<Txn>, message: string) {
+  async function undoable(p: Promise<Txn>, message: string, buzz: number | number[] = 12): Promise<boolean> {
     try {
       const t = await p;
-      vibrate(12);
+      vibrate(buzz);
       toast(message, {
         label: '元に戻す',
-        run: () => void voidTransaction(db, ctx!, t.id).then(() => toast('取り消しました'), (e: Error) => toast(e.message)),
+        run: () => void voidTransaction(db, ctx!, t.id).then(() => { setFlash(null); toast('取り消しました'); }, (e: Error) => toast(e.message)),
       });
+      return true;
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e));
+      return false;
     }
   }
 
@@ -183,6 +201,7 @@ export function RegisterPage() {
     const now = Date.now();
     if (now - lastScroll.current < SCROLL_GUARD_MS) return;
     if (guard()) return;
+    setFlash(null);
     if (cart) {
       if (available(item) <= 0) return toast('完売です。長押しで記録できます');
       addToCart(item, 1);
@@ -261,7 +280,7 @@ export function RegisterPage() {
     busyRef.current = true;
     setBusy(true);
     try {
-      await undoable(
+      const ok = await undoable(
       recordSale(db, ctx!, {
         eventId,
         lines: [...cart].map(([itemId, qty]) => ({ itemId, qty })),
@@ -271,8 +290,12 @@ export function RegisterPage() {
         note: reason || undefined,
       }),
       `${instant ? '' : '決済 '}${yen(payTotal)}${instant ? ' を記録' : ''}${discount > 0 ? `(値引き ${yen(discount)})` : ''}${change}`,
+      [15, 60, 15],
       );
-      exitCart();
+      if (ok) {
+        setFlash((f) => ({ total: payTotal, change: paidAmount !== null ? paidAmount - payTotal : null, discount: Math.max(0, discount), n: (f?.n ?? 0) + 1 }));
+        exitCart();
+      }
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -321,6 +344,24 @@ export function RegisterPage() {
       </header>
 
       <main className="grid-wrap" onScroll={() => { lastScroll.current = Date.now(); }}>
+        {flash && (
+          <div key={flash.n} className="paid-flash" role="status" aria-live="polite">
+            <div className="pf-row">
+              <span>{instant ? '記録しました' : '決済しました'}</span>
+              <strong className="num">{yen(flash.total)}</strong>
+            </div>
+            {flash.discount > 0 && <p className="pf-sub">値引き {yen(flash.discount)}</p>}
+            {flash.change !== null && (
+              <div className="pf-row pf-change">
+                <span>{flash.change > 0 ? 'お釣り' : 'お釣りなし'}</span>
+                {flash.change > 0 && <strong className="num">{yen(flash.change)}</strong>}
+              </div>
+            )}
+            {flash.change !== null && flash.change > 0 && (
+              <p className="pf-sub">{changeBreakdown(flash.change).map((x) => `${denomLabel(x.denom)}×${x.count}`).join('・')}</p>
+            )}
+          </div>
+        )}
         <div className={`grid${regCols === '3' ? ' cols-3' : ''}`} onContextMenu={(e) => e.preventDefault()}>
           {shownItems.map((ei) => {
             const item = itemById.get(ei.item_id);
@@ -524,6 +565,8 @@ export function RegisterPage() {
           onUnlock={() => { setScreenLock(false); vibrate(20); }}
         />
       )}
+
+      {tour && !screenLock && <RegisterTour instant={instant} onClose={() => setTour(false)} />}
 
       {sheetItem && (
         <ItemSheet

@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
 import { useChoice, usePref } from '../app/prefs';
+import { RegisterTour } from '../components/RegisterTour';
 import { useCtx } from '../app/useCtx';
 import { AccountBar } from '../components/AccountBar';
 import { DataExport } from '../components/DataExport';
@@ -177,6 +178,8 @@ function DisplaySettings({ owner }: { owner: boolean }) {
   const [instant, setInstant] = usePref('instantSale');
   const [soldOutLast, setSoldOutLast] = usePref('soldOutLast');
   const [lastOneRed, setLastOneRed] = usePref('lastOneRed');
+  const [haptics, setHaptics] = usePref('haptics');
+  const [tour, setTour] = useState(false);
   const [theme, setTheme] = useChoice('theme');
   const [regSize, setRegSize] = useChoice('regSize');
   const [regCols, setRegCols] = useChoice('regCols');
@@ -202,6 +205,13 @@ function DisplaySettings({ owner }: { owner: boolean }) {
         </div>
         <small className="k">品目が多いときは3列にすると、スクロールせずに全部見えます。</small>
       </div>
+      <label className="check">
+        <input type="checkbox" checked={haptics} onChange={(e) => setHaptics(e.target.checked)} />
+        <span>
+          <b>記録・決済したときに振動させる</b>
+          <small className="k">振動に対応している端末(主に Android)だけで効きます。iPhone のブラウザは振動しません。</small>
+        </span>
+      </label>
       <label className="check">
         <input type="checkbox" checked={lastOneRed} onChange={(e) => setLastOneRed(e.target.checked)} />
         <span>
@@ -232,6 +242,8 @@ function DisplaySettings({ owner }: { owner: boolean }) {
           </span>
         </label>
       )}
+      <button className="btn" onClick={() => setTour(true)}>レジの使い方を見る</button>
+      {tour && <RegisterTour instant={instant} onClose={() => setTour(false)} />}
     </div>
   );
 }

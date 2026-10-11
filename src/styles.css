@@ -533,3 +533,27 @@ details[open] summary { margin-bottom: 6px; }
 .item.last { background: var(--danger-bg); border: 1.5px solid var(--danger-line); }
 .item.last .nm, .item.last .rem { color: var(--danger); }
 .item.last .rem { font-weight: 700; }
+
+/* レジ: 決済したことを大きく出す(押した操作は邪魔しない) */
+.paid-flash {
+  position: sticky; top: 0; z-index: 3; margin: 0 0 10px; pointer-events: none;
+  background: var(--ok-bg); color: var(--ok); border: 1.5px solid var(--ok); border-radius: 14px; padding: 10px 14px;
+  display: flex; flex-direction: column; gap: 2px; animation: pf-in .16s ease-out;
+}
+.pf-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-weight: 700; }
+.pf-row strong { font-size: 26px; color: var(--ink); }
+.pf-change strong { font-size: 30px; color: var(--ok); }
+.pf-sub { margin: 0; font-size: 13px; color: var(--ink-2); }
+@keyframes pf-in { from { opacity: 0; transform: translateY(-6px) scale(.98); } to { opacity: 1; transform: none; } }
+
+/* レジの使い方 */
+.tour-scrim { z-index: 16; }
+.tour { gap: 10px; }
+.tour h2 { font-size: 20px; margin: 4px 0 0; outline: none; }
+.tour-head { display: flex; justify-content: space-between; align-items: center; }
+.tour-body { margin: 0; font-size: 15px; line-height: 1.7; }
+.tour-dots { display: flex; gap: 6px; justify-content: center; padding: 4px 0; }
+.tour-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); }
+.tour-dots span.on { background: var(--accent); }
+.tour-nav { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; }
+.tour-nav .btn:disabled { opacity: .4; }
