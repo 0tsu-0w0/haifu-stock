@@ -3,7 +3,7 @@ import { useToast } from './Toast';
 
 // 画面上部の同期の状態(F-1007)
 export function SyncPill() {
-  const { state, pending, syncNow } = useSync();
+  const { state, pending, stuck, syncNow } = useSync();
   const toast = useToast();
 
   let label: string;
@@ -11,6 +11,10 @@ export function SyncPill() {
   // 送れずに失敗が続いているときは、未送信の件数より先にエラーを出す(押すと理由が出る)
   if (state.kind === 'error') {
     label = pending > 0 ? `同期エラー・未送信 ${pending}件` : '同期エラー';
+    tone = 'wait';
+  } else if (state.kind === 'partial') {
+    // 一部の表だけ同期できなかった。ほかの記録(販売など)は送れている
+    label = stuck > 0 ? `一部送れていません ${stuck}件` : '一部受け取れていません';
     tone = 'wait';
   } else if (state.kind === 'local' || state.kind === 'signed-out') {
     // ログインしていない(端末の中だけで使っている)ときは、送る先がないので件数は出さない

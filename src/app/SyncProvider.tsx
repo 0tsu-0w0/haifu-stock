@@ -1,7 +1,8 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getMeta } from '../db/local';
-import { syncOnce } from '../sync/engine';
+import { TABLE_BY_NAME } from '../db/tables';
+import { syncOnce, type TableError } from '../sync/engine';
 import { SupabaseRemote, supabase } from '../sync/supabaseRemote';
 import { useAuth } from './AuthProvider';
 import { db } from './db';
@@ -12,11 +13,15 @@ type SyncState =
   | { kind: 'idle'; lastSyncedAt: string | null }
   | { kind: 'syncing' }
   | { kind: 'offline' }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; message: string }
+  // 一部の表だけ送れなかった・受け取れなかった(ほかの表は同期した)(#17)
+  | { kind: 'partial'; failed: TableError[]; lastSyncedAt: string | null };
 
 interface SyncApi {
   state: SyncState;
   pending: number;
+  /** 送れなかった表に残っている送信待ちの件数 */
+  stuck: number;
   syncNow: () => Promise<string>;
 }
 
@@ -27,6 +32,12 @@ const INTERVAL_MS = 20_000;
 export function SyncProvider({ children }: { children: ReactNode }) {
   const pending = useLiveQuery(() => db.outbox.count(), [], 0);
   const [state, setState] = useState<SyncState>(remote ? { kind: 'signed-out' } : { kind: 'local' });
+  const failedTables = state.kind === 'partial' ? state.failed.filter((f) => f.phase === 'push').map((f) => f.table) : [];
+  const stuck = useLiveQuery(
+    () => (failedTables.length ? db.outbox.where('table').anyOf(failedTables).count() : 0),
+    [failedTables.join(',')],
+    0,
+  );
 
   const syncNow = useCallback(async (): Promise<string> => {
     if (!remote || !supabase) return '同期先が設定されていません。記録はこの端末に保存されています';
@@ -42,7 +53,13 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     setState({ kind: 'syncing' });
     try {
       const r = await syncOnce(db, remote);
-      setState({ kind: 'idle', lastSyncedAt: (await getMeta<string>(db, 'last_synced_at')) ?? null });
+      const lastSyncedAt = (await getMeta<string>(db, 'last_synced_at')) ?? null;
+      if (r.failed.length > 0) {
+        setState({ kind: 'partial', failed: r.failed, lastSyncedAt });
+        const names = [...new Set(r.failed.map((f) => TABLE_BY_NAME[f.table]?.label ?? f.table))].join('・');
+        return `${r.pushed ? `${r.pushed}件を送信しました。` : ''}${names} は同期できませんでした(ほかは同期しました)。設定の「同期の状態」で理由を見られます`;
+      }
+      setState({ kind: 'idle', lastSyncedAt });
       return r.pushed ? `${r.pushed}件を送信しました` : '同期しました';
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -66,7 +83,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     };
   }, [syncNow, uid, session === undefined]); // ユーザーが変わったときだけ張り直す
 
-  const value = useMemo(() => ({ state, pending, syncNow }), [state, pending, syncNow]);
+  const value = useMemo(() => ({ state, pending, stuck, syncNow }), [state, pending, stuck, syncNow]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

@@ -604,3 +604,9 @@ details[open] summary { margin-bottom: 6px; }
 /* タブの数に合わせて並べ、長い名前は2行に折り返す */
 .tabs { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
 .tab { white-space: normal; line-height: 1.25; }
+
+/* 設定: 同期の状態(#17) */
+.sync-status { display: flex; flex-direction: column; gap: 8px; }
+.sync-errors { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.sync-errors li { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; background: var(--warn-bg); border: 1px solid var(--warn-line); }
+.sync-err-msg { font-family: var(--f-num); font-size: 11px; color: var(--ink-2); word-break: break-all; }

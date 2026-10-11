@@ -160,6 +160,9 @@ function SyncStep({ data, ctx }: { data: Data; ctx: Ctx }) {
         <div className="rowx">
           <div className="dev"><b>この端末</b><small>{pending ? `未送信 ${pending}件` : '未送信 0件'}{state.kind === 'local' ? '・同期先は未設定' : ''}</small></div>
         </div>
+        {state.kind === 'partial' && (
+          <p className="warnnote">一部の記録が送れていません。理由は設定の「同期の状態」で見られます。送れない間は「記録をファイルで送る」も使えます。</p>
+        )}
         <div className="btns">
           <button className="sbtn acc" onClick={async () => toast(await syncNow())}>同期する</button>
           <button className="sbtn" onClick={() => void sendFile()}>記録をファイルで送る</button>
