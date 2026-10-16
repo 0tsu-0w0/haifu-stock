@@ -253,6 +253,38 @@ await as('00000000-0000-0000-0000-0000000000c3', async () => {
   ok(Object.values(h).every((v) => v === 0), 'サークルに関係のない人には、どの表も0');
 });
 
+// Issue #24: 別のサークルの主が、自分のサークルの circle_id を付けて他人のイベントを指す行を作れない
+{
+  const U3 = '00000000-0000-0000-0000-0000000000c3';
+  const C3 = id();
+  await as(U3, async () => {
+    await db.query(`select create_circle($1, '別のサークル')`, [C3]);
+    await expectError(db.query(`insert into event_staff (event_id, user_id, circle_id, expires_at) values ($1,$2,$3, now() + interval '10 years')`, [EV, U3, C3]),
+      '他人のイベントに自分を売り子として登録できない');
+    await expectError(db.query(`insert into invites (circle_id, event_id, token_hash, created_by, expires_at) values ($1,$2, encode(sha256(convert_to('evil','UTF8')),'hex'), $3, now() + interval '1 day')`, [C3, EV, U3]),
+      '他人のイベントの招待を作れない');
+    await expectError(db.query(`insert into event_items (event_id, item_id, circle_id) values ($1,$2,$3)`, [EV, A, C3]), '他人のイベント・品目を自分のサークルの行で指せない');
+    const it = await db.query(`select count(*)::int n from items`);
+    const t = await db.query(`select count(*)::int n from transactions`);
+    ok(it.rows[0].n === 0 && t.rows[0].n === 0, '別のサークルの主には、他人の品目・販売が見えないまま');
+  });
+  await as(U2, async () => {
+    await expectError(db.query(`insert into reservations (id, circle_id, event_id, item_id, qty, name) values ($1,$2,$3,$4,1,'x')`, [id(), C3, EV, A]),
+      '売り子は、ほかのサークルの circle_id を付けた取り置きを入れられない');
+    await expectError(db.query(`insert into transactions (id, circle_id, event_id, type, device_id, recorded_by, recorded_at) values ($1,$2,$3,'sale',$4,$5,now())`, [id(), C3, EV, DEV2, U2]),
+      '売り子は、ほかのサークルの circle_id を付けた販売を入れられない');
+  });
+  // トリガーをすり抜けた古い行が残っていても、サークルが食い違う売り子の行では入れない
+  await db.exec(`alter table event_staff disable trigger event_staff_same_circle`);
+  await db.query(`insert into event_staff (event_id, user_id, circle_id, expires_at) values ($1,$2,$3, now() + interval '1 day')`, [EV, U3, C3]);
+  await db.exec(`alter table event_staff enable trigger event_staff_same_circle`);
+  await as(U3, async () => {
+    const ev = await db.query(`select count(*)::int n from events where id = $1`, [EV]);
+    ok(ev.rows[0].n === 0, 'サークルが食い違う event_staff の行では、イベントが見えない');
+  });
+  await db.query(`delete from event_staff where user_id = $1`, [U3]);
+}
+
 await expectError(db.query(`update transactions set paid_amount = 0 where id=$1`, [T1]), 'RLSを通らない管理者でもトリガーで更新を拒否');
 await expectError(db.query(`delete from stock_movements where transaction_id=$1`, [T1]), 'RLSを通らない管理者でもトリガーで削除を拒否');
 

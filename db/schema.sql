@@ -564,6 +564,71 @@ end $$;
 create trigger transactions_void_target before insert on transactions
   for each row execute function app.check_void_target();
 
+-- 行の circle_id と、指している親(イベント・品目など)のサークルが同じことを確かめる(Issue #24)。
+-- RLS は circle_id だけで「自分のサークルの行か」を見るので、これがないと、自分のサークルの circle_id を付けて
+-- 他人のイベントを指す行(event_staff・invites・販売など)を作れてしまう。
+-- 引数は '列名:親の表' の並び。親が見つからないときは外部キーに任せる。RLS で見えない親も確かめるため security definer
+create function app.check_same_circle() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  a text;
+  ref uuid;
+  parent_circle uuid;
+begin
+  foreach a in array tg_argv loop
+    ref := (to_jsonb(new) ->> split_part(a, ':', 1))::uuid;
+    if ref is null then continue; end if;
+    execute format('select circle_id from %I where id = $1', split_part(a, ':', 2)) into parent_circle using ref;
+    if parent_circle is not null and parent_circle <> new.circle_id then
+      raise exception '別のサークルのデータは指せません' using errcode = 'P0007';
+    end if;
+  end loop;
+  return new;
+end $$;
+
+create trigger items_same_circle before insert or update on items
+  for each row execute function app.check_same_circle('owner_id:owners');
+create trigger set_components_same_circle before insert or update on set_components
+  for each row execute function app.check_same_circle('set_item_id:items', 'component_item_id:items');
+create trigger print_runs_same_circle before insert or update on print_runs
+  for each row execute function app.check_same_circle('item_id:items');
+create trigger production_costs_same_circle before insert or update on production_costs
+  for each row execute function app.check_same_circle('item_id:items');
+create trigger print_price_tiers_same_circle before insert or update on print_price_tiers
+  for each row execute function app.check_same_circle('item_id:items');
+create trigger events_same_circle before insert or update on events
+  for each row execute function app.check_same_circle('event_type_id:event_types');
+create trigger locations_same_circle before insert or update on locations
+  for each row execute function app.check_same_circle('event_id:events');
+create trigger event_items_same_circle before insert or update on event_items
+  for each row execute function app.check_same_circle('event_id:events', 'item_id:items');
+create trigger reservations_same_circle before insert or update on reservations
+  for each row execute function app.check_same_circle('event_id:events', 'item_id:items', 'transaction_id:transactions');
+create trigger event_breaks_same_circle before insert or update on event_breaks
+  for each row execute function app.check_same_circle('event_id:events');
+create trigger expenses_same_circle before insert or update on expenses
+  for each row execute function app.check_same_circle('event_id:events');
+create trigger invites_same_circle before insert or update on invites
+  for each row execute function app.check_same_circle('event_id:events');
+create trigger event_staff_same_circle before insert or update on event_staff
+  for each row execute function app.check_same_circle('event_id:events', 'invite_id:invites');
+create trigger transactions_same_circle before insert on transactions
+  for each row execute function app.check_same_circle('event_id:events', 'voids_txn_id:transactions');
+create trigger transaction_lines_same_circle before insert on transaction_lines
+  for each row execute function app.check_same_circle('transaction_id:transactions', 'item_id:items');
+create trigger stock_movements_same_circle before insert on stock_movements
+  for each row execute function app.check_same_circle(
+    'item_id:items', 'from_location_id:locations', 'to_location_id:locations',
+    'event_id:events', 'transaction_id:transactions', 'print_run_id:print_runs');
+create trigger cash_counts_same_circle before insert or update on cash_counts
+  for each row execute function app.check_same_circle('event_id:events');
+create trigger closing_counts_same_circle before insert or update on closing_counts
+  for each row execute function app.check_same_circle('event_id:events', 'item_id:items');
+create trigger event_closings_same_circle before insert or update on event_closings
+  for each row execute function app.check_same_circle('event_id:events', 'return_location_id:locations');
+create trigger consignment_settlements_same_circle before insert on consignment_settlements
+  for each row execute function app.check_same_circle('event_closing_id:event_closings', 'owner_id:owners');
+
 -- ---------------------------------------------------------------------
 -- 権限の判定
 -- ---------------------------------------------------------------------
@@ -580,9 +645,10 @@ $$;
 
 create function app.is_event_staff(e uuid) returns boolean
 language sql stable security definer set search_path = public as $$
-  select exists (select 1 from event_staff
-                 where event_id = e and user_id = auth.uid()
-                   and revoked_at is null and expires_at > now())
+  -- 売り子の行のサークルとイベントのサークルが同じときだけ(Issue #24。トリガーと二重に守る)
+  select exists (select 1 from event_staff s join events ev on ev.id = s.event_id and ev.circle_id = s.circle_id
+                 where s.event_id = e and s.user_id = auth.uid()
+                   and s.revoked_at is null and s.expires_at > now())
 $$;
 
 -- 売り子が見てよい品目: 参加中のイベントに出ている品目と、そのセットの構成品
