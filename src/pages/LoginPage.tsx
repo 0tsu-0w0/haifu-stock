@@ -31,6 +31,7 @@ function oauthError(): string | null {
   const m = q.get('error_description') ?? h.get('error_description');
   if (!m) return null;
   if (/provider is not enabled/i.test(m)) return 'Google でのログインが有効になっていません';
+  if (/signups? not allowed/i.test(m)) return 'この Google のアカウントは登録されていません。サークル主として登録したアカウントでログインしてください';
   if (/expired|invalid/i.test(m)) {
     return 'メールのリンクが、期限切れか使用済みでした。メールのリンクを安全確認する機能(セキュリティソフトやブラウザの拡張機能、メールアプリのリンクの確認)が、先にリンクを開いてしまうことがあります。その場合は、その機能を Gmail で切るか、メールに書かれたコードでログインしてください';
   }

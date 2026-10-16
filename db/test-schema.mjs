@@ -257,8 +257,19 @@ await as('00000000-0000-0000-0000-0000000000c3', async () => {
 {
   const U3 = '00000000-0000-0000-0000-0000000000c3';
   const C3 = id();
+  // Issue #25: サークルの主でない人は、新しいサークルを作れない
   await as(U3, async () => {
-    await db.query(`select create_circle($1, '別のサークル')`, [C3]);
+    await expectError(db.query(`select create_circle($1, '知らない人のサークル')`, [C3]), 'サークルの主でない人は新しいサークルを作れない');
+  });
+  await as(U1, async () => {
+    const c2 = id();
+    await db.query(`select create_circle($1, '2つ目のサークル')`, [c2]);
+    ok(true, 'サークル主は2つ目のサークルを作れる');
+  });
+  // 以下は、別のサークルの主がいるとして確かめる(管理者として作っておく)
+  await db.query(`insert into circles (id, name) values ($1, '別のサークル')`, [C3]);
+  await db.query(`insert into circle_members (circle_id, user_id, role) values ($1, $2, 'owner')`, [C3, U3]);
+  await as(U3, async () => {
     await expectError(db.query(`insert into event_staff (event_id, user_id, circle_id, expires_at) values ($1,$2,$3, now() + interval '10 years')`, [EV, U3, C3]),
       '他人のイベントに自分を売り子として登録できない');
     await expectError(db.query(`insert into invites (circle_id, event_id, token_hash, created_by, expires_at) values ($1,$2, encode(sha256(convert_to('evil','UTF8')),'hex'), $3, now() + interval '1 day')`, [C3, EV, U3]),

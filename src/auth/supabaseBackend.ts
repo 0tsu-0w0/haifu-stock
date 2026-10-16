@@ -9,6 +9,8 @@ function explain(e: { message?: string; code?: string; status?: number } | null)
   const wait = /after (\d+) seconds/i.exec(m);
   if (wait) return new Error(`続けて送れません。${wait[1]}秒ほど待ってから、もう一度押してください`);
   if (/rate limit|too many/i.test(m)) return new Error('メールを送れる回数(1時間に数通)を超えました。1時間ほど待ってから試してください');
+  // 新しいアカウントは作らせない(Issue #25)。登録済みのアカウントだけがログインできる
+  if (/signups? not allowed|user not found/i.test(m)) return new Error('このメールアドレスのアカウントは登録されていません。サークル主として登録したメールアドレスか Google のアカウントでログインしてください');
   if (/anonymous sign-ins are disabled/i.test(m)) return new Error('売り子の参加が有効になっていません。サークル主に連絡してください(Supabase の匿名ログインを有効にする必要があります)');
   if (/招待|ログイン|サークル/.test(m)) return new Error(m);
   if (/fetch|network/i.test(m)) return new Error('通信できません。電波のよい場所で試してください');
@@ -43,7 +45,7 @@ export class SupabaseAuthBackend implements AuthBackend {
   }
 
   async sendCode(email: string, returnTo: string): Promise<void> {
-    const { error } = await (await this.client()).auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: returnTo } });
+    const { error } = await (await this.client()).auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: returnTo } });
     if (error) throw explain(error);
   }
 

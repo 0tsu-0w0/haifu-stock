@@ -685,6 +685,12 @@ begin
     end if;
     return p_id;
   end if;
+  -- 新しいサークルを作れるのは、すでにどこかのサークルの主である人だけ(最初の1つを除く。Issue #25)。
+  -- 知らない人がアカウントを作っても、サークルを作ってデータを入れられないようにする
+  if exists (select 1 from circles)
+     and not exists (select 1 from circle_members where user_id = auth.uid() and role = 'owner') then
+    raise exception '新しいサークルは作れません。サークル主として登録したアカウントでログインしてください' using errcode = 'P0006';
+  end if;
   insert into circles (id, name) values (p_id, p_name);
   insert into circle_members (circle_id, user_id, role) values (p_id, auth.uid(), 'owner');
   return p_id;
