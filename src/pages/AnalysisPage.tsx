@@ -174,7 +174,7 @@ function ReprintCard({ plan, opts }: { plan: ReprintPlan; opts: ForecastOptions 
         </table>
         <p className="note">* 完売した時刻から補正した値。標準の予測: {std.perEvent.join(' → ')}(次の{opts.plannedEvents}回)</p>
       </details>
-      <Link className="sub-link" to={`/items/${plan.item.id}`}>印刷所の価格表から、利益が大きい部数を調べる</Link>
+      <Link className="sub-link" to={`/items/${plan.item.id}?plan=1`}>印刷所の価格表から、利益が大きい部数を調べる</Link>
     </div>
   );
 }

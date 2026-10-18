@@ -622,3 +622,8 @@ details[open] summary { margin-bottom: 6px; }
 .update-later { min-height: 36px; padding: 0 10px; color: var(--bg); opacity: .8; }
 .app-version { text-align: center; }
 .pay-methods { margin: 2px 0; } .pay-note { margin: 0; font-size: 12px; }
+
+/* たためる部分(品目の画面の刷り部数。Issue #23) */
+.fold { cursor: pointer; font: inherit; color: inherit; }
+.fold .fold-mark { color: var(--accent); font-size: 13px; white-space: nowrap; }
+.fold-body { display: flex; flex-direction: column; gap: 10px; }

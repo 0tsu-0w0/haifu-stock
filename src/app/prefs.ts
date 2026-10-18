@@ -14,10 +14,12 @@ const KEYS = {
   lastOneRed: 'pref-last-one-red',
   /** 記録・決済したときに端末を振動させる(対応している端末だけ) */
   haptics: 'pref-haptics',
+  /** 品目の画面の「印刷所の価格表と刷り部数」を開いておく(Issue #23) */
+  printPlanOpen: 'pref-print-plan-open',
 } as const;
 
 type Pref = keyof typeof KEYS;
-const DEFAULTS: Record<Pref, boolean> = { showBreakEven: true, instantSale: false, soldOutLast: false, lastOneRed: true, haptics: true };
+const DEFAULTS: Record<Pref, boolean> = { showBreakEven: true, instantSale: false, soldOutLast: false, lastOneRed: true, haptics: true, printPlanOpen: false };
 
 /** 選ぶ形の設定。最初の値が既定 */
 export const CHOICES = {

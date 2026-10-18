@@ -1,6 +1,8 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { db } from '../app/db';
+import { usePref } from '../app/prefs';
 import type { Item } from '../db/types';
 import { DEFAULT_FORECAST, SCENARIO_LABEL, loadAnalysis, type ScenarioKey } from '../domain/analysis';
 import { deletePriceTier, priceTiers, savePriceTier, setPrintLot } from '../domain/catalog';
@@ -19,12 +21,22 @@ const LINE_STYLE: Record<ScenarioKey, { color: string; dashed?: boolean }> = {
 
 /**
  * 品目の画面の「印刷所の価格表と刷り部数」(F-106、F-108、F-1105)。
- * 部数の刻みと価格表を入れると、刷り部数ごとの予想利益を3案で描く
+ * 部数の刻みと価格表を入れると、刷り部数ごとの予想利益を3案で描く。
+ * 次に刷るかを考えるときにしか使わないので、最初はたたんでおく(Issue #23)。
+ * 分析のデータは重いので、開いているときだけ読む。分析の画面から来たとき(?plan=1)は開いて見せる
  */
 export function PrintPlan({ item, ctx }: { item: Item; ctx: Ctx }) {
   const toast = useToast();
+  const [params] = useSearchParams();
+  const fromAnalysis = params.get('plan') === '1';
+  const [savedOpen, setSavedOpen] = usePref('printPlanOpen');
+  const [open, setOpen] = useState(savedOpen || fromAnalysis);
+  const head = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (fromAnalysis) head.current?.scrollIntoView({ block: 'start' });
+  }, [fromAnalysis]);
   const tiers = useLiveQuery(() => priceTiers(db, item.id), [item.id]) ?? [];
-  const data = useLiveQuery(() => loadAnalysis(db, ctx.circleId, DEFAULT_FORECAST), [ctx.circleId]);
+  const data = useLiveQuery(() => (open ? loadAnalysis(db, ctx.circleId, DEFAULT_FORECAST) : undefined), [open, ctx.circleId]);
   const [lot, setLot] = useState(item.print_lot ? String(item.print_lot) : '');
   const [row, setRow] = useState({ qty: '', cost: '' });
   const result = data && tiers.length > 0 ? simulateItem(data, item, tiers, DEFAULT_FORECAST) : null;
@@ -40,9 +52,25 @@ export function PrintPlan({ item, ctx }: { item: Item; ctx: Ctx }) {
     }
   };
 
+  const toggle = () => {
+    setOpen(!open);
+    setSavedOpen(!open);
+  };
+  const summary = tiers.length > 0 || item.print_lot
+    ? [tiers.length > 0 && `価格表 ${tiers.length}行`, item.print_lot && `刻み ${item.print_lot}部`].filter(Boolean).join('・')
+    : 'まだ入れていません';
+
   return (
     <>
       <h3 className="section">印刷所の価格表と刷り部数</h3>
+      <button ref={head} type="button" className="card row-link wide fold" aria-expanded={open} aria-controls="print-plan-body" onClick={toggle}>
+        <span>
+          <b>{summary}</b>
+          <small>部数の刻み・価格表・刷り部数ごとの予想利益</small>
+        </span>
+        <span className="fold-mark">{open ? 'たたむ ▴' : '開く ▾'}</span>
+      </button>
+      {open && <div id="print-plan-body" className="fold-body">
       <div className="card form">
         <label htmlFor="print-lot">部数の刻み(印刷所で頼める単位)</label>
         <div className="copy-row">
@@ -88,7 +116,9 @@ export function PrintPlan({ item, ctx }: { item: Item; ctx: Ctx }) {
       {tiers.length > 0 && data && !result && (
         <div className="card"><p className="note">需要の見込みがまだないため、シミュレーションを出せません。この品目を売ったイベントで終了処理をすると(本なら、ほかの新刊を売った実績があっても)出ます。</p></div>
       )}
+      {open && tiers.length > 0 && data === undefined && <p className="note">計算しています…</p>}
       {result && <SimulationChart item={item} result={result} tiers={tiers} />}
+      </div>}
     </>
   );
 }
