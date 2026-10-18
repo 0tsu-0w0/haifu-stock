@@ -53,7 +53,13 @@ npm run dev
 ### バックアップから戻す
 
 1. GitHub の Actions → Backup database → 戻したい日の実行 → Artifacts から取り出し、zip を解く
-2. 復号して開く: `gpg -d haifu-backup-YYYYMMDD.tar.gz.gpg > backup.tar.gz` → `tar -xzf backup.tar.gz`(`haifu.dump`・`auth.dump` が出る)
+2. 復号して開く(`haifu.dump`・`auth.dump`・`created_at.txt` が出る)
+   - Windows(PowerShell): `gpg` は Git に付いているものを使う。合言葉はパイプ(`|`)で渡さない(PowerShell が末尾に改行を足し、`Bad session key` になる)。出力も `>` ではなく `-o` で書く(`>` は中身を壊す)
+     ```powershell
+     $p = Read-Host "合言葉" -AsSecureString; & "C:\Program Files\Git\usr\bin\gpg.exe" --batch --pinentry-mode loopback --passphrase ([Net.NetworkCredential]::new('', $p).Password) --yes -o backup.tar.gz -d haifu-backup-YYYYMMDD.tar.gz.gpg; Remove-Variable p
+     tar -xzf backup.tar.gz
+     ```
+   - macOS・Linux・Git Bash: `gpg -o backup.tar.gz -d haifu-backup-YYYYMMDD.tar.gz.gpg` → `tar -xzf backup.tar.gz`
 3. 中身を確かめるだけなら: `pg_restore --list haifu.dump`
 4. 新しい Supabase プロジェクトに戻すとき(PostgreSQL 17 の `pg_restore` を使う。接続先は Session pooler):
    - `pg_restore --no-owner --no-privileges --data-only -d "<接続文字列>" auth.dump`(ログインのアカウント)
