@@ -14,6 +14,7 @@ import {
 import { computeMoney, planCounts } from '../domain/closing';
 import { loadEventSnapshot } from '../domain/snapshot';
 import { hhmm, yen } from '../lib/format';
+import { eventHasConsignment } from '../domain/consign';
 
 type Tab = 'forecast' | 'item' | 'event' | 'compare';
 const TABS: [Tab, string][] = [['forecast', '刷り部数'], ['item', '頒布物の損益'], ['event', 'イベントの損益'], ['compare', 'イベントの比較']];
@@ -293,6 +294,7 @@ function EventBreakEven({ data, selected, onSelect }: { data: AnalysisData; sele
   if (events.length === 0) return <div className="card"><p className="note">イベントがまだありません。</p></div>;
   if (!result) return <p className="note">計算しています…</p>;
   const { be, money, snap } = result;
+  const consign = eventHasConsignment(snap);
 
   return (
     <>
@@ -312,23 +314,23 @@ function EventBreakEven({ data, selected, onSelect }: { data: AnalysisData; sele
           <p className="note">まだ売上がなく、前回までの実績もないため、損益分岐を出せません。販売を記録すると出ます。</p>
         </div>
       ) : (
-        <EventChart be={be} ownName={snap.event.name} />
+        <EventChart be={be} ownName={snap.event.name} consign={consign} />
       )}
       <table className="tbl small">
         <tbody>
           <tr><td>経費</td><td className="num">{yen(money.expenses)}</td></tr>
-          <tr><td>受託手数料</td><td className="num">+{yen(money.fee)}</td></tr>
-          <tr><td>自分の分の売上</td><td className="num">{yen(money.own)}</td></tr>
+          {consign && <tr><td>受託手数料</td><td className="num">+{yen(money.fee)}</td></tr>}
+          <tr><td>{consign ? '自分の分の売上' : '売上'}</td><td className="num">{yen(money.own)}</td></tr>
           <tr><td>頒布分の原価</td><td className="num">−{yen(money.cost)}</td></tr>
           <tr className="total-row"><td>収支</td><td className={`num ${money.profit >= 0 ? 'pos' : 'neg-num'}`}>{money.profit >= 0 ? '+' : ''}{yen(money.profit)}</td></tr>
         </tbody>
       </table>
-      <p className="note">受託分の売上は自分の収入に含めず、受け取る手数料だけを含めます。</p>
+      {consign && <p className="note">受託分の売上は自分の収入に含めず、受け取る手数料だけを含めます。</p>}
     </>
   );
 }
 
-function EventChart({ be, ownName }: { be: ReturnType<typeof eventBreakEven>; ownName: string }) {
+function EventChart({ be, ownName, consign }: { be: ReturnType<typeof eventBreakEven>; ownName: string; consign: boolean }) {
   const m = be.margin!;
   const bes = be.breakEvenSales!;
   const xMax = Math.max(bes * 1.4, be.ownSales * 1.15, 10000);
@@ -362,7 +364,7 @@ function EventChart({ be, ownName }: { be: ReturnType<typeof eventBreakEven>; ow
       />
       <p className="note">
         粗利率 {Math.round(m * 100)}%{be.marginSource === 'previous' ? '(このイベントはまだ売上がないため、前回のイベントの粗利率)' : ''}。
-        収支 = 売上 × 粗利率 + 受託手数料 − 経費。
+        収支 = 売上 × 粗利率{consign ? ' + 受託手数料' : ''} − 経費。
       </p>
     </>
   );

@@ -46,7 +46,7 @@ export function ItemsPage() {
 
       {live.length === 0 && (
         <div className="card">
-          <p>まだ品目がありません。頒布する本やグッズ、受託品を登録してください。</p>
+          <p>まだ品目がありません。頒布する本やグッズを登録してください。</p>
           <Link className="btn primary center" to="/items/new">品目を追加</Link>
         </div>
       )}

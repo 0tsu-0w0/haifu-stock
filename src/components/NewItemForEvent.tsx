@@ -4,6 +4,7 @@ import type { Owner } from '../db/types';
 import { createItemForEvent } from '../domain/catalog';
 import type { Ctx } from '../domain/record';
 import { useToast } from './Toast';
+import { hasConsignors } from '../domain/consign';
 
 const NEW_OWNER = '__new__';
 const digits = (v: string) => v.replace(/\D/g, '');
@@ -89,11 +90,15 @@ export function NewItemForEvent(props: {
         </span>
       </div>
 
-      <label htmlFor="ni-owner">持ち主</label>
-      <select id="ni-owner" value={f.ownerId} onChange={(e) => setF({ ...f, ownerId: e.target.value })}>
-        {owners.map((o) => <option key={o.id} value={o.id}>{o.is_self ? '自分' : `受託: ${o.name}`}</option>)}
-        <option value={NEW_OWNER}>受託元を新しく追加…</option>
-      </select>
+      {hasConsignors(owners) && (
+        <>
+          <label htmlFor="ni-owner">持ち主</label>
+          <select id="ni-owner" value={f.ownerId} onChange={(e) => setF({ ...f, ownerId: e.target.value })}>
+            {owners.map((o) => <option key={o.id} value={o.id}>{o.is_self ? '自分' : `受託: ${o.name}`}</option>)}
+            <option value={NEW_OWNER}>受託元を新しく追加…</option>
+          </select>
+        </>
+      )}
       {f.ownerId === NEW_OWNER && (
         <div className="subform">
           <label htmlFor="ni-owner-name">受託元のサークル名</label>

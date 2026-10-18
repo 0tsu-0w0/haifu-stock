@@ -11,6 +11,7 @@ import { useToast } from '../components/Toast';
 import type { ItemKind } from '../db/types';
 import { addPrintRun, deleteItem, productionCost, restoreItem, saveItem, saveOwner, saveProductionCost, setItemArchived } from '../domain/catalog';
 import { COLOR_LABEL, ITEM_COLORS, colorVar } from '../domain/colors';
+import { hasConsignors } from '../domain/consign';
 import { breakEvenQty } from '../domain/ledger';
 import { storageStock } from '../domain/stock';
 import { yen } from '../lib/format';
@@ -69,6 +70,8 @@ export function ItemEditPage() {
   const item = data.item;
   const owner = data.owners.find((o) => o.id === form.ownerId);
   const isOwn = form.ownerId !== NEW_OWNER && (owner?.is_self ?? false);
+  // 受託元を登録するまで、持ち主の欄は出さない(Issue #22。受託元は設定で追加する)
+  const consign = hasConsignors(data.owners);
   const candidates = data.items.filter((i) => i.kind !== 'set' && i.id !== item?.id);
   const printCost = data.runs.reduce((a, r) => a + r.total_cost, 0);
   // 損益分岐の費用 = 印刷費 + 制作費(F-107)
@@ -166,7 +169,7 @@ export function ItemEditPage() {
         </div>
         <small className="k">レジのボタンの左端に色の帯が付きます。似た品目を見分けるのに使います。</small>
 
-        {form.kind !== 'set' && (
+        {form.kind !== 'set' && consign && (
           <>
             <label htmlFor="item-owner">持ち主</label>
             <select id="item-owner" value={form.ownerId} onChange={(e) => setForm({ ...form, ownerId: e.target.value })}>

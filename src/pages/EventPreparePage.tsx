@@ -17,6 +17,7 @@ import {
   type PrepareLine,
 } from '../domain/catalog';
 import { DENOMINATIONS } from '../domain/closing';
+import { hasConsignors } from '../domain/consign';
 import { storageStock } from '../domain/stock';
 import { yen } from '../lib/format';
 
@@ -297,7 +298,7 @@ export function EventPreparePage() {
           <button className="btn primary" disabled={busy || locked || !changed} onClick={() => void applyBring()}>
             {changed ? '持ち込みを反映する' : '持ち込みは反映済みです'}
           </button>
-          <p className="note">反映すると、自分の品目は{home?.name ?? '自宅'}からイベントへ、受託品は預かりとして在庫が動きます。あとで数を変えると、差の分だけ動きます。</p>
+          <p className="note">反映すると、{hasConsignors(data.owners) ? <>自分の品目は{home?.name ?? '自宅'}からイベントへ、受託品は預かりとして</> : <>{home?.name ?? '自宅'}からイベントへ</>}在庫が動きます。あとで数を変えると、差の分だけ動きます。</p>
 
           <h3 id="prep-resv" className="section">取り置き</h3>
           <ReservationsCard
@@ -389,7 +390,7 @@ export function EventPreparePage() {
           <div className="card">
             <p className="note">
               一覧と分析から消します。記録は残るので、ホームの「削除したイベント」から元に戻せます。
-              {locked ? '' : `終了処理をしていないので、イベントに残っている在庫は${home.name}(受託品は持ち主)に戻します。`}
+              {locked ? '' : `終了処理をしていないので、イベントに残っている在庫は${home.name}${hasConsignors(data.owners) ? '(受託品は持ち主)' : ''}に戻します。`}
             </p>
             <ConfirmButton
               label="このイベントを削除する"

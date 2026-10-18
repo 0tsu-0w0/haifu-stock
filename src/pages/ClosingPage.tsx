@@ -16,6 +16,7 @@ import type { Ctx } from '../domain/record';
 import { exportLedger, importLedger } from '../sync/file';
 import { hhmm, yen } from '../lib/format';
 import { useEventData } from './useEventData';
+import { eventHasConsignment } from '../domain/consign';
 
 const STEPS = ['同期の確認', '残数の確認', '現金の数え合わせ', '精算と在庫'] as const;
 const HANDLING_LABEL: Record<CountHandling, string> = {
@@ -271,7 +272,7 @@ function CashStep({ data, ctx, rows, money }: { data: Data; ctx: Ctx; rows: Coun
   const hints = cashDiffHints(diff, data.items, rows);
   return (
     <>
-      <p className="lead">現金箱の中身を金種ごとに数えて入れてください。受託分の売上も同じ箱に入っている前提です。</p>
+      <p className="lead">現金箱の中身を金種ごとに数えて入れてください。{eventHasConsignment(data) && '受託分の売上も同じ箱に入っている前提です。'}</p>
       <div className="card">
         {DENOMINATIONS.map((d) => (
           <div className="dn" key={d}>
@@ -292,8 +293,12 @@ function CashStep({ data, ctx, rows, money }: { data: Data; ctx: Ctx; rows: Coun
         <table className="tbl num sub-tbl">
           <tbody>
             <tr><td>釣り銭準備金</td><td>{yen(data.float)}</td></tr>
-            <tr><td>自分の分の売上</td><td>{yen(money.own)}</td></tr>
-            <tr><td>受託分の売上</td><td>{yen(money.consigned)}</td></tr>
+            {eventHasConsignment(data) ? (
+              <>
+                <tr><td>自分の分の売上</td><td>{yen(money.own)}</td></tr>
+                <tr><td>受託分の売上</td><td>{yen(money.consigned)}</td></tr>
+              </>
+            ) : <tr><td>売上</td><td>{yen(money.own)}</td></tr>}
             {extra > 0 && <tr><td>うち残数確認で追加した販売</td><td>{yen(extra)}</td></tr>}
             {cashless > 0 && <tr><td>キャッシュレスで受け取った分(現金箱にないので除く)</td><td>−{yen(cashless)}</td></tr>}
           </tbody>
@@ -326,11 +331,12 @@ function SettleStep(props: {
   const toast = useToast();
   const [fallback, setFallback] = useState<{ owner: string; text: string } | null>(null);
   const ownLeft = rows.filter((r) => data.ownerById.get(r.item.owner_id)?.is_self).reduce((a, r) => a + r.counted, 0);
+  const consign = eventHasConsignment(data);
 
   return (
     <>
-      <h3>受託分の精算</h3>
-      {money.settlements.length === 0 && <p className="note">受託分はありません。</p>}
+      {consign && <h3>受託分の精算</h3>}
+      {consign && money.settlements.length === 0 && <p className="note">受託分の販売はありません。</p>}
       {money.settlements.map((x) => (
         <div className="card" key={x.ownerId}>
           <div className="rowx">
@@ -368,7 +374,7 @@ function SettleStep(props: {
         </div>
       ))}
 
-      <h3>自分の分の持ち帰り</h3>
+      <h3>{consign ? '自分の分の持ち帰り' : '持ち帰り'}</h3>
       <div className="card">
         <div className="rowx">
           <label htmlFor="dest">残り <b className="num">{ownLeft}</b>部の戻し先</label>
@@ -376,15 +382,15 @@ function SettleStep(props: {
             {data.storages.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
         </div>
-        <p className="note">受託分の残りは持ち主に返却します。</p>
+        {consign && <p className="note">受託分の残りは持ち主に返却します。</p>}
       </div>
 
-      <h3>このイベントの収支(自分の分)</h3>
+      <h3>{consign ? 'このイベントの収支(自分の分)' : 'このイベントの収支'}</h3>
       <div className="card">
         <table className="tbl num">
           <tbody>
             <tr><td>売上</td><td>{yen(money.own)}</td></tr>
-            <tr><td>受託手数料</td><td>+{yen(money.fee)}</td></tr>
+            {consign && <tr><td>受託手数料</td><td>+{yen(money.fee)}</td></tr>}
             <tr><td>経費</td><td>−{yen(money.expenses)}</td></tr>
             <tr><td>頒布分の原価</td><td>−{yen(money.cost)}</td></tr>
             <tr className="total-row"><td>収支</td><td className={money.profit >= 0 ? 'pos' : 'neg-num'}>{money.profit >= 0 ? '+' : ''}{yen(money.profit)}</td></tr>

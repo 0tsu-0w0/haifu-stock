@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '../app/db';
+import { useHasConsignors } from '../app/useConsign';
 import { byVenue, loadComparison, type CompareRow } from '../domain/compare';
 import { yen } from '../lib/format';
 import { ChartSave } from './ChartSave';
@@ -15,6 +16,7 @@ const sign = (n: number) => `${n >= 0 ? '+' : ''}${yen(n)}`;
 /** 分析の「イベントの比較」(Issue #13) */
 export function EventCompare({ circleId }: { circleId: string }) {
   const rows = useLiveQuery(() => loadComparison(db, circleId), [circleId]);
+  const consign = useHasConsignors(circleId);
   const [metric, setMetric] = useState<Metric>('amount');
   if (!rows) return <p className="note">計算しています…</p>;
   if (rows.length === 0) return <div className="card"><p className="note">販売を記録したイベントがまだありません。</p></div>;
@@ -57,7 +59,7 @@ export function EventCompare({ circleId }: { circleId: string }) {
         </table>
       </div>
       <p className="note">
-        売上と1時間あたりは、受託分も含む全体の値です。収支は 自分の分の売上 − 原価 + 受託手数料 − 経費 です。
+        {consign ? '売上と1時間あたりは、受託分も含む全体の値です。収支は 自分の分の売上 − 原価 + 受託手数料 − 経費 です。' : '収支は 売上 − 原価 − 経費 です。'}
         販売時間は、開始時刻(なければ最初の販売)から最後の販売までで、休憩・離席を除きます。終了処理を済ませたイベントは、いまの品目の持ち主で計算し直した値です。
       </p>
 

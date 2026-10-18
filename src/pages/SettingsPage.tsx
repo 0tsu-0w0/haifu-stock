@@ -93,7 +93,7 @@ export function SettingsPage() {
 
       <h3 className="section">受託元(預かる本の持ち主)</h3>
       <div className="card">
-        {consign.length === 0 && <p className="note">まだありません。受託品を預かるときに登録します。</p>}
+        {consign.length === 0 && <p className="note">ほかのサークルの本を預かって売る(受託)ときに、ここで受託元を追加します。追加するまで、品目の持ち主・精算・受託手数料の欄は出ません。</p>}
         {consign.filter((o) => showArchived || !o.archived_at).map((o) => (
           <OwnerRow
             key={o.id}
