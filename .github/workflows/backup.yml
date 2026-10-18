@@ -43,6 +43,8 @@ jobs:
           DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           set -euo pipefail
+          # 貼り付けたときに付いた改行・前後の空白を取る
+          DB_URL=$(printf '%s' "$DB_URL" | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
           bin=/usr/lib/postgresql/17/bin
           mkdir -p out
           # アプリの表と関数(public・app)の、構造とデータ
@@ -61,6 +63,8 @@ jobs:
           PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
         run: |
           set -euo pipefail
+          # 合言葉の末尾の改行は取る(戻すときに打ち込む合言葉と同じにする)
+          PASSPHRASE=$(printf '%s' "$PASSPHRASE" | tr -d '\r\n')
           name="haifu-backup-$(date -u +%Y%m%d)"
           tar -czf "$name.tar.gz" -C out .
           gpg --batch --yes --pinentry-mode loopback --passphrase "$PASSPHRASE" \
