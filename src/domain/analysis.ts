@@ -1,6 +1,7 @@
 import type { HaifuDB } from '../db/local';
-import type { EventRow, Item, PrintRun } from '../db/types';
-import { activeTxnIds, eventItemSummary, lineAmount, stockByLocation, type ItemAtEvent } from './ledger';
+import type { EventClosing, EventRow, Item, Location, Movement, PrintRun, SetComponent, Txn, TxnLine } from '../db/types';
+import { activeTxnIds, eventItemSummary, lineAmount, type ItemAtEvent } from './ledger';
+import { storageStock as loadStorageStock } from './stock';
 import { activeFractionDays, dayWindows, daysOf, lastDayOf } from './eventDays';
 
 // 刷り部数の目安(要件 §6.1〜6.5)と損益分岐(§6.6)。
@@ -70,52 +71,155 @@ export interface AnalysisData {
   curveSamples: number;
 }
 
+/**
+ * 1つのイベントの集計(品目ごとの持ち込み・販売・完売の時刻、販売の時刻、品目ごとの売上)。
+ * 終了処理を確定したイベントは記録が変わらないので、一度計算したら控えておく(Issue #31)
+ */
+interface EventDigest {
+  summary: Map<string, ItemAtEvent>;
+  /** 販売(取り消されていないもの)の [時刻, 部数, 品目] */
+  sales: [number, number, string][];
+  /** 品目ごとの販売部数と売上(セットはセットの品目のまま) */
+  sold: Map<string, { qty: number; amount: number }>;
+}
+
+/** 確定済みのイベントの控え。キーが変われば(やり直し・イベントや休憩の修正)計算し直す */
+const digestCache = new Map<string, { key: string; digest: EventDigest }>();
+
+/** 控えを捨てる(テスト用) */
+export function clearAnalysisCache() {
+  digestCache.clear();
+}
+
+interface EventRows {
+  loc: Location | undefined;
+  txns: Txn[];
+  movements: Movement[];
+  /** 取り消されていない販売の明細 */
+  lines: TxnLine[];
+}
+
+/** 1つのイベントの行を、索引で読む(計算し直すイベントが少ないとき) */
+async function readEventRows(db: HaifuDB, ev: EventRow): Promise<EventRows> {
+  const [loc, txns, movements] = await Promise.all([
+    db.locations.where('event_id').equals(ev.id).first(),
+    db.transactions.where('event_id').equals(ev.id).toArray(),
+    db.stock_movements.where('event_id').equals(ev.id).toArray(),
+  ]);
+  // 取り消しは同じイベントの取引だけが対象なので、イベントの中だけで数えられる
+  const active = activeTxnIds(txns);
+  const saleIds = txns.filter((t) => t.type === 'sale' && active.has(t.id)).map((t) => t.id);
+  const lines = saleIds.length ? await db.transaction_lines.where('transaction_id').anyOf(saleIds).toArray() : [];
+  return { loc, txns, movements, lines };
+}
+
+/** 全部のイベントの行を、まとめて読んでイベントごとに分ける(はじめて開いたときなど、計算し直すイベントが多いとき) */
+async function readAllEventRows(db: HaifuDB, eventIds: Set<string>): Promise<Map<string, EventRows>> {
+  const [locs, txns, movements, lines] = await Promise.all([
+    db.locations.toArray(), db.transactions.toArray(), db.stock_movements.toArray(), db.transaction_lines.toArray(),
+  ]);
+  const out = new Map<string, EventRows>();
+  for (const id of eventIds) out.set(id, { loc: undefined, txns: [], movements: [], lines: [] });
+  for (const l of locs) if (l.event_id && out.has(l.event_id)) out.get(l.event_id)!.loc = l;
+  const txnEvent = new Map<string, string>();
+  for (const t of txns) {
+    if (!out.has(t.event_id)) continue;
+    out.get(t.event_id)!.txns.push(t);
+    txnEvent.set(t.id, t.event_id);
+  }
+  for (const m of movements) if (m.event_id && out.has(m.event_id)) out.get(m.event_id)!.movements.push(m);
+  const activeSales = new Set<string>();
+  for (const r of out.values()) {
+    const active = activeTxnIds(r.txns);
+    for (const t of r.txns) if (t.type === 'sale' && active.has(t.id)) activeSales.add(t.id);
+  }
+  for (const l of lines) if (activeSales.has(l.transaction_id)) out.get(txnEvent.get(l.transaction_id)!)!.lines.push(l);
+  return out;
+}
+
+function digestOf(rows: EventRows, items: Item[], setComponents: SetComponent[]): EventDigest {
+  const { loc, txns, movements, lines } = rows;
+  const active = activeTxnIds(txns);
+  const summary = loc ? eventItemSummary({ eventLocationId: loc.id, items, setComponents, movements, txns }) : new Map<string, ItemAtEvent>();
+  const sales = movements
+    .filter((m) => m.reason === 'sale' && m.transaction_id && active.has(m.transaction_id))
+    .map((m): [number, number, string] => [Date.parse(m.recorded_at), m.qty, m.item_id]);
+  const sold = new Map<string, { qty: number; amount: number }>();
+  for (const l of lines) {
+    const x = sold.get(l.item_id) ?? { qty: 0, amount: 0 };
+    sold.set(l.item_id, { qty: x.qty + l.qty, amount: x.amount + lineAmount(l) });
+  }
+  return { summary, sales, sold };
+}
+
 export async function loadAnalysis(db: HaifuDB, circleId: string, opts: ForecastOptions = DEFAULT_FORECAST): Promise<AnalysisData> {
-  const [events, items, owners, locations, setComponents, txns, lines, movements, printRuns, prodCosts, closings, breaks] = await Promise.all([
+  const [events, items, owners, setComponents, printRuns, prodCosts, closings, breaks, storageStock] = await Promise.all([
     db.events.where('circle_id').equals(circleId).toArray(),
     db.items.where('circle_id').equals(circleId).toArray(),
     db.owners.where('circle_id').equals(circleId).toArray(),
-    db.locations.where('circle_id').equals(circleId).toArray(),
     db.set_components.toArray(),
-    db.transactions.toArray(),
-    db.transaction_lines.toArray(),
-    db.stock_movements.toArray(),
     db.print_runs.toArray(),
     db.production_costs.toArray(),
     db.event_closings.toArray(),
     db.event_breaks.toArray(),
+    // 保管場所の在庫は、保管場所に出入りした行だけ読んで出す(#31 の前の軽量化と同じ)
+    loadStorageStock(db, circleId).then((m) => {
+      const byItem = new Map<string, number>();
+      for (const [k, n] of m) {
+        const id = k.slice(0, k.indexOf('|'));
+        byItem.set(id, (byItem.get(id) ?? 0) + n);
+      }
+      return byItem;
+    }),
   ]);
   const selfIds = new Set(owners.filter((o) => o.is_self).map((o) => o.id));
   // 削除した品目・イベントは、目安や損益分岐の対象にしない
   const ownItems = items.filter((i) => selfIds.has(i.owner_id) && i.kind !== 'set' && !i.deleted_at);
   const itemById = new Map(items.map((i) => [i.id, i]));
-  const active = activeTxnIds(txns);
   const today = new Date().toISOString().slice(0, 10);
-  const closedEvents = new Set(closings.filter((c) => !c.reopened_at).map((c) => c.event_id));
+  const closingOf = new Map<string, EventClosing>(closings.filter((c) => !c.reopened_at).map((c) => [c.event_id, c]));
+
+  // イベントごとの集計。確定済みは控えを使い、まだのイベントだけ、そのイベントの行を読んで計算する
+  const digests = new Map<string, EventDigest>();
+  const missing: { ev: EventRow; key: string | null }[] = [];
+  for (const ev of events) {
+    const closing = closingOf.get(ev.id);
+    const evBreaks = breaks.filter((b) => b.event_id === ev.id);
+    const key = closing
+      ? [closing.id, ev.client_updated_at, evBreaks.length, evBreaks.reduce((a, b) => (b.client_updated_at > a ? b.client_updated_at : a), '')].join('|')
+      : null;
+    const hit = key ? digestCache.get(ev.id) : undefined;
+    if (hit && hit.key === key) digests.set(ev.id, hit.digest);
+    else missing.push({ ev, key });
+  }
+  // 計算し直すイベントが多ければ表をまとめて読み、少なければそのイベントの行だけを索引で読む
+  const bulk = missing.length > 3 ? await readAllEventRows(db, new Set(missing.map((m) => m.ev.id))) : null;
+  await Promise.all(missing.map(async ({ ev, key }) => {
+    const rows = bulk ? bulk.get(ev.id)! : await readEventRows(db, ev);
+    const digest = digestOf(rows, items, setComponents);
+    if (key) digestCache.set(ev.id, { key, digest });
+    digests.set(ev.id, digest);
+  }));
+
   // 需要の材料にするのは、終わったイベントだけ(確定済みか、最終日を過ぎたもの)
   const past = events
-    .filter((e) => !e.deleted_at && (closedEvents.has(e.id) || lastDayOf(e) < today))
+    .filter((e) => !e.deleted_at && (closingOf.has(e.id) || lastDayOf(e) < today))
     .sort((a, b) => a.held_on.localeCompare(b.held_on));
 
   const perEvent = past.map((ev) => {
-    const loc = locations.find((l) => l.event_id === ev.id);
-    const evTxns = txns.filter((t) => t.event_id === ev.id);
-    const summary: Map<string, ItemAtEvent> = loc
-      ? eventItemSummary({ eventLocationId: loc.id, items, setComponents, movements: movements.filter((m) => m.event_id === ev.id), txns: evTxns })
-      : new Map();
-    const sales = movements.filter((m) => m.event_id === ev.id && m.reason === 'sale' && m.transaction_id && active.has(m.transaction_id));
+    const d = digests.get(ev.id)!;
     // 日ごとの開催時間(2日開催なら2つ)。休憩・離席の時間と、日と日のあいだの夜は数えない(F-411、Issue #19)
-    const windows = dayWindows(ev, sales.map((m) => Date.parse(m.recorded_at)), opts.defaultHours);
-    return { ev, summary, sales, windows, breaks: breaks.filter((b) => b.event_id === ev.id) };
+    const windows = dayWindows(ev, d.sales.map(([t]) => t), opts.defaultHours);
+    return { ev, summary: d.summary, sales: d.sales, windows, breaks: breaks.filter((b) => b.event_id === ev.id) };
   });
 
   // 累積販売曲線: 完売しなかった品目の販売が、開催時間のどの時点で起きたか(要件 §6.1)
   const fractions: { f: number; q: number }[] = [];
   for (const p of perEvent) {
     if (p.windows.length === 0) continue;
-    for (const m of p.sales) {
-      if (p.summary.get(m.item_id)?.soldOutAt) continue;
-      fractions.push({ f: activeFractionDays(Date.parse(m.recorded_at), p.windows, p.breaks), q: m.qty });
+    for (const [t, q, itemId] of p.sales) {
+      if (p.summary.get(itemId)?.soldOutAt) continue;
+      fractions.push({ f: activeFractionDays(t, p.windows, p.breaks), q });
     }
   }
   const samples = fractions.reduce((a, x) => a + x.q, 0);
@@ -147,36 +251,32 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
     histories.set(item.id, { item, observations });
   }
 
-  const storageIds = locations.filter((l) => l.kind === 'storage').map((l) => l.id);
-  const stock = stockByLocation(movements, txns);
-  const storageStock = new Map(items.map((i) => [i.id, storageIds.reduce((a, l) => a + (stock.get(`${i.id}|${l}`) ?? 0), 0)]));
-
   const productionCosts = new Map<string, number>();
   for (const c of prodCosts) {
     const id = c.item_id as string;
     productionCosts.set(id, (productionCosts.get(id) ?? 0) + Number(c.amount ?? 0));
   }
 
-  // 累計の販売(損益分岐の「いまどこまで来たか」)
-  const saleIds = new Set(txns.filter((t) => t.type === 'sale' && active.has(t.id)).map((t) => t.id));
+  // 累計の販売(損益分岐の「いまどこまで来たか」)。セットで売れた分は、いまの通常価格の比で構成品に按分する
   const soldTotals = new Map<string, { qty: number; amount: number }>();
   const add = (id: string, qty: number, amount: number) => {
     const x = soldTotals.get(id) ?? { qty: 0, amount: 0 };
     soldTotals.set(id, { qty: x.qty + qty, amount: x.amount + amount });
   };
-  for (const l of lines) {
-    if (!saleIds.has(l.transaction_id)) continue;
-    const it = itemById.get(l.item_id);
-    if (!it) continue;
-    if (it.kind !== 'set') {
-      add(it.id, l.qty, lineAmount(l));
-      continue;
-    }
-    const comps = setComponents.filter((c) => c.set_item_id === it.id);
-    const base = comps.reduce((a, c) => a + (itemById.get(c.component_item_id)?.price ?? 0) * c.qty, 0);
-    for (const c of comps) {
-      const share = base > 0 ? ((itemById.get(c.component_item_id)?.price ?? 0) * c.qty) / base : 1 / comps.length;
-      add(c.component_item_id, l.qty * c.qty, lineAmount(l) * share);
+  for (const d of digests.values()) {
+    for (const [itemId, x] of d.sold) {
+      const it = itemById.get(itemId);
+      if (!it) continue;
+      if (it.kind !== 'set') {
+        add(it.id, x.qty, x.amount);
+        continue;
+      }
+      const comps = setComponents.filter((c) => c.set_item_id === it.id);
+      const base = comps.reduce((a, c) => a + (itemById.get(c.component_item_id)?.price ?? 0) * c.qty, 0);
+      for (const c of comps) {
+        const share = base > 0 ? ((itemById.get(c.component_item_id)?.price ?? 0) * c.qty) / base : 1 / comps.length;
+        add(c.component_item_id, x.qty * c.qty, x.amount * share);
+      }
     }
   }
 
