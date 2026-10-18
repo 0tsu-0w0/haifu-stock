@@ -627,3 +627,9 @@ details[open] summary { margin-bottom: 6px; }
 .fold { cursor: pointer; font: inherit; color: inherit; }
 .fold .fold-mark { color: var(--accent); font-size: 13px; white-space: nowrap; }
 .fold-body { display: flex; flex-direction: column; gap: 10px; }
+
+/* 持ち込み数の目安(Issue #28) */
+.bring-hint { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.bring-hint b { color: var(--ink); }
+.bring-hint small { display: block; font-size: 12px; line-height: 1.5; }
+.bring-all { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }

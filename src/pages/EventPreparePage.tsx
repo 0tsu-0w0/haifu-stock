@@ -17,6 +17,8 @@ import {
   type PrepareLine,
 } from '../domain/catalog';
 import { DENOMINATIONS } from '../domain/closing';
+import { DEFAULT_FORECAST, loadAnalysis } from '../domain/analysis';
+import { bringHints } from '../domain/bring';
 import { hasConsignors } from '../domain/consign';
 import { storageStock } from '../domain/stock';
 import { yen } from '../lib/format';
@@ -98,6 +100,13 @@ export function EventPreparePage() {
         || a.name.localeCompare(b.name, 'ja'));
   }, [data]);
 
+  // 持ち込み数の目安(F-304、F-901、F-902。Issue #28)。過去の記録を全部読むので、準備できるイベントのときだけ読む
+  const analysis = useLiveQuery(
+    () => (ctx && eventId && data?.event && !data.closed ? loadAnalysis(db, ctx.circleId, DEFAULT_FORECAST) : undefined),
+    [ctx?.circleId, eventId, !!data?.event, data?.closed],
+  );
+  const hints = useMemo(() => (analysis ? bringHints(analysis, eventId, DEFAULT_FORECAST) : new Map()), [analysis, eventId]);
+
   if (!ctx || !data) return <main className="page" />;
   if (!isNew && !data.event) return <main className="page"><p>イベントが見つかりません。</p><Link to="/">ホームに戻る</Link></main>;
   const home = data.storages[0];
@@ -175,6 +184,23 @@ export function EventPreparePage() {
   const floatTotal = [...floatCounts].reduce((a, [d, c]) => a + d * c, 0);
   const shownExpenses = data.expenses.filter((e) => (e.planned_amount ?? 0) > 0 || (e.actual_amount ?? 0) > 0);
   const owner = (id: string) => data.owners.find((o) => o.id === id);
+  /** 目安の部数(自宅の在庫と、このイベントに反映済みの数を合わせた分まで) */
+  const hintFor = (id: string) => {
+    const h = hints.get(id);
+    if (!h) return null;
+    const avail = (home ? data.stock.get(`${id}|${home.id}`) ?? 0 : 0) + (data.prepared.get(id) ?? 0);
+    return { ...h, qty: Math.min(h.qty, Math.max(avail, 0)), capped: h.qty > avail ? avail : null };
+  };
+  const hinted = ordered.filter((i) => lineOf(i.id).included && i.kind !== 'set' && hintFor(i.id) && lineOf(i.id).bring !== hintFor(i.id)!.qty);
+  function applyAllHints() {
+    setLines((m) => {
+      const n = new Map(m ?? []);
+      for (const i of hinted) n.set(i.id, { ...lineOf(i.id), bring: hintFor(i.id)!.qty });
+      return n;
+    });
+    toast(`${hinted.length}品目に目安を入れました。「持ち込みを反映する」を押すまで在庫は動きません`);
+  }
+
   const changed = lines && ordered.some((i) => {
     const l = lineOf(i.id);
     const ei = data.eventItems.find((e) => e.item_id === i.id);
@@ -247,6 +273,12 @@ export function EventPreparePage() {
           {data.items.length === 0 && (
             <div className="card"><p className="note">品目がまだありません。</p><Link className="btn center" to="/items/new">品目を追加</Link></div>
           )}
+          {!locked && hinted.length > 0 && (
+            <div className="bring-all">
+              <span className="k">過去の売れ方から、持ち込み数の目安を出しています。</span>
+              <button className="sbtn" onClick={applyAllHints}>目安をまとめて入れる</button>
+            </div>
+          )}
           {ordered.length > 0 && <div className="card prep">
             {ordered.map((i) => {
               const l = lineOf(i.id);
@@ -272,6 +304,21 @@ export function EventPreparePage() {
                       <NumberField id={`bring-${i.id}`} label={`${i.name}の${own ? '持ち込み' : '預かり'}数`} value={l.bring} onCommit={(v) => setLine(i.id, { bring: v })} />
                     </div>
                   )}
+                  {(() => {
+                    const h = own && l.included && i.kind !== 'set' && !locked ? hintFor(i.id) : null;
+                    if (!h) return null;
+                    return (
+                      <div className="bring-hint">
+                        <span>
+                          目安 <b className="num">{h.qty}部</b>{h.reference ? '(参考)' : ''}
+                          <small>{h.basis}{h.capped !== null ? `。${home?.name ?? '自宅'}の在庫は${h.capped}部まで` : ''}</small>
+                        </span>
+                        {l.bring !== h.qty && (
+                          <button className="link-btn small-link" aria-label={`${i.name}の持ち込み数に目安の${h.qty}部を入れる`} onClick={() => setLine(i.id, { bring: h.qty })}>入れる</button>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {l.included && (
                     <div className="rowx">
                       <label className="k" htmlFor={`price-${i.id}`}>イベント価格</label>
