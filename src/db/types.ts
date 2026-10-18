@@ -37,6 +37,8 @@ export interface Item extends FromServer {
   low_threshold: number;
   /** レジで見分けるための色(ITEM_COLORS の名前)。なしは null */
   color?: string | null;
+  /** 表紙画像(小さくした data URL。Issue #36)。なしは null */
+  cover?: string | null;
   archived_at: Iso | null;
   /** 削除した時刻(表示から消す。記録は残す) */
   deleted_at?: Iso | null;

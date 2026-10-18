@@ -219,6 +219,7 @@ function DisplaySettings({ owner }: { owner: boolean }) {
   const [instant, setInstant] = usePref('instantSale');
   const [soldOutLast, setSoldOutLast] = usePref('soldOutLast');
   const [lastOneRed, setLastOneRed] = usePref('lastOneRed');
+  const [regCovers, setRegCovers] = usePref('regCovers');
   const [payMethods, setPayMethods] = usePayMethods();
   const [haptics, setHaptics] = usePref('haptics');
   const [tour, setTour] = useState(false);
@@ -259,6 +260,13 @@ function DisplaySettings({ owner }: { owner: boolean }) {
         <span>
           <b>レジで残り1部の品目を赤で示す</b>
           <small className="k">最後の1部になった品目のボタンを赤くして「残1・最後」と出します。オフにすると、ほかの残りわずかと同じ黄色で出します。</small>
+        </span>
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={regCovers} onChange={(e) => setRegCovers(e.target.checked)} />
+        <span>
+          <b>レジのボタンに表紙画像を出す</b>
+          <small className="k">品目の画面で表紙画像を入れた品目だけに出ます。ボタンが窮屈なときはオフにしてください。</small>
         </span>
       </label>
       <div className="seg-row">

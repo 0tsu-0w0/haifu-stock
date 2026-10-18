@@ -131,6 +131,7 @@ create table items (
   price             int  not null check (price >= 0),
   cover_path        text,                                   -- Supabase Storage のパス
   color             text check (color ~ '^[a-z]{1,12}$'),   -- レジで見分けるための色の名前
+  cover             text check (cover is null or (length(cover) <= 200000 and cover ~ '^data:image/(webp|jpeg|png);base64,')),  -- 表紙画像(端末で小さくした data URL。Issue #36)
   issued_on         date,
   spec              jsonb not null default '{}',            -- 判型・ページ数など
   memo              text,

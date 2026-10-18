@@ -63,6 +63,7 @@ export async function saveItem(db: HaifuDB, ctx: Ctx, input: ItemInput): Promise
     price: input.price, print_lot: input.printLot === undefined ? cur?.print_lot ?? null : input.printLot,
     low_threshold: input.lowThreshold,
     color: input.color === undefined ? cur?.color ?? null : input.color,
+    cover: cur?.cover ?? null,
     archived_at: cur?.archived_at ?? null, deleted_at: cur?.deleted_at ?? null, client_updated_at: stamp(),
   };
   await db.transaction('rw', ['items', 'set_components', 'outbox'], async () => {
@@ -474,6 +475,22 @@ export async function renameLocation(db: HaifuDB, locationId: string, name: stri
     const cur = await db.locations.get(locationId);
     if (!cur) throw new Error('置き場所が見つかりません');
     await putAndQueue(db, 'locations', { ...cur, name: v, client_updated_at: stamp() });
+  });
+}
+
+/** 表紙画像の data URL の上限(文字数)。サーバーの制約と同じ */
+export const MAX_COVER_LENGTH = 200_000;
+
+/** 品目の表紙画像を入れる・消す(F-101、Issue #36)。画像は端末で小さくしてから渡す */
+export async function setItemCover(db: HaifuDB, itemId: string, cover: string | null): Promise<void> {
+  if (cover !== null) {
+    if (!/^data:image\/(webp|jpeg|png);base64,/.test(cover)) throw new Error('画像の形式が正しくありません');
+    if (cover.length > MAX_COVER_LENGTH) throw new Error('画像が大きすぎます');
+  }
+  await db.transaction('rw', ['items', 'outbox'], async () => {
+    const cur = await db.items.get(itemId);
+    if (!cur) throw new Error('品目が見つかりません');
+    await putAndQueue(db, 'items', { ...cur, cover, client_updated_at: stamp() });
   });
 }
 

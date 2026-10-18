@@ -636,3 +636,23 @@ details[open] summary { margin-bottom: 6px; }
 
 /* 2日・3日開催の日付の範囲(Issue #19) */
 .days-range { align-self: end; padding-bottom: 10px; }
+
+/* 表紙画像(Issue #36) */
+.item.has-cover { padding-left: 62px; }
+.item.has-cover.colored { padding-left: 68px; }
+.item .cover { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); width: 46px; height: 64px; object-fit: cover; border-radius: 6px; pointer-events: none; }
+.item.colored .cover { left: 14px; }
+.grid.cols-3 .item.has-cover { padding-left: 46px; }
+.grid.cols-3 .item.has-cover.colored { padding-left: 50px; }
+.grid.cols-3 .item .cover { width: 32px; height: 46px; left: 7px; }
+.grid.cols-3 .item.colored .cover { left: 11px; }
+.item.out .cover { opacity: .45; }
+.list-cover { width: 34px; height: 46px; object-fit: cover; border-radius: 5px; flex: none; }
+.row-link .grow { flex: 1; min-width: 0; }
+.row-link:has(.list-cover) { gap: 10px; }
+.cover-card { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 12px; }
+.cover-card > small { flex-basis: 100%; }
+.cover-preview { width: 96px; height: 128px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+.cover-actions { display: flex; align-items: center; gap: 8px; }
+.file-btn { position: relative; overflow: hidden; cursor: pointer; }
+.file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }

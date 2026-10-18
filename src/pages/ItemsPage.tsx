@@ -68,7 +68,8 @@ export function ItemsPage() {
               {mine.map((i) => (
                 <li key={i.id}>
                   <Link className={`card row-link${i.archived_at ? ' archived' : ''}`} to={`/items/${i.id}`}>
-                    <span>
+                    {i.cover && <img className="list-cover" src={i.cover} alt="" />}
+                    <span className="grow">
                       <b>{i.name}</b>
                       <small>{KIND_LABEL[i.kind]}・{yen(i.price)}{i.archived_at ? '・アーカイブ済み' : ''}</small>
                     </span>

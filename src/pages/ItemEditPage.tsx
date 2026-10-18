@@ -9,7 +9,8 @@ import { PageHeader } from '../components/PageHeader';
 import { PrintPlan } from '../components/PrintPlan';
 import { useToast } from '../components/Toast';
 import type { ItemKind } from '../db/types';
-import { addPrintRun, deleteItem, productionCost, restoreItem, saveItem, saveOwner, saveProductionCost, setItemArchived } from '../domain/catalog';
+import { shrinkImage } from '../lib/image';
+import { addPrintRun, deleteItem, productionCost, restoreItem, saveItem, saveOwner, saveProductionCost, setItemArchived, setItemCover } from '../domain/catalog';
 import { COLOR_LABEL, ITEM_COLORS, colorVar } from '../domain/colors';
 import { hasConsignors } from '../domain/consign';
 import { breakEvenQty } from '../domain/ledger';
@@ -47,6 +48,7 @@ export function ItemEditPage() {
   const [components, setComponents] = useState<Map<string, number>>(new Map());
   const [run, setRun] = useState({ qty: '', cost: '', date: '', printer: '' });
   const [runTo, setRunTo] = useState('');
+  const [coverBusy, setCoverBusy] = useState(false);
   const [error, setError] = useState('');
   const [runError, setRunError] = useState('');
   const [prod, setProd] = useState<string | null>(null);
@@ -228,6 +230,41 @@ export function ItemEditPage() {
         {error && <p className="error">{error}</p>}
         <button className="btn primary">{item ? '保存する' : '登録する'}</button>
       </form>
+
+      {item && (
+        <>
+          <h3 className="section">表紙画像</h3>
+          <div className="card cover-card">
+            {item.cover ? <img className="cover-preview" src={item.cover} alt={`${item.name}の表紙`} /> : <span className="k">まだありません。レジのボタンと品目の一覧に小さく出ます。</span>}
+            <div className="cover-actions">
+              <label className="sbtn acc file-btn">
+                {item.cover ? '入れ替える' : '写真を選ぶ'}
+                <input
+                  type="file" accept="image/*" disabled={coverBusy}
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';
+                    if (!f) return;
+                    setCoverBusy(true);
+                    try {
+                      await setItemCover(db, item.id, await shrinkImage(f));
+                      toast('表紙画像を入れました');
+                    } catch (err) {
+                      toast(err instanceof Error ? err.message : String(err));
+                    } finally {
+                      setCoverBusy(false);
+                    }
+                  }}
+                />
+              </label>
+              {item.cover && (
+                <button className="link-btn small-link" onClick={async () => { await setItemCover(db, item.id, null); toast('表紙画像を消しました'); }}>消す</button>
+              )}
+            </div>
+            <small className="k">端末の中で小さくしてから保存し、ほかの端末にも同期します(電波がなくても出ます)。自分の作品の画像を入れてください。</small>
+          </div>
+        </>
+      )}
 
       {item && item.kind !== 'set' && isOwn && (
         <>

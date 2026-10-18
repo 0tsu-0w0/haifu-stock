@@ -253,6 +253,17 @@ await as('00000000-0000-0000-0000-0000000000c3', async () => {
   ok(Object.values(h).every((v) => v === 0), 'サークルに関係のない人には、どの表も0');
 });
 
+// Issue #36: 表紙画像は小さくした data URL だけ。売り子は参加中のイベントの品目の表紙を読める
+await as(U1, async () => {
+  await db.query(`update items set cover = 'data:image/webp;base64,AAAA', client_updated_at = '2100-01-01' where id=$1`, [A]);
+  await expectError(db.query(`update items set cover = 'https://example.com/a.png', client_updated_at = '2100-01-02' where id=$1`, [A]), '表紙は data URL だけ');
+  await expectError(db.query(`update items set cover = 'data:image/webp;base64,' || repeat('A', 200000), client_updated_at = '2100-01-03' where id=$1`, [A]), '表紙画像は大きすぎるものを入れられない');
+});
+await as(U2, async () => {
+  const r = await db.query(`select cover from items where id=$1`, [A]);
+  ok(r.rows[0]?.cover === 'data:image/webp;base64,AAAA', '売り子は参加中のイベントの品目の表紙を読める');
+});
+
 // Issue #19: 2日・3日開催。古い版の端末が送るイベント(days なし)は1日、更新で days を送らなければ今の値のまま
 await as(U1, async () => {
   const E2 = id();

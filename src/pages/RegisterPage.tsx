@@ -68,6 +68,7 @@ export function RegisterPage() {
   const [haptics] = usePref('haptics');
   const [regSize] = useChoice('regSize');
   const [regCols] = useChoice('regCols');
+  const [regCovers] = usePref('regCovers');
   const data = useEventData(eventId);
   const toast = useToast();
   const [sheetItem, setSheetItem] = useState<Item | null>(null);
@@ -407,7 +408,7 @@ export function RegisterPage() {
             return (
               <button
                 key={item.id}
-                className={`item ${state}${color ? ' colored' : ''}${pressing === item.id ? ' pressing' : ''}`}
+                className={`item ${state}${color ? ' colored' : ''}${regCovers && item.cover ? ' has-cover' : ''}${pressing === item.id ? ' pressing' : ''}`}
                 style={color ? ({ '--item-color': color } as React.CSSProperties) : undefined}
                 aria-label={`${item.name} ${priceOf(item)}円 ${r <= 0 ? '完売' : free <= 0 ? `残り${r}部はすべて取り置き` : free === 1 ? '残り1部・最後の1部' : `残り${free}`}${h > 0 && free > 0 ? ` 取り置き${h}部` : ''}${owner && !owner.is_self ? ` 受託 ${owner.name}` : ''}${inCart(item.id) ? ` カートに${inCart(item.id)}` : ''}`}
                 onPointerDown={(e) => onDown(e, item)}
@@ -425,6 +426,7 @@ export function RegisterPage() {
                   }
                 }}
               >
+                {regCovers && item.cover && <img className="cover" src={item.cover} alt="" draggable={false} />}
                 {inCart(item.id) > 0 && <span className="incart num">{inCart(item.id)}</span>}
                 {hit?.id === item.id && !cart && <span key={hit.n} className="hit num" aria-hidden="true">+1</span>}
                 <span className="nm">{item.name}</span>
