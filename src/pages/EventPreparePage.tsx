@@ -75,6 +75,7 @@ export function EventPreparePage() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [copyFrom, setCopyFrom] = useState('');
+  const [srcId, setSrcId] = useState('');
 
   // 読み込んだ値でフォームを初期化する(その後はフォームの値を正とする)
   useEffect(() => {
@@ -119,7 +120,9 @@ export function EventPreparePage() {
 
   if (!ctx || !data) return <main className="page" />;
   if (!isNew && !data.event) return <main className="page"><p>イベントが見つかりません。</p><Link to="/">ホームに戻る</Link></main>;
-  const home = data.storages[0];
+  // 持ち出す保管場所(2つ以上あるときは選べる。Issue #30)
+  const activeStorages = data.storages.filter((l) => !l.archived_at);
+  const home = activeStorages.find((l) => l.id === srcId) ?? activeStorages[0];
   const locked = data.closed;
 
   async function saveInfo() {
@@ -318,6 +321,15 @@ export function EventPreparePage() {
           )}
           {data.items.length === 0 && (
             <div className="card"><p className="note">品目がまだありません。</p><Link className="btn center" to="/items/new">品目を追加</Link></div>
+          )}
+          {!locked && activeStorages.length > 1 && (
+            <div className="card copy-prev">
+              <label className="k" htmlFor="prep-src">持ち出す保管場所</label>
+              <select id="prep-src" value={home?.id ?? ''} onChange={(e) => setSrcId(e.target.value)}>
+                {activeStorages.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+              <p className="note">持ち込みを反映すると、ここから在庫が動きます(数を減らしたときも、ここへ戻します)。終了処理の持ち帰り先は、終了処理の画面で選べます。</p>
+            </div>
           )}
           {!locked && hinted.length > 0 && (
             <div className="bring-all">

@@ -41,6 +41,7 @@ const JoinPage = lazy(() => retry(() => import('./pages/JoinPage').then((m) => (
 const LoginPage = lazy(() => retry(() => import('./pages/LoginPage').then((m) => ({ default: m.LoginPage }))));
 const ReportPage = lazy(() => retry(() => import('./pages/ReportPage').then((m) => ({ default: m.ReportPage }))));
 const SettingsPage = lazy(() => retry(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage }))));
+const MoveStockPage = lazy(() => retry(() => import('./pages/MoveStockPage').then((m) => ({ default: m.MoveStockPage }))));
 const StocktakePage = lazy(() => retry(() => import('./pages/StocktakePage').then((m) => ({ default: m.StocktakePage }))));
 
 function Routed() {
@@ -67,6 +68,7 @@ function Routed() {
           <Route path="/analysis" element={<AnalysisPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/stocktake" element={<StocktakePage />} />
+          <Route path="/items/move" element={<MoveStockPage />} />
           <Route path="/items/new" element={<ItemEditPage />} />
           <Route path="/items/:itemId" element={<ItemEditPage />} />
           <Route path="/events/:eventId/invite" element={<InvitePage />} />

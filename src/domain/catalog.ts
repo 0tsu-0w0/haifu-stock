@@ -1,5 +1,5 @@
 import { putAndQueue, type HaifuDB } from '../db/local';
-import type { CashCount, EventItem, EventRow, EventType, Expense, ExpenseCategory, Item, ItemKind, Owner, PriceTier, PrintRun, ProductionCost, SetComponent } from '../db/types';
+import type { CashCount, EventItem, EventRow, EventType, Expense, ExpenseCategory, Item, ItemKind, Location, Owner, PriceTier, PrintRun, ProductionCost, SetComponent } from '../db/types';
 import { uuidv7 } from '../lib/uuid';
 import { assertOpen } from './closing';
 import { MAX_DAYS } from './eventDays';
@@ -475,6 +475,67 @@ export async function renameLocation(db: HaifuDB, locationId: string, name: stri
     if (!cur) throw new Error('置き場所が見つかりません');
     await putAndQueue(db, 'locations', { ...cur, name: v, client_updated_at: stamp() });
   });
+}
+
+/** 保管場所を足す(実家・倉庫など。F-201、Issue #30)。同じ名前があれば、それを使う(しまっていれば戻す) */
+export async function addStorage(db: HaifuDB, ctx: Ctx, name: string): Promise<Location> {
+  const v = name.trim();
+  if (!v) throw new Error('保管場所の名前を入れてください');
+  return db.transaction('rw', ['locations', 'outbox'], async () => {
+    const same = await db.locations.where('circle_id').equals(ctx.circleId).filter((l) => l.kind === 'storage' && l.name === v).first();
+    if (same) {
+      if (!same.archived_at) throw new Error(`「${v}」はもうあります`);
+      const back = { ...same, archived_at: null, client_updated_at: stamp() };
+      await putAndQueue(db, 'locations', back);
+      return back;
+    }
+    const loc: Location = {
+      id: uuidv7(), circle_id: ctx.circleId, kind: 'storage', name: v, event_id: null, archived_at: null, client_updated_at: stamp(),
+    };
+    await putAndQueue(db, 'locations', loc);
+    return loc;
+  });
+}
+
+/** 保管場所をしまう・戻す。在庫が残っている場所と、最後の1つはしまえない(Issue #30) */
+export async function setStorageArchived(db: HaifuDB, ctx: Ctx, locationId: string, archived: boolean): Promise<void> {
+  const cur = await db.locations.get(locationId);
+  if (!cur || cur.kind !== 'storage') throw new Error('保管場所が見つかりません');
+  if (archived) {
+    const others = await db.locations.where('circle_id').equals(ctx.circleId)
+      .filter((l) => l.kind === 'storage' && !l.archived_at && l.id !== locationId).count();
+    if (others === 0) throw new Error('保管場所が1つだけなので、しまえません');
+    const left = [...(await locationStock(db, [locationId])).values()].reduce((a, n) => a + Math.max(n, 0), 0);
+    if (left > 0) throw new Error(`「${cur.name}」に在庫が${left}部残っています。先にほかの保管場所へ移してください`);
+  }
+  await db.transaction('rw', ['locations', 'outbox'], () =>
+    putAndQueue(db, 'locations', { ...cur, archived_at: archived ? stamp() : null, client_updated_at: stamp() }));
+}
+
+/**
+ * 保管場所どうしで在庫を移す(F-202、Issue #30)。移動元の在庫より多くは移せない。
+ * 在庫の動きは transfer として記録する(販売ではないので、需要の見込みには入らない)
+ */
+export async function transferBetweenStorages(
+  db: HaifuDB, ctx: Ctx, input: { from: string; to: string; lines: { itemId: string; qty: number }[] },
+): Promise<{ moved: number }> {
+  if (input.from === input.to) throw new Error('移す前と後の保管場所が同じです');
+  const [from, to] = await Promise.all([db.locations.get(input.from), db.locations.get(input.to)]);
+  if (from?.kind !== 'storage' || to?.kind !== 'storage') throw new Error('保管場所が見つかりません');
+  const stock = await locationStock(db, [from.id]);
+  const lines = input.lines.filter((l) => l.qty > 0);
+  for (const l of lines) {
+    if (!Number.isInteger(l.qty)) throw new Error('部数は整数で入れてください');
+    const have = stock.get(`${l.itemId}|${from.id}`) ?? 0;
+    if (l.qty > have) {
+      const name = (await db.items.get(l.itemId))?.name ?? '品目';
+      throw new Error(`${name}は「${from.name}」に${have}部しかありません`);
+    }
+  }
+  for (const l of lines) {
+    await moveStock(db, ctx, { itemId: l.itemId, qty: l.qty, from: from.id, to: to.id, reason: 'transfer', note: `${from.name}から${to.name}へ` });
+  }
+  return { moved: lines.length };
 }
 
 /** 受託元(持ち主)をしまう・戻す。自分はしまえない */

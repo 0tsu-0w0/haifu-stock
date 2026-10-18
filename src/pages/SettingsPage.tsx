@@ -14,7 +14,7 @@ import { SyncStatus } from '../components/SyncStatus';
 import { AppVersion } from '../components/UpdateBanner';
 import { useToast } from '../components/Toast';
 import type { Owner } from '../db/types';
-import { renameLocation, saveCircleName, saveOwner, setOwnerArchived } from '../domain/catalog';
+import { addStorage, renameLocation, saveCircleName, saveOwner, setOwnerArchived, setStorageArchived } from '../domain/catalog';
 import { saveDeviceName } from '../domain/devices';
 import { PAYMENT_LABEL } from '../domain/payment';
 
@@ -35,6 +35,8 @@ export function SettingsPage() {
   const [circleName, setCircleName] = useState('');
   const [newOwner, setNewOwner] = useState({ name: '', fee: '' });
   const [showArchived, setShowArchived] = useState(false);
+  const [showArchivedStorages, setShowArchivedStorages] = useState(false);
+  const [newStorage, setNewStorage] = useState('');
 
   useEffect(() => {
     if (data?.circle) setCircleName(data.circle.name);
@@ -58,6 +60,8 @@ export function SettingsPage() {
     );
   }
 
+  const activeStorages = data.storages.filter((l) => !l.archived_at);
+  const archivedStorages = data.storages.length - activeStorages.length;
   const attempt = async (fn: () => Promise<void>, done: string) => {
     try {
       await fn();
@@ -85,10 +89,30 @@ export function SettingsPage() {
 
       <h3 className="section">保管場所</h3>
       <div className="card">
-        {data.storages.map((l) => (
-          <NameRow key={l.id} label="保管場所の名前" value={l.name} onSave={(v) => attempt(() => renameLocation(db, l.id, v), '保管場所の名前を保存しました')} />
+        {data.storages.filter((l) => showArchivedStorages || !l.archived_at).map((l) => (
+          <div key={l.id} className={`owner-row${l.archived_at ? ' archived' : ''}`}>
+            <NameRow label="保管場所の名前" value={l.name} onSave={(v) => attempt(() => renameLocation(db, l.id, v), '保管場所の名前を保存しました')} />
+            {(l.archived_at || activeStorages.length > 1) && (
+              <button
+                className="link-btn small-link"
+                onClick={() => void attempt(() => setStorageArchived(db, ctx, l.id, !l.archived_at), l.archived_at ? `「${l.name}」を戻しました` : `「${l.name}」をしまいました`)}
+              >{l.archived_at ? '戻す' : 'しまう'}</button>
+            )}
+          </div>
         ))}
-        <p className="note">在庫を置いている場所です(例: 自宅、実家)。持ち込みや終了処理の戻し先に出ます。</p>
+        {archivedStorages > 0 && (
+          <button className="link-btn small-link" onClick={() => setShowArchivedStorages(!showArchivedStorages)}>
+            {showArchivedStorages ? 'しまった保管場所を隠す' : `しまった保管場所も表示(${archivedStorages}件)`}
+          </button>
+        )}
+        <form
+          className="name-row"
+          onSubmit={(e) => { e.preventDefault(); void attempt(async () => { await addStorage(db, ctx, newStorage); setNewStorage(''); }, `「${newStorage.trim()}」を足しました`); }}
+        >
+          <input aria-label="新しい保管場所の名前" placeholder="例: 実家、倉庫" value={newStorage} onChange={(e) => setNewStorage(e.target.value)} />
+          <button className="sbtn" disabled={!newStorage.trim()}>足す</button>
+        </form>
+        <p className="note">在庫を置いている場所です(例: 自宅、実家、倉庫)。2つ以上あると、品目の画面の「在庫を移す」で場所どうしを動かせ、持ち込み・刷り記録・終了処理の戻し先で場所を選べます。在庫が残っている場所はしまえません。</p>
       </div>
 
       <h3 className="section">受託元(預かる本の持ち主)</h3>

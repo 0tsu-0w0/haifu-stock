@@ -46,6 +46,7 @@ export function ItemEditPage() {
   const [newOwner, setNewOwner] = useState({ name: '', fee: '0' });
   const [components, setComponents] = useState<Map<string, number>>(new Map());
   const [run, setRun] = useState({ qty: '', cost: '', date: '', printer: '' });
+  const [runTo, setRunTo] = useState('');
   const [error, setError] = useState('');
   const [runError, setRunError] = useState('');
   const [prod, setProd] = useState<string | null>(null);
@@ -78,7 +79,8 @@ export function ItemEditPage() {
   const fixedCost = printCost + data.prodCost;
   const prodValue = prod ?? (data.prodCost > 0 ? String(data.prodCost) : '');
   const printed = data.runs.reduce((a, r) => a + r.qty, 0);
-  const home = data.storages[0];
+  const activeStorages = data.storages.filter((l) => !l.archived_at);
+  const home = activeStorages.find((l) => l.id === runTo) ?? activeStorages[0];
 
   async function save() {
     setError('');
@@ -231,7 +233,7 @@ export function ItemEditPage() {
         <>
           <h3 className="section">在庫</h3>
           <div className="card">
-            {data.storages.map((l) => (
+            {data.storages.filter((l) => !l.archived_at || (data.stock.get(`${item.id}|${l.id}`) ?? 0) !== 0).map((l) => (
               <div className="rowx" key={l.id}><span>{l.name}</span><b className="num">{data.stock.get(`${item.id}|${l.id}`) ?? 0}部</b></div>
             ))}
           </div>
@@ -278,6 +280,14 @@ export function ItemEditPage() {
                 <input id="run-printer" value={run.printer} onChange={(e) => setRun({ ...run, printer: e.target.value })} placeholder="任意" />
               </span>
             </div>
+            {activeStorages.length > 1 && (
+              <>
+                <label htmlFor="run-to">入れる保管場所</label>
+                <select id="run-to" value={home?.id ?? ''} onChange={(e) => setRunTo(e.target.value)}>
+                  {activeStorages.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+              </>
+            )}
             {runError && <p className="error">{runError}</p>}
             <button className="btn">追加して{home?.name ?? '自宅'}に入れる</button>
           </form>
