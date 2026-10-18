@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '../app/db';
 import { useHasConsignors } from '../app/useConsign';
-import { byVenue, loadComparison, type CompareRow } from '../domain/compare';
+import { byType, byVenue, loadComparison, type CompareRow } from '../domain/compare';
 import { yen } from '../lib/format';
 import { ChartSave } from './ChartSave';
 
@@ -21,6 +21,7 @@ export function EventCompare({ circleId }: { circleId: string }) {
   if (!rows) return <p className="note">計算しています…</p>;
   if (rows.length === 0) return <div className="card"><p className="note">販売を記録したイベントがまだありません。</p></div>;
   const venues = byVenue(rows);
+  const types = byType(rows);
   const label = METRICS.find(([k]) => k === metric)![1];
 
   return (
@@ -43,7 +44,7 @@ export function EventCompare({ circleId }: { circleId: string }) {
               <tr key={r.eventId}>
                 <td>
                   <Link to={`/events/${r.eventId}/report`}>{r.name}</Link>
-                  <small className="k">{r.heldOn}{r.venue ? `・${r.venue}` : ''}{r.closed ? '' : '・途中'}</small>
+                  <small className="k">{r.heldOn}{r.type ? `・${r.type}` : ''}{r.venue ? `・${r.venue}` : ''}{r.closed ? '' : '・途中'}</small>
                 </td>
                 <td className="num">{yen(r.amount)}</td>
                 <td className="num">{r.qty}</td>
@@ -83,6 +84,29 @@ export function EventCompare({ circleId }: { circleId: string }) {
             </table>
           </div>
           <p className="note">準備画面で会場を入れたイベントのうち、2回以上出た会場だけをまとめています。</p>
+        </>
+      )}
+
+      {types.length > 0 && (
+        <>
+          <h3 className="section">種別ごとの平均</h3>
+          <div className="card table-scroll">
+            <table className="tbl small report-tbl">
+              <thead><tr><th>種別</th><th>回数</th><th>売上</th><th>1時間あたり</th><th>収支</th></tr></thead>
+              <tbody>
+                {types.map((v) => (
+                  <tr key={v.type}>
+                    <td>{v.type}</td>
+                    <td className="num">{v.count}回</td>
+                    <td className="num">{yen(v.avgAmount)}</td>
+                    <td className="num">{v.avgPerHour === null ? '—' : yen(v.avgPerHour)}</td>
+                    <td className={`num ${v.avgProfit >= 0 ? 'pos' : 'neg-num'}`}>{sign(v.avgProfit)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="note">準備画面で種別を入れたイベントのうち、2回以上ある種別だけをまとめています。</p>
         </>
       )}
     </>

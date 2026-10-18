@@ -84,6 +84,16 @@ export interface PrintRun extends FromServer {
   client_updated_at: Iso;
 }
 
+/** イベントの種別(大規模・オンリーなど。サークルごとに足せる。F-301) */
+export interface EventType extends FromServer {
+  id: Uuid;
+  circle_id: Uuid;
+  name: string;
+  sort_order: number;
+  archived_at: Iso | null;
+  client_updated_at: Iso;
+}
+
 export interface EventRow extends FromServer {
   id: Uuid;
   circle_id: Uuid;

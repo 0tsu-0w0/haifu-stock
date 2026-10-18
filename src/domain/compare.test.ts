@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { freshDb, itemId } from '../test/helpers';
 import { prepareEvent, saveEventInfo } from './catalog';
-import { byVenue, loadComparison, type CompareRow } from './compare';
+import { byType, byVenue, loadComparison, type CompareRow } from './compare';
 import { confirmClosing } from './closing';
 import { recordSale } from './record';
 import { addSampleData, createCircle } from './setup';
@@ -38,5 +38,12 @@ describe('イベントをまたいだ比較(#13)', () => {
       ({ venue, amount, perHour, profit }) as CompareRow;
     const v = byVenue([row('A', 10000, 2000, 1000), row('A', 20000, null, 3000), row('B', 5000, 1000, 0), row(null, 1, 1, 1)]);
     expect(v).toEqual([{ venue: 'A', count: 2, avgAmount: 15000, avgPerHour: 2000, avgProfit: 2000 }]);
+  });
+
+  it('種別ごとの平均も、2回以上ある種別だけ(F-301)', () => {
+    const row = (type: string | null, amount: number, perHour: number | null, profit: number) =>
+      ({ type, venue: null, amount, perHour, profit }) as CompareRow;
+    const t = byType([row('オンリー', 6000, 1500, 500), row('オンリー', 4000, 500, -500), row('大規模', 30000, 6000, 9000), row(null, 1, 1, 1)]);
+    expect(t).toEqual([{ type: 'オンリー', count: 2, avgAmount: 5000, avgPerHour: 1000, avgProfit: 0 }]);
   });
 });

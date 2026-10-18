@@ -13,7 +13,7 @@ import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../components/Toast';
 import type { ExpenseCategory } from '../db/types';
 import {
-  EXPENSE_LABEL, copyFloatAndExpenses, deleteEvent, planFromEvent, prepareEvent, preparedQty, saveEventInfo, saveExpense, saveFloat, saveSortOrder,
+  EXPENSE_LABEL, copyFloatAndExpenses, deleteEvent, ensureEventType, eventTypes, planFromEvent, prepareEvent, preparedQty, saveEventInfo, saveExpense, saveFloat, saveSortOrder,
   type PrepareLine,
 } from '../domain/catalog';
 import { DENOMINATIONS } from '../domain/closing';
@@ -30,6 +30,10 @@ const toLocalTime = (iso: string | null) => {
 };
 const fromLocalTime = (date: string, time: string) => (time ? new Date(`${date}T${time}:00`).toISOString() : null);
 
+/** 種別の候補(まだ作っていなければ、選んだときに作る。F-301) */
+const TYPE_PRESETS = ['大規模', '中規模', '小規模', 'オンリー'];
+const NEW_TYPE = '__new__';
+
 // イベントの作成(F-301)と準備: 持ち込み(F-302)、受託品(F-307)、釣り銭(F-305)、経費(F-309)
 export function EventPreparePage() {
   const { eventId } = useParams();
@@ -40,7 +44,7 @@ export function EventPreparePage() {
 
   const data = useLiveQuery(async () => {
     if (!ctx) return null;
-    const [event, items, owners, storages, eventItems, prepared, cash, expenses, closings, stock, events] = await Promise.all([
+    const [event, items, owners, storages, eventItems, prepared, cash, expenses, closings, stock, events, types] = await Promise.all([
       isNew ? undefined : db.events.get(eventId!),
       db.items.where('circle_id').equals(ctx.circleId).toArray(),
       db.owners.where('circle_id').equals(ctx.circleId).toArray(),
@@ -52,16 +56,17 @@ export function EventPreparePage() {
       isNew ? [] : db.event_closings.where('event_id').equals(eventId!).toArray(),
       storageStock(db, ctx.circleId),
       db.events.where('circle_id').equals(ctx.circleId).toArray(),
+      eventTypes(db, ctx.circleId),
     ]);
     // コピー元にできるイベント(F-303): 削除していない、ほかのイベント。新しい順
     const others = events.filter((e) => !e.deleted_at && e.id !== eventId).sort((a, b) => b.held_on.localeCompare(a.held_on));
     return {
-      event, items, owners, storages, eventItems, prepared, cash, expenses, others,
+      event, items, owners, storages, eventItems, prepared, cash, expenses, others, types,
       closed: closings.some((c) => !c.reopened_at), stock,
     };
   }, [ctx?.circleId, eventId]);
 
-  const [info, setInfo] = useState({ name: '', date: new Date().toISOString().slice(0, 10), space: '', venue: '', time: '' });
+  const [info, setInfo] = useState({ name: '', date: new Date().toISOString().slice(0, 10), space: '', venue: '', time: '', endTime: '', type: '', newType: '' });
   const [lines, setLines] = useState<Map<string, PrepareLine> | null>(null);
   const [newExp, setNewExp] = useState<{ category: ExpenseCategory; amount: string }>({ category: 'booth_fee', amount: '' });
   const [error, setError] = useState('');
@@ -73,7 +78,8 @@ export function EventPreparePage() {
     if (!data?.event) return;
     setInfo({
       name: data.event.name, date: data.event.held_on, space: data.event.space_no ?? '', venue: data.event.venue ?? '',
-      time: toLocalTime(data.event.starts_at),
+      time: toLocalTime(data.event.starts_at), endTime: toLocalTime(data.event.ends_at),
+      type: data.event.event_type_id ?? '', newType: '',
     });
   }, [data?.event?.id]); // イベントが変わったときだけ入れ直す(編集中の値を上書きしない)
   useEffect(() => {
@@ -115,10 +121,16 @@ export function EventPreparePage() {
   async function saveInfo() {
     setError('');
     try {
+      // 種別: 候補や新しい名前を選んだときは、ここで作る
+      const eventTypeId = info.type === '' ? null
+        : info.type === NEW_TYPE ? await ensureEventType(db, ctx!, info.newType)
+          : info.type.startsWith('preset:') ? await ensureEventType(db, ctx!, info.type.slice(7))
+            : info.type;
       const ev = await saveEventInfo(db, ctx!, {
         id: data!.event?.id, name: info.name, heldOn: info.date, spaceNo: info.space, venue: info.venue,
-        startsAt: fromLocalTime(info.date, info.time),
+        startsAt: fromLocalTime(info.date, info.time), endsAt: fromLocalTime(info.date, info.endTime), eventTypeId,
       });
+      if (eventTypeId && info.type !== eventTypeId) setInfo((v) => ({ ...v, type: eventTypeId, newType: '' }));
       toast(isNew ? 'イベントを作りました。持ち込む品目を選んでください' : '保存しました');
       if (isNew) navigate(`/events/${ev.id}/prepare`, { replace: true });
     } catch (e) {
@@ -236,8 +248,29 @@ export function EventPreparePage() {
             <input id="ev-date" type="date" value={info.date} onChange={(e) => setInfo({ ...info, date: e.target.value })} />
           </span>
           <span>
+            <label htmlFor="ev-type">種別</label>
+            <select id="ev-type" value={info.type} onChange={(e) => setInfo({ ...info, type: e.target.value })}>
+              <option value="">なし</option>
+              {data.types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              {TYPE_PRESETS.filter((n) => !data.types.some((t) => t.name === n)).map((n) => <option key={n} value={`preset:${n}`}>{n}</option>)}
+              <option value={NEW_TYPE}>ほかの名前で追加…</option>
+            </select>
+          </span>
+        </div>
+        {info.type === NEW_TYPE && (
+          <>
+            <label htmlFor="ev-type-new">種別の名前</label>
+            <input id="ev-type-new" value={info.newType} onChange={(e) => setInfo({ ...info, newType: e.target.value })} placeholder="例: 地方即売会" />
+          </>
+        )}
+        <div className="two">
+          <span>
             <label htmlFor="ev-time">開始時刻</label>
             <input id="ev-time" type="time" value={info.time} onChange={(e) => setInfo({ ...info, time: e.target.value })} />
+          </span>
+          <span>
+            <label htmlFor="ev-end">終了時刻</label>
+            <input id="ev-end" type="time" value={info.endTime} onChange={(e) => setInfo({ ...info, endTime: e.target.value })} />
           </span>
         </div>
         <div className="two">
@@ -250,7 +283,7 @@ export function EventPreparePage() {
             <input id="ev-venue" value={info.venue} onChange={(e) => setInfo({ ...info, venue: e.target.value })} placeholder="任意" />
           </span>
         </div>
-        <p className="note">開始時刻は、完売したときの需要の補正に使います。</p>
+        <p className="note">開始・終了時刻は、完売したときの需要の補正と販売時間に使います(終了時刻がなければ5時間として数えます)。種別は、イベントの比較で並べて見るのに使います。</p>
         {error && <p className="error">{error}</p>}
         <button className="btn primary">{isNew ? '作って準備に進む' : '保存する'}</button>
       </form>

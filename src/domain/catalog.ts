@@ -1,5 +1,5 @@
 import { putAndQueue, type HaifuDB } from '../db/local';
-import type { CashCount, EventItem, EventRow, Expense, ExpenseCategory, Item, ItemKind, Owner, PriceTier, PrintRun, ProductionCost, SetComponent } from '../db/types';
+import type { CashCount, EventItem, EventRow, EventType, Expense, ExpenseCategory, Item, ItemKind, Owner, PriceTier, PrintRun, ProductionCost, SetComponent } from '../db/types';
 import { uuidv7 } from '../lib/uuid';
 import { assertOpen } from './closing';
 import { isItemColor } from './colors';
@@ -112,21 +112,33 @@ export async function addPrintRun(
 
 export async function saveEventInfo(
   db: HaifuDB, ctx: Ctx,
-  input: { id?: string; name: string; heldOn: string; spaceNo?: string; venue?: string; startsAt?: string | null },
+  input: {
+    id?: string; name: string; heldOn: string; spaceNo?: string; venue?: string; startsAt?: string | null;
+    /** 終了時刻(F-301)。渡さなければ今の値のまま */
+    endsAt?: string | null;
+    /** 種別(F-301)。渡さなければ今の値のまま */
+    eventTypeId?: string | null;
+  },
 ): Promise<EventRow> {
   const name = input.name.trim();
   if (!name) throw new Error('イベント名を入れてください');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.heldOn)) throw new Error('開催日を入れてください');
+  if (input.startsAt && input.endsAt && Date.parse(input.endsAt) <= Date.parse(input.startsAt)) {
+    throw new Error('終了時刻は、開始時刻より後にしてください');
+  }
   if (!input.id) {
     const ev = await createEvent(db, ctx, { name, heldOn: input.heldOn, spaceNo: input.spaceNo?.trim() || undefined, startsAt: input.startsAt ?? undefined });
-    if (input.venue?.trim()) return saveEventInfo(db, ctx, { ...input, id: ev.id });
+    if (input.venue?.trim() || input.endsAt || input.eventTypeId) return saveEventInfo(db, ctx, { ...input, id: ev.id });
     return ev;
   }
   const cur = await db.events.get(input.id);
   if (!cur) throw new Error('イベントが見つかりません');
   const ev: EventRow = {
     ...cur, name, held_on: input.heldOn, space_no: input.spaceNo?.trim() || null, venue: input.venue?.trim() || null,
-    starts_at: input.startsAt ?? null, client_updated_at: stamp(),
+    starts_at: input.startsAt ?? null,
+    ends_at: input.endsAt === undefined ? cur.ends_at : input.endsAt,
+    event_type_id: input.eventTypeId === undefined ? cur.event_type_id : input.eventTypeId,
+    client_updated_at: stamp(),
   };
   await db.transaction('rw', ['events', 'locations', 'outbox'], async () => {
     await putAndQueue(db, 'events', ev);
@@ -134,6 +146,32 @@ export async function saveEventInfo(
     if (loc && loc.name !== name) await putAndQueue(db, 'locations', { ...loc, name, client_updated_at: stamp() });
   });
   return ev;
+}
+
+/** イベントの種別(しまったものを除く。並び順) */
+export async function eventTypes(db: HaifuDB, circleId: string): Promise<EventType[]> {
+  return (await db.event_types.where('circle_id').equals(circleId).toArray())
+    .filter((t) => !t.archived_at)
+    .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'ja'));
+}
+
+/** 名前でイベントの種別を探し、なければ作る(F-301)。id を返す */
+export async function ensureEventType(db: HaifuDB, ctx: Ctx, name: string): Promise<string> {
+  const v = name.trim();
+  if (!v) throw new Error('種別の名前を入れてください');
+  return db.transaction('rw', ['event_types', 'outbox'], async () => {
+    const all = await db.event_types.where('circle_id').equals(ctx.circleId).toArray();
+    const same = all.find((t) => t.name === v);
+    if (same) {
+      if (same.archived_at) await putAndQueue(db, 'event_types', { ...same, archived_at: null, client_updated_at: stamp() });
+      return same.id;
+    }
+    const row: EventType = {
+      id: uuidv7(), circle_id: ctx.circleId, name: v, sort_order: all.length, archived_at: null, client_updated_at: stamp(),
+    };
+    await putAndQueue(db, 'event_types', row);
+    return row.id;
+  });
 }
 
 /**

@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type {
-  CashCount, Circle, ClosingCount, ConsignmentSettlement, Device, EventBreak, EventClosing, EventItem, EventRow, Expense,
+  CashCount, Circle, ClosingCount, ConsignmentSettlement, Device, EventBreak, EventClosing, EventItem, EventRow, EventType, Expense,
   Item, Location, LooseRow, MetaEntry,
   Movement, OutboxEntry, Owner, PriceTier, PrintRun, Reservation, SetComponent, Txn, TxnLine,
 } from './types';
@@ -9,7 +9,7 @@ import { dexieStores, outboxKey } from './tables';
 // 端末の中のデータベース。アプリは常にここを正として動き、サーバーは端末どうしの中継に使う
 export class HaifuDB extends Dexie {
   circles!: Table<Circle, string>;
-  event_types!: Table<LooseRow, string>;
+  event_types!: Table<EventType, string>;
   owners!: Table<Owner, string>;
   devices!: Table<Device, string>;
   items!: Table<Item, string>;
