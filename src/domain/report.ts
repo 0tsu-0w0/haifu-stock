@@ -1,6 +1,7 @@
 import { activeTxnIds, lineAmount } from './ledger';
 import type { PaymentMethod } from '../db/types';
 import { breakOverlapMs } from './breaks';
+import { DAY_MS, dayIndexOf, daysOf } from './eventDays';
 import { PAYMENT_LABEL, PAYMENT_METHODS, methodOf } from './payment';
 import { deriveEvent, type EventSnapshot } from './snapshot';
 
@@ -45,7 +46,11 @@ export interface EventReport {
   soldOuts: { name: string; at: string }[];
 }
 
-export function eventReport(s: EventSnapshot): EventReport {
+/**
+ * day を渡すと、30分ごとの売れ方をその日の分だけで出す(2日・3日開催。Issue #19)。
+ * 渡さなければ全日程。2日以上のイベントでは、日ごとの販売を1日目の時刻にそろえて足し合わせる
+ */
+export function eventReport(s: EventSnapshot, day?: number): EventReport {
   const { summary, itemById, ownerById } = deriveEvent(s);
   const active = activeTxnIds(s.txns);
   const sales = s.txns.filter((t) => t.type === 'sale' && active.has(t.id));
@@ -90,9 +95,17 @@ export function eventReport(s: EventSnapshot): EventReport {
 
   // 30分ごと。開始時刻があればそこから、なければ最初の販売の30分区切りから
   const slots: ReportSlot[] = [];
-  if (sales.length > 0) {
+  // 2日目以降の販売は、1日目の同じ時刻にずらして並べる
+  const shifted = sales
+    .map((t) => {
+      const at = Date.parse(t.recorded_at);
+      const k = dayIndexOf(s.event, at);
+      return { t, k, at: at - k * DAY_MS };
+    })
+    .filter((x) => day === undefined || x.k === day);
+  if (shifted.length > 0) {
     const ms = SLOT_MIN * 60_000;
-    const times = sales.map((t) => Date.parse(t.recorded_at));
+    const times = shifted.map((x) => x.at);
     const first = Math.min(...times);
     const start = s.event.starts_at && Date.parse(s.event.starts_at) <= first
       ? Date.parse(s.event.starts_at)
@@ -101,8 +114,8 @@ export function eventReport(s: EventSnapshot): EventReport {
     for (let i = 0; i < n; i++) slots.push({ start: new Date(start + i * ms).toISOString(), amount: 0, qty: 0, txns: 0 });
     const linesByTxn = new Map<string, typeof lines>();
     for (const l of lines) linesByTxn.set(l.transaction_id, [...(linesByTxn.get(l.transaction_id) ?? []), l]);
-    for (const t of sales) {
-      const slot = slots[Math.floor((Date.parse(t.recorded_at) - start) / ms)];
+    for (const { t, at } of shifted) {
+      const slot = slots[Math.floor((at - start) / ms)];
       const ls = linesByTxn.get(t.id) ?? [];
       slot.amount += ls.reduce((a, l) => a + lineAmount(l), 0);
       slot.qty += ls.reduce((a, l) => a + l.qty, 0);
@@ -320,16 +333,59 @@ export function boughtTogether(s: EventSnapshot, limit = 5): { pairs: PairRow[];
   return { pairs, multiTxns };
 }
 
-/** 販売時間(開始時刻か最初の販売から、最後の販売まで)と、そのうちの休憩(F-411) */
-export function salesDuration(s: EventSnapshot, now = Date.now()): { minutes: number; breakMinutes: number } | null {
+/**
+ * 販売時間(開始時刻か最初の販売から、最後の販売まで)と、そのうちの休憩(F-411)。
+ * 2日以上のイベントでは日ごとに数えて足す(夜は数えない。Issue #19)。day を渡すとその日だけ
+ */
+export function salesDuration(s: EventSnapshot, now = Date.now(), day?: number): { minutes: number; breakMinutes: number } | null {
   const active = activeTxnIds(s.txns);
   const times = s.txns.filter((t) => t.type === 'sale' && active.has(t.id)).map((t) => Date.parse(t.recorded_at));
   if (times.length === 0) return null;
-  const first = Math.min(...times);
-  const start = s.event.starts_at && Date.parse(s.event.starts_at) <= first ? Date.parse(s.event.starts_at) : first;
-  const end = Math.max(...times);
-  const brk = breakOverlapMs(start, end, s.breaks, now);
-  return { minutes: Math.round((end - start - brk) / 60_000), breakMinutes: Math.round(brk / 60_000) };
+  let minutes = 0;
+  let breakMs = 0;
+  let any = false;
+  for (let k = 0; k < daysOf(s.event); k++) {
+    if (day !== undefined && k !== day) continue;
+    const ts = times.filter((t) => dayIndexOf(s.event, t) === k);
+    if (ts.length === 0) continue;
+    any = true;
+    const first = Math.min(...ts);
+    const st = s.event.starts_at ? Date.parse(s.event.starts_at) + k * DAY_MS : NaN;
+    const start = !Number.isNaN(st) && st <= first ? st : first;
+    const end = Math.max(...ts);
+    const brk = breakOverlapMs(start, end, s.breaks, now);
+    minutes += (end - start - brk) / 60_000;
+    breakMs += brk;
+  }
+  if (!any) return null;
+  return { minutes: Math.round(minutes), breakMinutes: Math.round(breakMs / 60_000) };
+}
+
+export interface DayRow {
+  day: number;
+  amount: number;
+  qty: number;
+  txns: number;
+  minutes: number | null;
+}
+
+/** 日ごとの売上(2日・3日開催。Issue #19) */
+export function dayBreakdown(s: EventSnapshot, now = Date.now()): DayRow[] {
+  const active = activeTxnIds(s.txns);
+  const sales = s.txns.filter((t) => t.type === 'sale' && active.has(t.id));
+  const linesByTxn = new Map<string, typeof s.lines>();
+  for (const l of s.lines) linesByTxn.set(l.transaction_id, [...(linesByTxn.get(l.transaction_id) ?? []), l]);
+  return Array.from({ length: daysOf(s.event) }, (_, k) => {
+    const mine = sales.filter((t) => dayIndexOf(s.event, Date.parse(t.recorded_at)) === k);
+    const ls = mine.flatMap((t) => linesByTxn.get(t.id) ?? []);
+    return {
+      day: k,
+      amount: ls.reduce((a, l) => a + lineAmount(l), 0),
+      qty: ls.reduce((a, l) => a + l.qty, 0),
+      txns: mine.length,
+      minutes: salesDuration(s, now, k)?.minutes ?? null,
+    };
+  });
 }
 
 export interface PaymentRow {

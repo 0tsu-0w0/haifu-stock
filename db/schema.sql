@@ -216,6 +216,7 @@ create table events (
   space_no          text,
   starts_at         timestamptz,
   ends_at           timestamptz,
+  days              smallint not null default 1 check (days between 1 and 5),  -- 開催日数(2日・3日開催。開催日から続けて開く。Issue #19)
   deleted_at        timestamptz,                       -- 削除(表示から消す。記録は残す)
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),

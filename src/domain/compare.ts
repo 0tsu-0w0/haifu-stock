@@ -2,6 +2,7 @@ import type { HaifuDB } from '../db/local';
 import { computeMoney, moneyAfterClosing, planCounts } from './closing';
 import { eventReport, salesDuration } from './report';
 import { loadEventSnapshot, type EventSnapshot } from './snapshot';
+import { daysOf } from './eventDays';
 
 // イベントをまたいだ比較(Issue #13)。どの即売会に出ると効率がよいかを見る
 
@@ -12,6 +13,10 @@ export interface CompareRow {
   venue: string | null;
   /** イベントの種別の名前(F-301) */
   type: string | null;
+  /** 開催日数(Issue #19) */
+  days: number;
+  /** 1日あたりの売上(全体) */
+  perDay: number;
   closed: boolean;
   /** 売上(全体・受託分を含む) */
   amount: number;
@@ -37,6 +42,8 @@ export function compareRow(s: EventSnapshot, typeName: Map<string, string> = new
   return {
     eventId: s.event.id, name: s.event.name, heldOn: s.event.held_on, venue: s.event.venue?.trim() || null,
     type: s.event.event_type_id ? typeName.get(s.event.event_type_id) ?? null : null,
+    days: daysOf(s.event),
+    perDay: Math.round(r.amount / daysOf(s.event)),
     closed: !!s.closing,
     amount: r.amount, own: money.own, qty: r.qty, txns: r.txnCount, perCustomer: r.perCustomer,
     minutes: d?.minutes ?? null,

@@ -37,16 +37,17 @@ export function EventCompare({ circleId }: { circleId: string }) {
       <div className="card table-scroll">
         <table className="tbl small report-tbl compare-tbl">
           <thead>
-            <tr><th>イベント</th><th>売上</th><th>部数</th><th>取引</th><th>客単価</th><th>販売時間</th><th>1時間あたり</th><th>経費</th><th>収支</th></tr>
+            <tr><th>イベント</th><th>売上</th><th>1日あたり</th><th>部数</th><th>取引</th><th>客単価</th><th>販売時間</th><th>1時間あたり</th><th>経費</th><th>収支</th></tr>
           </thead>
           <tbody>
             {[...rows].reverse().map((r) => (
               <tr key={r.eventId}>
                 <td>
                   <Link to={`/events/${r.eventId}/report`}>{r.name}</Link>
-                  <small className="k">{r.heldOn}{r.type ? `・${r.type}` : ''}{r.venue ? `・${r.venue}` : ''}{r.closed ? '' : '・途中'}</small>
+                  <small className="k">{r.heldOn}{r.days > 1 ? `(${r.days}日間)` : ''}{r.type ? `・${r.type}` : ''}{r.venue ? `・${r.venue}` : ''}{r.closed ? '' : '・途中'}</small>
                 </td>
                 <td className="num">{yen(r.amount)}</td>
+                <td className="num">{r.days > 1 ? yen(r.perDay) : '—'}</td>
                 <td className="num">{r.qty}</td>
                 <td className="num">{r.txns}</td>
                 <td className="num">{r.perCustomer === null ? '—' : yen(r.perCustomer)}</td>

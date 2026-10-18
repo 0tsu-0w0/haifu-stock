@@ -253,6 +253,19 @@ await as('00000000-0000-0000-0000-0000000000c3', async () => {
   ok(Object.values(h).every((v) => v === 0), 'サークルに関係のない人には、どの表も0');
 });
 
+// Issue #19: 2日・3日開催。古い版の端末が送るイベント(days なし)は1日、更新で days を送らなければ今の値のまま
+await as(U1, async () => {
+  const E2 = id();
+  await db.query(`insert into events (id, circle_id, name, held_on) values ($1,$2,'古い版のイベント','2026-12-01')`, [E2, C]);
+  ok((await db.query(`select days from events where id=$1`, [E2])).rows[0].days === 1, '日数を送らないイベントは1日になる');
+  await db.query(`update events set days = 2, client_updated_at = now() + interval '1 second' where id=$1`, [E2]);
+  await db.query(`insert into events (id, circle_id, name, held_on, client_updated_at) values ($1,$2,'名前だけ直す','2026-12-01', now() + interval '2 second')
+                  on conflict (id) do update set name = excluded.name, client_updated_at = excluded.client_updated_at`, [E2, C]);
+  const r = (await db.query(`select name, days from events where id=$1`, [E2])).rows[0];
+  ok(r.name === '名前だけ直す' && r.days === 2, '日数を送らない更新では、日数は今の値のまま');
+  await expectError(db.query(`update events set days = 9, client_updated_at = now() + interval '3 second' where id=$1`, [E2]), '開催日数は1〜5日');
+});
+
 // Issue #24: 別のサークルの主が、自分のサークルの circle_id を付けて他人のイベントを指す行を作れない
 {
   const U3 = '00000000-0000-0000-0000-0000000000c3';

@@ -9,8 +9,9 @@ import { useDeviceNames } from '../app/useDeviceNames';
 import { useToast } from '../components/Toast';
 import { deviceLabel, saveDeviceName } from '../domain/devices';
 import {
-  boughtTogether, deviceBreakdown, paymentBreakdown, eventReport, ownerBreakdown, profitTimeline, salesDuration, scopeSnapshot, SLOT_MIN, type ProfitTimeline, type ReportScope, type ReportSlot,
+  boughtTogether, dayBreakdown, deviceBreakdown, paymentBreakdown, eventReport, ownerBreakdown, profitTimeline, salesDuration, scopeSnapshot, SLOT_MIN, type ProfitTimeline, type ReportScope, type ReportSlot,
 } from '../domain/report';
+import { DAY_MS, dayIndexOf, dayLabel, daysOf, lastDayOf } from '../domain/eventDays';
 import { hhmm, yen } from '../lib/format';
 import { useEventData } from './useEventData';
 
@@ -38,6 +39,11 @@ export function ReportPage() {
   const payments = useMemo(() => (scoped ? paymentBreakdown(scoped) : []), [scoped]);
   const together = useMemo(() => (scoped ? boughtTogether(scoped) : null), [scoped]);
   const duration = useMemo(() => (scoped ? salesDuration(scoped) : null), [scoped]);
+  // 2日・3日開催(Issue #19): 日ごとの売上と、時間帯のグラフの日の切り替え(未選択は全日程を時刻ごとに合算)
+  const [day, setDay] = useState<number | undefined>(undefined);
+  const multi = !!data && daysOf(data.event) > 1;
+  const byDay = useMemo(() => (scoped && multi ? dayBreakdown(scoped) : []), [scoped, multi]);
+  const slotR = useMemo(() => (scoped && multi ? eventReport(scoped, day) : null), [scoped, multi, day]);
   const owners = useMemo(() => (data && consignors.length > 0 ? ownerBreakdown(data) : []), [data, consignors]);
   const isConsignor = typeof scope !== 'string';
   const scopeLabel = scope === 'all' ? '全体(受託分を含む)' : scope === 'self' ? '自分の分だけ' : `受託: ${consignors.find((o) => o.id === scope.ownerId)?.name}`;
@@ -48,7 +54,7 @@ export function ReportPage() {
   return (
     <>
       <main className="page">
-        <PageHeader title="レポート" sub={`${data.event.name}・${data.event.held_on}`} />
+        <PageHeader title="レポート" sub={`${data.event.name}・${data.event.held_on}${multi ? `〜${lastDayOf(data.event)}` : ''}`} />
         {!data.closing && <p className="note">終了処理の前なので、途中経過です。</p>}
         {consignors.length > 0 && (
           <div className="scope-bar">
@@ -79,8 +85,50 @@ export function ReportPage() {
           </p>
         )}
 
+        {multi && (
+          <>
+            <h3 className="section">日ごとの売上</h3>
+            <div className="card table-scroll">
+              <table className="tbl small report-tbl">
+                <thead><tr><th>日</th><th>売上</th><th>部数</th><th>取引</th><th>販売時間</th></tr></thead>
+                <tbody>
+                  {byDay.map((d) => (
+                    <tr key={d.day}>
+                      <td>{dayLabel(d.day)}</td>
+                      <td className="num">{yen(d.amount)}</td>
+                      <td className="num">{d.qty}部</td>
+                      <td className="num">{d.txns}件</td>
+                      <td className="num">{d.minutes === null ? '—' : `${Math.floor(d.minutes / 60)}:${String(d.minutes % 60).padStart(2, '0')}`}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
         <h3 className="section">時間帯ごとの売上({SLOT_MIN}分ごと)</h3>
-        {r.slots.length === 0 ? <div className="card"><p className="note">まだ販売の記録がありません。</p></div> : <SlotChart slots={r.slots} soldOuts={r.soldOuts} />}
+        {multi && (
+          <div className="chips" role="radiogroup" aria-label="表示する日">
+            {[undefined, ...Array.from({ length: daysOf(data.event) }, (_, i) => i)].map((k) => (
+              <button key={k ?? 'all'} className="chip" role="radio" aria-checked={day === k} aria-pressed={day === k} onClick={() => setDay(k)}>
+                {k === undefined ? '全日程' : dayLabel(k)}
+              </button>
+            ))}
+          </div>
+        )}
+        {(() => {
+          const rs = slotR ?? r;
+          // 2日目以降の完売は、グラフでは1日目の同じ時刻の位置に出す
+          const soldOuts = !multi ? rs.soldOuts : rs.soldOuts
+            .map((x) => ({ ...x, k: dayIndexOf(data.event, Date.parse(x.at)) }))
+            .filter((x) => day === undefined || x.k === day)
+            .map((x) => ({ name: day === undefined ? `${x.name}(${dayLabel(x.k)})` : x.name, at: new Date(Date.parse(x.at) - x.k * DAY_MS).toISOString() }));
+          return rs.slots.length === 0
+            ? <div className="card"><p className="note">{day === undefined ? 'まだ販売の記録がありません。' : 'この日の販売の記録はありません。'}</p></div>
+            : <SlotChart slots={rs.slots} soldOuts={soldOuts} />;
+        })()}
+        {multi && day === undefined && <p className="note">全日程は、日ごとの売上を同じ時刻ごとに足し合わせています。</p>}
 
         {scope === "all" && owners.length > 1 && (
           <>

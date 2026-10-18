@@ -1,7 +1,7 @@
 import type { HaifuDB } from '../db/local';
 import type { EventRow, Item, PrintRun } from '../db/types';
 import { activeTxnIds, eventItemSummary, lineAmount, stockByLocation, type ItemAtEvent } from './ledger';
-import { activeFraction } from './breaks';
+import { activeFractionDays, dayWindows, daysOf, lastDayOf } from './eventDays';
 
 // 刷り部数の目安(要件 §6.1〜6.5)と損益分岐(§6.6)。
 // 機械学習は使わず、途中の値をすべて画面に見せられる計算にする
@@ -39,8 +39,10 @@ export interface Observation {
   /** 完売した時刻の、開催時間に対する割合(0〜1)。完売しなければ null */
   soldOutAt: string | null;
   soldOutFraction: number | null;
-  /** 推定需要 D */
+  /** 推定需要 D(イベント全体。2日開催なら2日分) */
   demand: number;
+  /** 開催日数 */
+  days: number;
   /** 完売補正で販売数より大きくした */
   corrected: boolean;
 }
@@ -68,14 +70,6 @@ export interface AnalysisData {
   curveSamples: number;
 }
 
-/** イベントの開始〜終了の時刻(ミリ秒)。未入力なら最初の販売から既定の時間 */
-function eventWindow(ev: EventRow, firstSale: number | null, hours: number): [number, number] | null {
-  const start = ev.starts_at ? Date.parse(ev.starts_at) : firstSale;
-  if (start === null) return null;
-  const end = ev.ends_at ? Date.parse(ev.ends_at) : start + hours * 3600_000;
-  return end > start ? [start, end] : null;
-}
-
 export async function loadAnalysis(db: HaifuDB, circleId: string, opts: ForecastOptions = DEFAULT_FORECAST): Promise<AnalysisData> {
   const [events, items, owners, locations, setComponents, txns, lines, movements, printRuns, prodCosts, closings, breaks] = await Promise.all([
     db.events.where('circle_id').equals(circleId).toArray(),
@@ -98,9 +92,9 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
   const active = activeTxnIds(txns);
   const today = new Date().toISOString().slice(0, 10);
   const closedEvents = new Set(closings.filter((c) => !c.reopened_at).map((c) => c.event_id));
-  // 需要の材料にするのは、終わったイベントだけ(確定済みか、開催日を過ぎたもの)
+  // 需要の材料にするのは、終わったイベントだけ(確定済みか、最終日を過ぎたもの)
   const past = events
-    .filter((e) => !e.deleted_at && (closedEvents.has(e.id) || e.held_on < today))
+    .filter((e) => !e.deleted_at && (closedEvents.has(e.id) || lastDayOf(e) < today))
     .sort((a, b) => a.held_on.localeCompare(b.held_on));
 
   const perEvent = past.map((ev) => {
@@ -110,18 +104,18 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
       ? eventItemSummary({ eventLocationId: loc.id, items, setComponents, movements: movements.filter((m) => m.event_id === ev.id), txns: evTxns })
       : new Map();
     const sales = movements.filter((m) => m.event_id === ev.id && m.reason === 'sale' && m.transaction_id && active.has(m.transaction_id));
-    const first = sales.length ? Math.min(...sales.map((m) => Date.parse(m.recorded_at))) : null;
-    // 休憩・離席の時間は、開催時間から除いて数える(F-411)
-    return { ev, summary, sales, window: eventWindow(ev, first, opts.defaultHours), breaks: breaks.filter((b) => b.event_id === ev.id) };
+    // 日ごとの開催時間(2日開催なら2つ)。休憩・離席の時間と、日と日のあいだの夜は数えない(F-411、Issue #19)
+    const windows = dayWindows(ev, sales.map((m) => Date.parse(m.recorded_at)), opts.defaultHours);
+    return { ev, summary, sales, windows, breaks: breaks.filter((b) => b.event_id === ev.id) };
   });
 
   // 累積販売曲線: 完売しなかった品目の販売が、開催時間のどの時点で起きたか(要件 §6.1)
   const fractions: { f: number; q: number }[] = [];
   for (const p of perEvent) {
-    if (!p.window) continue;
+    if (p.windows.length === 0) continue;
     for (const m of p.sales) {
       if (p.summary.get(m.item_id)?.soldOutAt) continue;
-      fractions.push({ f: activeFraction(Date.parse(m.recorded_at), p.window, p.breaks), q: m.qty });
+      fractions.push({ f: activeFractionDays(Date.parse(m.recorded_at), p.windows, p.breaks), q: m.qty });
     }
   }
   const samples = fractions.reduce((a, x) => a + x.q, 0);
@@ -138,8 +132,8 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
       if (!s || s.brought <= 0) continue;
       let fraction: number | null = null;
       let demand = s.sold;
-      if (s.soldOutAt && p.window) {
-        fraction = activeFraction(Date.parse(s.soldOutAt), p.window, p.breaks);
+      if (s.soldOutAt && p.windows.length > 0) {
+        fraction = activeFractionDays(Date.parse(s.soldOutAt), p.windows, p.breaks);
         if (fraction < 1 && s.sold > 0) {
           demand = Math.min(s.sold / Math.max(curve(fraction), 0.05), s.sold * opts.capFactor);
         }
@@ -147,7 +141,7 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
       demand = Math.round(demand * 10) / 10;
       observations.push({
         eventId: p.ev.id, eventName: p.ev.name, heldOn: p.ev.held_on, brought: s.brought, sold: s.sold,
-        soldOutAt: s.soldOutAt, soldOutFraction: fraction, demand, corrected: demand > s.sold,
+        soldOutAt: s.soldOutAt, soldOutFraction: fraction, demand, corrected: demand > s.sold, days: daysOf(p.ev),
       });
     }
     histories.set(item.id, { item, observations });

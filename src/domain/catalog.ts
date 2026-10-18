@@ -2,6 +2,7 @@ import { putAndQueue, type HaifuDB } from '../db/local';
 import type { CashCount, EventItem, EventRow, EventType, Expense, ExpenseCategory, Item, ItemKind, Owner, PriceTier, PrintRun, ProductionCost, SetComponent } from '../db/types';
 import { uuidv7 } from '../lib/uuid';
 import { assertOpen } from './closing';
+import { MAX_DAYS } from './eventDays';
 import { isItemColor } from './colors';
 import { eventItemSummary } from './ledger';
 import { moveStock, type Ctx } from './record';
@@ -118,17 +119,22 @@ export async function saveEventInfo(
     endsAt?: string | null;
     /** 種別(F-301)。渡さなければ今の値のまま */
     eventTypeId?: string | null;
+    /** 開催日数(Issue #19)。渡さなければ今の値のまま */
+    days?: number;
   },
 ): Promise<EventRow> {
   const name = input.name.trim();
   if (!name) throw new Error('イベント名を入れてください');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.heldOn)) throw new Error('開催日を入れてください');
+  if (input.days !== undefined && (!Number.isInteger(input.days) || input.days < 1 || input.days > MAX_DAYS)) {
+    throw new Error(`開催日数は1〜${MAX_DAYS}日で入れてください`);
+  }
   if (input.startsAt && input.endsAt && Date.parse(input.endsAt) <= Date.parse(input.startsAt)) {
     throw new Error('終了時刻は、開始時刻より後にしてください');
   }
   if (!input.id) {
     const ev = await createEvent(db, ctx, { name, heldOn: input.heldOn, spaceNo: input.spaceNo?.trim() || undefined, startsAt: input.startsAt ?? undefined });
-    if (input.venue?.trim() || input.endsAt || input.eventTypeId) return saveEventInfo(db, ctx, { ...input, id: ev.id });
+    if (input.venue?.trim() || input.endsAt || input.eventTypeId || (input.days ?? 1) > 1) return saveEventInfo(db, ctx, { ...input, id: ev.id });
     return ev;
   }
   const cur = await db.events.get(input.id);
@@ -138,6 +144,7 @@ export async function saveEventInfo(
     starts_at: input.startsAt ?? null,
     ends_at: input.endsAt === undefined ? cur.ends_at : input.endsAt,
     event_type_id: input.eventTypeId === undefined ? cur.event_type_id : input.eventTypeId,
+    days: input.days === undefined ? cur.days ?? 1 : input.days,
     client_updated_at: stamp(),
   };
   await db.transaction('rw', ['events', 'locations', 'outbox'], async () => {

@@ -22,7 +22,7 @@ export interface BringHint {
  * 自分の品目ごとの持ち込み数の目安。準備しているイベント自身の記録は材料にしない。
  * 実績のない品目は、本なら次の新刊の目安を使い、グッズは出さない
  */
-export function bringHints(data: AnalysisData, eventId: string | undefined, opts: ForecastOptions, margin = BRING_MARGIN): Map<string, BringHint> {
+export function bringHints(data: AnalysisData, eventId: string | undefined, opts: ForecastOptions, margin = BRING_MARGIN, days = 1): Map<string, BringHint> {
   const rates = decayRates(data, opts);
   const nb = newBookPlan(data, opts);
   const out = new Map<string, BringHint>();
@@ -31,25 +31,26 @@ export function bringHints(data: AnalysisData, eventId: string | undefined, opts
     const last = obs[obs.length - 1];
     if (last) {
       // 持ち込みは売り切れのほうが損が大きいので、減衰率は「強気」の値を使う
-      const expected = last.demand * rates.aggressive;
+      // 2日・3日開催は、1日あたりにそろえてから、準備しているイベントの日数を掛ける(Issue #19)
+      const expected = (last.demand / Math.max(last.days, 1)) * days * rates.aggressive;
       const result = last.soldOutAt
         ? `${hhmm(last.soldOutAt)}に完売${last.corrected ? `(売り切れなければ約${Math.round(last.demand)}部)` : ''}`
         : `${Math.max(last.brought - last.sold, 0)}部残り`;
       // 前回完売したなら、前回の持ち込み数より減らさない
-      const floor = last.soldOutAt ? last.brought : 1;
+      const floor = last.soldOutAt ? Math.ceil((last.brought / Math.max(last.days, 1)) * days) : 1;
       out.set(item.id, {
         qty: Math.max(Math.ceil(expected * (1 + margin)), floor),
         expected: Math.round(expected),
-        basis: `前回「${last.eventName}」で${last.sold}部・${result}`,
+        basis: `前回「${last.eventName}」${last.days > 1 ? `(${last.days}日間)` : ''}で${last.sold}部・${result}${days > 1 || last.days > 1 ? `。${days}日分にそろえています` : ''}`,
         reference: obs.length < 2 && rates.samples === 0,
       });
     } else if (item.kind === 'book' && nb) {
-      const first = nb.scenarios.find((s) => s.key === 'standard')!.firstEvent;
+      const first = nb.scenarios.find((s) => s.key === 'standard')!.firstEvent * days;
       if (first <= 0) continue;
       out.set(item.id, {
         qty: Math.max(Math.ceil(first * (1 + margin)), 1),
         expected: first,
-        basis: `新刊: これまでの新刊の初回(約${first}部)から`,
+        basis: `新刊: これまでの新刊の初回(約${Math.round(first / days)}部${days > 1 ? ` × ${days}日` : ''})から`,
         reference: true,
       });
     }

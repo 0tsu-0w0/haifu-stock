@@ -10,6 +10,7 @@ import { SyncPill } from '../components/SyncPill';
 import { useToast } from '../components/Toast';
 import type { EventRow } from '../db/types';
 import { restoreEvent } from '../domain/catalog';
+import { dayLabel, daysOf, lastDayOf } from '../domain/eventDays';
 
 const localDate = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -40,7 +41,7 @@ export function HomePage() {
   const owner = role === 'owner';
   const today = localDate();
   // 今日か、これから先でいちばん近いイベントを大きく出す
-  const next = events?.filter((e) => e.held_on >= today).sort((a, b) => a.held_on.localeCompare(b.held_on))[0];
+  const next = events?.filter((e) => lastDayOf(e) >= today).sort((a, b) => a.held_on.localeCompare(b.held_on))[0];
   const rest = events?.filter((e) => e.id !== next?.id) ?? [];
 
   const steps = setup && events && [
@@ -160,12 +161,15 @@ export function HomePage() {
 
 /** 今日・次のイベント。会場で開いてすぐレジに入れるよう、大きなボタンにする */
 function NextEvent({ ev, today, owner, invite }: { ev: EventRow; today: string; owner: boolean; invite: boolean }) {
-  const days = daysBetween(today, ev.held_on);
+  // 2日・3日開催は、開催中なら何日目かを出す(Issue #19)
+  const days = Math.max(daysBetween(today, ev.held_on), 0);
+  const nth = daysOf(ev) > 1 && ev.held_on <= today ? daysBetween(ev.held_on, today) : null;
+  const when = nth !== null ? `今日のイベント・${dayLabel(nth)}` : days === 0 ? '今日のイベント' : days === 1 ? '次のイベント・明日' : `次のイベント・${days}日後`;
   return (
     <section className={`card hero${days === 0 ? ' today' : ''}`} aria-label={days === 0 ? '今日のイベント' : '次のイベント'}>
-      <small className="hero-when">{days === 0 ? '今日のイベント' : days === 1 ? '次のイベント・明日' : `次のイベント・${days}日後`}</small>
+      <small className="hero-when">{when}</small>
       <b className="hero-name">{ev.name}</b>
-      <span className="k">{ev.held_on}{ev.space_no ? `・${ev.space_no}` : ''}{ev.venue ? `・${ev.venue}` : ''}</span>
+      <span className="k">{ev.held_on}{daysOf(ev) > 1 ? `〜${lastDayOf(ev)}` : ''}{ev.space_no ? `・${ev.space_no}` : ''}{ev.venue ? `・${ev.venue}` : ''}</span>
       <Link className="btn primary center hero-go" to={`/events/${ev.id}/register`}>レジを開く</Link>
       {owner && (
         <span className="sub-links">

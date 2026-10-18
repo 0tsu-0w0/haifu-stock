@@ -104,6 +104,8 @@ export interface EventRow extends FromServer {
   space_no: string | null;
   starts_at: Iso | null;
   ends_at: Iso | null;
+  /** 開催日数(2日・3日開催。開催日から続けて開く。古いデータにはなく、1日とみなす。Issue #19) */
+  days?: number;
   /** 削除した時刻(表示から消す。記録は残す) */
   deleted_at?: Iso | null;
   client_updated_at: Iso;

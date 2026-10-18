@@ -633,3 +633,6 @@ details[open] summary { margin-bottom: 6px; }
 .bring-hint b { color: var(--ink); }
 .bring-hint small { display: block; font-size: 12px; line-height: 1.5; }
 .bring-all { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+
+/* 2日・3日開催の日付の範囲(Issue #19) */
+.days-range { align-self: end; padding-bottom: 10px; }

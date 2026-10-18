@@ -19,6 +19,7 @@ import {
 import { DENOMINATIONS } from '../domain/closing';
 import { DEFAULT_FORECAST, loadAnalysis } from '../domain/analysis';
 import { bringHints } from '../domain/bring';
+import { MAX_DAYS, addDays, daysOf } from '../domain/eventDays';
 import { hasConsignors } from '../domain/consign';
 import { storageStock } from '../domain/stock';
 import { yen } from '../lib/format';
@@ -31,7 +32,9 @@ const toLocalTime = (iso: string | null) => {
 const fromLocalTime = (date: string, time: string) => (time ? new Date(`${date}T${time}:00`).toISOString() : null);
 
 /** 種別の候補(まだ作っていなければ、選んだときに作る。F-301) */
-const TYPE_PRESETS = ['大規模', '中規模', '小規模', 'オンリー'];
+/** 'YYYY-MM-DD' → '10/17' */
+const md = (date: string) => `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
+const TYPE_PRESETS =['大規模', '中規模', '小規模', 'オンリー'];
 const NEW_TYPE = '__new__';
 
 // イベントの作成(F-301)と準備: 持ち込み(F-302)、受託品(F-307)、釣り銭(F-305)、経費(F-309)
@@ -66,7 +69,7 @@ export function EventPreparePage() {
     };
   }, [ctx?.circleId, eventId]);
 
-  const [info, setInfo] = useState({ name: '', date: new Date().toISOString().slice(0, 10), space: '', venue: '', time: '', endTime: '', type: '', newType: '' });
+  const [info, setInfo] = useState({ name: '', date: new Date().toISOString().slice(0, 10), space: '', venue: '', time: '', endTime: '', type: '', newType: '', days: 1 });
   const [lines, setLines] = useState<Map<string, PrepareLine> | null>(null);
   const [newExp, setNewExp] = useState<{ category: ExpenseCategory; amount: string }>({ category: 'booth_fee', amount: '' });
   const [error, setError] = useState('');
@@ -79,7 +82,7 @@ export function EventPreparePage() {
     setInfo({
       name: data.event.name, date: data.event.held_on, space: data.event.space_no ?? '', venue: data.event.venue ?? '',
       time: toLocalTime(data.event.starts_at), endTime: toLocalTime(data.event.ends_at),
-      type: data.event.event_type_id ?? '', newType: '',
+      type: data.event.event_type_id ?? '', newType: '', days: daysOf(data.event),
     });
   }, [data?.event?.id]); // イベントが変わったときだけ入れ直す(編集中の値を上書きしない)
   useEffect(() => {
@@ -111,7 +114,8 @@ export function EventPreparePage() {
     () => (ctx && eventId && data?.event && !data.closed ? loadAnalysis(db, ctx.circleId, DEFAULT_FORECAST) : undefined),
     [ctx?.circleId, eventId, !!data?.event, data?.closed],
   );
-  const hints = useMemo(() => (analysis ? bringHints(analysis, eventId, DEFAULT_FORECAST) : new Map()), [analysis, eventId]);
+  const evDays = data?.event ? daysOf(data.event) : 1;
+  const hints = useMemo(() => (analysis ? bringHints(analysis, eventId, DEFAULT_FORECAST, undefined, evDays) : new Map()), [analysis, eventId, evDays]);
 
   if (!ctx || !data) return <main className="page" />;
   if (!isNew && !data.event) return <main className="page"><p>イベントが見つかりません。</p><Link to="/">ホームに戻る</Link></main>;
@@ -128,7 +132,7 @@ export function EventPreparePage() {
             : info.type;
       const ev = await saveEventInfo(db, ctx!, {
         id: data!.event?.id, name: info.name, heldOn: info.date, spaceNo: info.space, venue: info.venue,
-        startsAt: fromLocalTime(info.date, info.time), endsAt: fromLocalTime(info.date, info.endTime), eventTypeId,
+        startsAt: fromLocalTime(info.date, info.time), endsAt: fromLocalTime(info.date, info.endTime), eventTypeId, days: info.days,
       });
       if (eventTypeId && info.type !== eventTypeId) setInfo((v) => ({ ...v, type: eventTypeId, newType: '' }));
       toast(isNew ? 'イベントを作りました。持ち込む品目を選んでください' : '保存しました');
@@ -257,6 +261,15 @@ export function EventPreparePage() {
             </select>
           </span>
         </div>
+        <div className="two">
+          <span>
+            <label htmlFor="ev-days">開催日数</label>
+            <select id="ev-days" value={info.days} onChange={(e) => setInfo({ ...info, days: Number(e.target.value) })}>
+              {Array.from({ length: MAX_DAYS }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n === 1 ? '1日' : `${n}日間`}</option>)}
+            </select>
+          </span>
+          <span className="k days-range">{info.days > 1 && /^\d{4}-\d{2}-\d{2}$/.test(info.date) ? `${md(info.date)}〜${md(addDays(info.date, info.days - 1))}` : ''}</span>
+        </div>
         {info.type === NEW_TYPE && (
           <>
             <label htmlFor="ev-type-new">種別の名前</label>
@@ -283,7 +296,7 @@ export function EventPreparePage() {
             <input id="ev-venue" value={info.venue} onChange={(e) => setInfo({ ...info, venue: e.target.value })} placeholder="任意" />
           </span>
         </div>
-        <p className="note">開始・終了時刻は、完売したときの需要の補正と販売時間に使います(終了時刻がなければ5時間として数えます)。種別は、イベントの比較で並べて見るのに使います。</p>
+        <p className="note">開始・終了時刻は、完売したときの需要の補正と販売時間に使います(終了時刻がなければ5時間として数えます)。種別は、イベントの比較で並べて見るのに使います。2日以上の開催は、1つのイベントのまま毎日レジで記録し、最終日に終了処理をします(時刻は毎日同じとして数えます)。</p>
         {error && <p className="error">{error}</p>}
         <button className="btn primary">{isNew ? '作って準備に進む' : '保存する'}</button>
       </form>
