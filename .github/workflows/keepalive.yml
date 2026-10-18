@@ -1,0 +1,37 @@
+# Supabase の無料プランは、7日ほど使われないとプロジェクトを一時停止する(Issue #18)。
+# 2日おきにデータベースへ軽い問い合わせをして、イベントの間が空いても止まらないようにする。
+# 止まっていたら(HTTP 540)このジョブが失敗し、GitHub から通知が届く。
+# URL と公開用のキー(publishable key)は、もともとアプリの中で公開しているもので、秘密ではない
+name: Keep Supabase awake
+
+on:
+  schedule:
+    - cron: '17 3 */2 * *' # 2日おき 12:17(日本時間)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_URL: https://jrzbtjlpufezxqkrntoj.supabase.co
+      SUPABASE_PUBLISHABLE_KEY: sb_publishable_DL8PZ5h-UniUk_mZ2wkFag_lfufpRR_
+    steps:
+      - name: データベースに軽い問い合わせをする
+        run: |
+          status=$(curl -s -o /tmp/body -w '%{http_code}' --retry 3 --retry-delay 20 \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" \
+            "$SUPABASE_URL/rest/v1/circles?select=id&limit=1")
+          echo "HTTP $status"
+          if [ "$status" = "540" ]; then
+            echo "::error::Supabase のプロジェクトが一時停止しています。管理画面で Resume project を押してください"
+            exit 1
+          fi
+          if [ "$status" != "200" ]; then
+            echo "::error::Supabase に問い合わせできませんでした(HTTP $status)"
+            cat /tmp/body
+            exit 1
+          fi

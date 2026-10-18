@@ -1,0 +1,77 @@
+# 毎週、サーバー(Supabase)のデータベースを書き出し、暗号化して GitHub Actions の成果物に置く(Issue #26)。
+# リポジトリは公開なので、書き出しは必ず暗号化する(成果物は GitHub にログインした人なら取り出せるため)。
+# 必要な秘密情報(リポジトリの Settings → Secrets and variables → Actions に置く):
+#   SUPABASE_DB_URL     … Supabase の管理画面の Connect →「Session pooler」の接続文字列(パスワード入り)
+#   BACKUP_PASSPHRASE   … 暗号化の合言葉。パスワード管理ソフトなどに控えておく(なくすと戻せない)
+# 戻し方は README の「バックアップから戻す」
+name: Backup database
+
+on:
+  schedule:
+    - cron: '43 18 * * 0' # 毎週月曜 3:43(日本時間)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    # PostgreSQL 17 の pg_dump を入れるため、版を固定する
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: 秘密情報があるか確かめる
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$DB_URL" ] || [ -z "$PASSPHRASE" ]; then
+            echo "::error::SUPABASE_DB_URL と BACKUP_PASSPHRASE を、リポジトリの Secrets に置いてください"
+            exit 1
+          fi
+
+      - name: pg_dump(PostgreSQL 17)を入れる
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -qq postgresql-client-17
+          /usr/lib/postgresql/17/bin/pg_dump --version
+
+      - name: 書き出す
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          bin=/usr/lib/postgresql/17/bin
+          mkdir -p out
+          # アプリの表と関数(public・app)の、構造とデータ
+          $bin/pg_dump "$DB_URL" --no-owner --no-privileges --schema=public --schema=app -Fc -f out/haifu.dump
+          # ログインのアカウント(サークル主・売り子の id を戻すため。データだけ)
+          $bin/pg_dump "$DB_URL" --data-only --table=auth.users --table=auth.identities -Fc -f out/auth.dump
+          # 書き出せたかを確かめる(中身の一覧を読めること・主な表が入っていること)
+          $bin/pg_restore --list out/haifu.dump > out/haifu.list
+          grep -q "TABLE DATA public transactions" out/haifu.list
+          grep -q "TABLE DATA public items" out/haifu.list
+          date -u +%Y-%m-%dT%H:%M:%SZ > out/created_at.txt
+          ls -la out
+
+      - name: 暗号化する
+        env:
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          name="haifu-backup-$(date -u +%Y%m%d)"
+          tar -czf "$name.tar.gz" -C out .
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$PASSPHRASE" \
+            --symmetric --cipher-algo AES256 -o "$name.tar.gz.gpg" "$name.tar.gz"
+          rm -rf out "$name.tar.gz"
+          echo "NAME=$name" >> "$GITHUB_ENV"
+
+      - name: 成果物に置く(90日残る)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          path: ${{ env.NAME }}.tar.gz.gpg
+          retention-days: 90
+          if-no-files-found: error

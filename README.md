@@ -42,6 +42,25 @@ npm run dev
 - **サークル主**: ホームの「ログイン」から、Google のアカウントか、メールのリンクでログインする。ログイン前にこの端末で記録したデータは、そのままサーバーに送られる。メールでのログインは登録済みのアカウントだけ(新しいアカウントは作らない)。新しいサークルを作れるのは、すでにサークル主のアカウントだけ(最初の1つを除く。Issue #25)
 - **売り子**: サークル主がホームの「売り子を招待」で出すQRコードを読み、「参加する」を押す。登録は不要で、参加したあとは電波がなくても記録できる
 
+### 一時停止を防ぐ・バックアップ(GitHub Actions)
+
+- **一時停止を防ぐ**([keepalive.yml](.github/workflows/keepalive.yml)): Supabase の無料プランは、7日ほど使われないとプロジェクトを一時停止する。2日おきにデータベースへ軽い問い合わせをして、止まらないようにする。止まっていたらジョブが失敗し、GitHub から通知が届く(管理画面の **Resume project** で再開できる。止まってから90日を過ぎると再開できない)。止まっている間にアプリで同期すると「同期先が一時停止しています」と出る。記録は端末に残り、再開すれば送られる
+- **バックアップ**([backup.yml](.github/workflows/backup.yml)): 毎週月曜、データベース(アプリの表と、ログインのアカウント)を書き出し、暗号化して Actions の成果物に置く(90日残る)。リポジトリの Settings → Secrets and variables → Actions に、次の2つを置くと動く
+  - `SUPABASE_DB_URL`: Supabase の管理画面の **Connect** →「Session pooler」の接続文字列(`[YOUR-PASSWORD]` をデータベースのパスワードに置き換える)
+  - `BACKUP_PASSPHRASE`: 暗号化の合言葉。自分で決めて、パスワード管理ソフトなどに控える(**なくすと戻せない**)
+- GitHub は、リポジトリが60日動きのないとき、定期実行を止める(止める前にメールが届く)。届いたら Actions の画面で有効にし直す
+
+### バックアップから戻す
+
+1. GitHub の Actions → Backup database → 戻したい日の実行 → Artifacts から取り出し、zip を解く
+2. 復号して開く: `gpg -d haifu-backup-YYYYMMDD.tar.gz.gpg > backup.tar.gz` → `tar -xzf backup.tar.gz`(`haifu.dump`・`auth.dump` が出る)
+3. 中身を確かめるだけなら: `pg_restore --list haifu.dump`
+4. 新しい Supabase プロジェクトに戻すとき(PostgreSQL 17 の `pg_restore` を使う。接続先は Session pooler):
+   - `pg_restore --no-owner --no-privileges --data-only -d "<接続文字列>" auth.dump`(ログインのアカウント)
+   - `pg_restore --no-owner --no-privileges -d "<接続文字列>" haifu.dump`(表・関数・RLS・データ)
+   - 権限は書き出しに入れていないので、`db/schema.sql` の中の `grant` / `revoke` の行を SQL エディタで流し直す
+   - アプリの `.env` の接続先を新しいプロジェクトに変えて公開する
+
 ## 確認する
 
 | コマンド | 内容 |
