@@ -1,0 +1,18 @@
+# 依存ライブラリの更新とセキュリティ修正を、pull request で知らせる(Issue #27)
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 5
+    groups:
+      # 細かい更新はまとめて1つの pull request にする(大きな版上げは別々)
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

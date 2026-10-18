@@ -1,0 +1,37 @@
+# push と pull request のたびに、型チェック・テスト・データベースの検査・脆弱性の確認をする(Issue #27)
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: 型チェック
+        run: npm run typecheck
+      - name: テスト
+        run: npm test
+      - name: データベースの検査(PGlite)
+        run: npm run test:db
+      - name: ビルド
+        run: npx vite build
+      - name: 依存ライブラリの脆弱性(本番で使うもの)
+        run: npm audit --omit=dev --audit-level=high

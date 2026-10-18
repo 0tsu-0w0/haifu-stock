@@ -51,6 +51,8 @@ npm run dev
 | `npm run typecheck` | 型チェック |
 | `npm run build` | 本番用のビルド(PWA) |
 
+GitHub に push すると、GitHub Actions([.github/workflows/ci.yml](.github/workflows/ci.yml))が型チェック・`npm test`・`npm run test:db`・ビルド・`npm audit` を走らせる。失敗すると GitHub から通知が届く。依存ライブラリの更新は Dependabot が毎週 pull request で知らせる。
+
 ビルドした版を、本番と同じヘッダーで確かめるときは `dist` を静的に配る(Service Worker と新しい版の知らせは、開発用のサーバーでは動かない)。設定の下に、動いている版(コミットの番号)が出る。
 
 ## 構成
