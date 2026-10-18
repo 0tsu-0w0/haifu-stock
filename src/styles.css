@@ -656,3 +656,8 @@ details[open] summary { margin-bottom: 6px; }
 .cover-actions { display: flex; align-items: center; gap: 8px; }
 .file-btn { position: relative; overflow: hidden; cursor: pointer; }
 .file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+/* 年間の集計(Issue #38) */
+.year-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.year-bar select { flex: 1; min-width: 140px; }
+.muted-row td { color: var(--ink-2); font-size: 12px; }
