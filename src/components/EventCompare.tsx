@@ -6,6 +6,7 @@ import { useHasConsignors } from '../app/useConsign';
 import { byType, byVenue, loadComparison, type CompareRow } from '../domain/compare';
 import { yen } from '../lib/format';
 import { ChartSave } from './ChartSave';
+import { BringAccuracyCard } from './BringReview';
 
 type Metric = 'amount' | 'perHour' | 'profit' | 'perCustomer';
 const METRICS: [Metric, string][] = [['amount', '売上'], ['perHour', '1時間あたり'], ['profit', '収支'], ['perCustomer', '客単価']];
@@ -64,6 +65,8 @@ export function EventCompare({ circleId }: { circleId: string }) {
         {consign ? '売上と1時間あたりは、受託分も含む全体の値です。収支は 自分の分の売上 − 原価 + 受託手数料 − 経費 です。' : '収支は 売上 − 原価 − 経費 です。'}
         販売時間は、開始時刻(なければ最初の販売)から最後の販売までで、休憩・離席を除きます。終了処理を済ませたイベントは、いまの品目の持ち主で計算し直した値です。
       </p>
+
+      <BringAccuracyCard circleId={circleId} />
 
       {venues.length > 0 && (
         <>

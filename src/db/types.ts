@@ -131,6 +131,8 @@ export interface EventItem extends FromServer {
   circle_id: Uuid;
   price_override: number | null;
   planned_qty: number | null;
+  /** 持ち込みを反映したときに出ていた目安の部数(あとで実際と比べる。Issue #37)。目安がなかったら null */
+  suggested_qty?: number | null;
   sort_order: number;
   /** イベントから外した時刻(行は消さずに残す。同期では行を消せないため) */
   removed_at?: Iso | null;

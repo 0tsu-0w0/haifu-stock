@@ -210,6 +210,8 @@ export interface PrepareLine {
   priceOverride: number | null;
   /** レジでの並び順。省略すると渡した順 */
   sortOrder?: number;
+  /** そのとき出ていた持ち込み数の目安(Issue #37)。省略すると今の値のまま、null で目安なし */
+  suggested?: number | null;
 }
 
 /**
@@ -235,6 +237,7 @@ export async function prepareEvent(
         await putAndQueue(db, 'event_items', {
           event_id: eventId, item_id: l.itemId, circle_id: ctx.circleId,
           price_override: l.priceOverride, planned_qty: item.kind === 'set' ? null : l.bring,
+          suggested_qty: l.suggested === undefined ? prev?.suggested_qty ?? null : l.suggested,
           sort_order: l.sortOrder ?? i, removed_at: l.included ? null : prev?.removed_at ?? stamp(), client_updated_at: stamp(),
         } satisfies EventItem);
       }

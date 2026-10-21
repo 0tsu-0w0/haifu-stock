@@ -14,6 +14,7 @@ import {
 import { DAY_MS, dayIndexOf, dayLabel, daysOf, lastDayOf } from '../domain/eventDays';
 import { hhmm, yen } from '../lib/format';
 import { useEventData } from './useEventData';
+import { BringReview } from '../components/BringReview';
 
 const pct = (v: number | null) => (v === null ? '—' : `${Math.round(v * 100)}%`);
 
@@ -166,6 +167,8 @@ export function ReportPage() {
         )}
         {scope === "self" && <p className="note">自分の分だけの収支です(受託手数料を含みません)。</p>}
         </>}
+
+        {scope === 'all' && <BringReview data={data} />}
 
         <h3 className="section">品目ごと</h3>
         <div className="card table-scroll">

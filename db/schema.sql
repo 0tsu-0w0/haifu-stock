@@ -249,6 +249,7 @@ create table event_items (
   circle_id         uuid not null references circles(id) on delete cascade,
   price_override    int check (price_override >= 0),   -- F-105
   planned_qty       int check (planned_qty >= 0),      -- 準備時の予定
+  suggested_qty     int check (suggested_qty >= 0),    -- 持ち込みを反映したときの目安(あとで実際と比べる。Issue #37)
   sort_order        int not null default 0,            -- レジのボタンの並び(F-401)
   removed_at        timestamptz,                       -- イベントから外した時刻(行は消さない)
   updated_at        timestamptz not null default now(),

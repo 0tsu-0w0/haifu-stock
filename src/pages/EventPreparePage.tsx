@@ -169,7 +169,9 @@ export function EventPreparePage() {
     if (!lines || !home) return;
     setBusy(true);
     try {
-      const list = ordered.map((i) => lineOf(i.id)).filter((l) => (l.included || data!.eventItems.some((e) => e.item_id === l.itemId)));
+      const list = ordered.map((i) => lineOf(i.id)).filter((l) => (l.included || data!.eventItems.some((e) => e.item_id === l.itemId)))
+        // あとで実際と比べるため、いま出ている目安を控える(Issue #37)。目安を計算し終えていなければ今の値のまま
+        .map((l) => (analysis ? { ...l, suggested: hints.get(l.itemId)?.qty ?? null } : l));
       const { moved } = await prepareEvent(db, ctx!, eventId!, list, { storageId: home.id });
       toast(moved ? `持ち込みを反映しました(${moved}部を移動)` : '持ち込みを反映しました');
     } catch (e) {

@@ -253,6 +253,13 @@ await as('00000000-0000-0000-0000-0000000000c3', async () => {
   ok(Object.values(h).every((v) => v === 0), 'サークルに関係のない人には、どの表も0');
 });
 
+// Issue #37: 持ち込みを反映したときの目安を控える(0以上)
+await as(U1, async () => {
+  await db.query(`update event_items set suggested_qty = 12, client_updated_at = '2100-01-01' where event_id=$1 and item_id=$2`, [EV, A]);
+  ok((await db.query(`select suggested_qty from event_items where event_id=$1 and item_id=$2`, [EV, A])).rows[0].suggested_qty === 12, '持ち込みの目安を控えられる');
+  await expectError(db.query(`update event_items set suggested_qty = -1, client_updated_at = '2100-01-02' where event_id=$1 and item_id=$2`, [EV, A]), '目安はマイナスにできない');
+});
+
 // Issue #36: 表紙画像は小さくした data URL だけ。売り子は参加中のイベントの品目の表紙を読める
 await as(U1, async () => {
   await db.query(`update items set cover = 'data:image/webp;base64,AAAA', client_updated_at = '2100-01-01' where id=$1`, [A]);
