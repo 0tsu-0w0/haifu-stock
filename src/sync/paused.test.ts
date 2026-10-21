@@ -32,6 +32,13 @@ describe('Supabase が一時停止しているとき(Issue #18)', () => {
     expect(await db.outbox.count()).toBeGreaterThan(0); // 記録は送れるまで端末に残る
   });
 
+  it('サーバーで消した表は、受け取るものがないとして扱う。送るほうはエラーのまま', async () => {
+    const missing = { data: null, error: { code: 'PGRST205', message: "Could not find the table 'public.old' in the schema cache" }, status: 404 };
+    const remote = new SupabaseRemote(fakeClient(missing));
+    expect(await remote.pull('old', 0, 100)).toEqual([]);
+    await expect(remote.push('items', [{ id: 'x' }])).rejects.toMatchObject({ code: 'PGRST205' });
+  });
+
   it('ふつうのエラーは、これまでどおりそのまま投げる', async () => {
     const remote = new SupabaseRemote(fakeClient({ data: null, error: { message: 'permission denied' }, status: 403 }));
     await expect(remote.pull('items', 0, 100)).rejects.toMatchObject({ message: 'permission denied' });

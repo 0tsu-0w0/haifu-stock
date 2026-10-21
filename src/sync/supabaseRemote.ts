@@ -6,6 +6,12 @@ import type { Remote, Row } from './engine';
 export const PAUSED_STATUS = 540;
 export const PAUSED_MESSAGE = '同期先(Supabase)が一時停止しています。サークル主が Supabase の管理画面で「Resume project」を押すと再開します。記録はこの端末に残っていて、再開すれば送られます';
 
+/** サーバーに表がない(PostgREST の PGRST205、HTTP 404) */
+function isMissingTable(res: { error: unknown; status: number }): boolean {
+  const code = (res.error as { code?: string } | null)?.code;
+  return res.status === 404 && (code === 'PGRST205' || code === '42P01');
+}
+
 /** 応答がエラーなら投げる。一時停止は、理由が分かる言葉にする */
 function check(res: { error: unknown; status: number }): void {
   if (res.status === PAUSED_STATUS) throw new Error(PAUSED_MESSAGE);
@@ -49,6 +55,9 @@ export class SupabaseRemote implements Remote {
       .gt('server_seq', since)
       .order('server_seq', { ascending: true })
       .limit(limit);
+    // サーバーで使わなくなって消した表は、受け取るものがないとして扱う(同期をエラーにしない)。
+    // 送るほうは、記録が消えないよう、これまでどおりエラーのまま残す
+    if (isMissingTable(res)) return [];
     check(res);
     return (res.data ?? []) as Row[];
   }
