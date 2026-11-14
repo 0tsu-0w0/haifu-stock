@@ -128,8 +128,8 @@ await as(U1, async () => {
   ok(d.affectedRows === 0, 'サークル主でも台帳は削除できない(RLSで0行)');
 
   // 後勝ち
-  await db.query(`update items set price = 900, client_updated_at = '2026-11-01T12:00:00+09' where id=$1`, [A]);
-  await db.query(`update items set price = 700, client_updated_at = '2026-11-01T11:00:00+09' where id=$1`, [A]);
+  await db.query(`update items set price = 900, client_updated_at = '2099-11-01T12:00:00+09' where id=$1`, [A]);
+  await db.query(`update items set price = 700, client_updated_at = '2099-11-01T11:00:00+09' where id=$1`, [A]);
   const p = await db.query(`select price from items where id=$1`, [A]);
   ok(p.rows[0].price === 900, '古い時刻の更新は捨てられる(後勝ち)');
 
@@ -251,6 +251,12 @@ await as(U2, async () => {
 await as('00000000-0000-0000-0000-0000000000c3', async () => {
   const h = (await db.query(`select sync_heads() as h`)).rows[0].h;
   ok(Object.values(h).every((v) => v === 0), 'サークルに関係のない人には、どの表も0');
+});
+
+// Issue #18: 一時停止を防ぐ「生きている印」は、管理者(GitHub Actions)だけが書く。アプリからは読み書きできない
+await db.query(`insert into app.keepalive (id, at, runs) values (1, now(), 1) on conflict (id) do update set runs = app.keepalive.runs + 1`);
+await as(U1, async () => {
+  await expectError(db.query(`select * from app.keepalive`), 'アプリから生きている印の表は読めない');
 });
 
 // Issue #37: 持ち込みを反映したときの目安を控える(0以上)

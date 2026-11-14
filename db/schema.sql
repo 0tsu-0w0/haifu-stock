@@ -1001,3 +1001,12 @@ language sql stable security invoker set search_path = public as $$
 $$;
 revoke execute on function public.sync_heads() from public, anon;
 grant execute on function public.sync_heads() to authenticated;
+
+-- 一時停止を防ぐための「生きている印」(Issue #18)。GitHub Actions が毎日、データベースに直接つないで書き込む。
+-- app スキーマに置き、アプリ(API)からは読み書きさせない
+create table app.keepalive (
+  id    int primary key check (id = 1),
+  at    timestamptz not null default now(),
+  runs  bigint not null default 0
+);
+revoke all on app.keepalive from public, anon, authenticated;

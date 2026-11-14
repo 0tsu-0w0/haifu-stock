@@ -44,7 +44,7 @@ npm run dev
 
 ### 一時停止を防ぐ・バックアップ(GitHub Actions)
 
-- **一時停止を防ぐ**([keepalive.yml](.github/workflows/keepalive.yml)): Supabase の無料プランは、7日ほど使われないとプロジェクトを一時停止する。2日おきにデータベースへ軽い問い合わせをして、止まらないようにする。止まっていたらジョブが失敗し、GitHub から通知が届く(管理画面の **Resume project** で再開できる。止まってから90日を過ぎると再開できない)。止まっている間にアプリで同期すると「同期先が一時停止しています」と出る。記録は端末に残り、再開すれば送られる
+- **一時停止を防ぐ**([keepalive.yml](.github/workflows/keepalive.yml)): Supabase の無料プランは、7日ほど使われないとプロジェクトを一時停止する。毎日データベースに直接つないで「生きている印」の行(`app.keepalive`)を書き込み、止まらないようにする(秘密情報 `SUPABASE_DB_URL` を使う。API への読み取りだけでは止まった。2026-11)。止まっていたらジョブが失敗し、GitHub から通知が届く(管理画面の **Resume project** で再開できる。止まってから90日を過ぎると再開できない)。止まっている間にアプリで同期すると「同期先が一時停止しています」と出る。記録は端末に残り、再開すれば送られる
 - **バックアップ**([backup.yml](.github/workflows/backup.yml)): 毎週月曜、データベース(アプリの表と、ログインのアカウント)を書き出し、暗号化して Actions の成果物に置く(90日残る)。リポジトリの Settings → Secrets and variables → Actions に、次の2つを置くと動く
   - `SUPABASE_DB_URL`: Supabase の管理画面の **Connect** →「Session pooler」の接続文字列(`[YOUR-PASSWORD]` をデータベースのパスワードに置き換える)
   - `BACKUP_PASSPHRASE`: 暗号化の合言葉。自分で決めて、パスワード管理ソフトなどに控える(**なくすと戻せない**)
