@@ -2,6 +2,7 @@ import { putAndQueue, type HaifuDB } from '../db/local';
 import type { CashCount, EventItem, EventRow, EventType, Expense, ExpenseCategory, Item, ItemKind, Location, Owner, PriceTier, PrintRun, ProductionCost, SetComponent } from '../db/types';
 import { uuidv7 } from '../lib/uuid';
 import { assertOpen } from './closing';
+import { applyEquipment } from './equipment';
 import { MAX_DAYS } from './eventDays';
 import { isItemColor } from './colors';
 import { eventItemSummary } from './ledger';
@@ -408,13 +409,17 @@ export async function saveExpense(
   for (const v of [input.planned, input.actual]) {
     if (v !== null && (!Number.isInteger(v) || v < 0)) throw new Error('金額は0円以上の整数で入れてください');
   }
-  const exp: Expense = {
-    id: input.id ?? uuidv7(), circle_id: ctx.circleId, event_id: input.eventId, category: input.category,
-    label: input.label?.trim() || EXPENSE_LABEL[input.category], planned_amount: input.planned, actual_amount: input.actual,
-    client_updated_at: stamp(),
-  };
-  await db.transaction('rw', ['expenses', 'outbox'], () => putAndQueue(db, 'expenses', exp));
-  return exp;
+  return db.transaction('rw', ['expenses', 'outbox'], async () => {
+    // 備品の経費は、金額を直しても備品とのつながりを残す(F-310)
+    const before = input.id ? await db.expenses.get(input.id) : undefined;
+    const exp: Expense = {
+      id: input.id ?? uuidv7(), circle_id: ctx.circleId, event_id: input.eventId, category: input.category,
+      label: input.label?.trim() || EXPENSE_LABEL[input.category], planned_amount: input.planned, actual_amount: input.actual,
+      equipment_id: before?.equipment_id ?? null, client_updated_at: stamp(),
+    };
+    await putAndQueue(db, 'expenses', exp);
+    return exp;
+  });
 }
 
 /**
@@ -437,7 +442,7 @@ export async function planFromEvent(db: HaifuDB, fromEventId: string): Promise<P
 export async function copyFloatAndExpenses(
   db: HaifuDB, ctx: Ctx, fromEventId: string, toEventId: string,
 ): Promise<{ float: boolean; expenses: number }> {
-  return db.transaction('rw', ['cash_counts', 'expenses', 'outbox', 'event_closings'], async () => {
+  return db.transaction('rw', ['cash_counts', 'expenses', 'equipment', 'outbox', 'event_closings'], async () => {
     await assertOpen(db, toEventId);
     const [fromCash, toCash, fromExp, toExp] = await Promise.all([
       db.cash_counts.where('event_id').equals(fromEventId).filter((c) => c.phase === 'float' && c.count > 0).toArray(),
@@ -459,6 +464,18 @@ export async function copyFloatAndExpenses(
       for (const e of fromExp) {
         const amount = e.actual_amount ?? e.planned_amount ?? 0;
         if (amount <= 0) continue;
+        if (e.equipment_id) {
+          // 備品は前回と同じ金額ではなく、もう一度按分する。使い切っていれば写さない
+          const eq = await db.equipment.get(e.equipment_id);
+          if (!eq || eq.archived_at) continue;
+          try {
+            await applyEquipment(db, ctx, toEventId, eq.id);
+            expenses++;
+          } catch {
+            // 使い切った備品は写さない
+          }
+          continue;
+        }
         await putAndQueue(db, 'expenses', {
           id: uuidv7(), circle_id: ctx.circleId, event_id: toEventId, category: e.category, label: e.label,
           planned_amount: amount, actual_amount: null, client_updated_at: stamp(),

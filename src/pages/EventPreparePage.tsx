@@ -5,6 +5,7 @@ import { db } from '../app/db';
 import { usePref } from '../app/prefs';
 import { useCtx } from '../app/useCtx';
 import { ConfirmButton } from '../components/ConfirmButton';
+import { EquipmentUse } from '../components/Equipment';
 import { EventNav } from '../components/EventNav';
 import { FloatSuggest } from '../components/FloatSuggest';
 import { ReservationsCard } from '../components/Reservations';
@@ -459,7 +460,7 @@ export function EventPreparePage() {
             {shownExpenses.length === 0 && <span className="k">まだありません。出展費や交通費を入れると、収支と損益分岐に使います。</span>}
             {shownExpenses.map((e) => (
               <div className="rowx" key={e.id}>
-                <span>{e.label}</span>
+                <span>{e.label}{e.equipment_id && <small className="k"> 備品</small>}</span>
                 <span className="exp-amount">
                   <input
                     className="price-in" inputMode="numeric" aria-label={`${e.label}の金額`} disabled={locked}
@@ -490,7 +491,8 @@ export function EventPreparePage() {
               <input className="price-in" inputMode="numeric" aria-label="金額" placeholder="7000" value={newExp.amount} onChange={(e) => setNewExp({ ...newExp, amount: e.target.value.replace(/\D/g, '') })} />
               <button className="sbtn" disabled={locked}>追加</button>
             </form>
-            <p className="note">金額を空にすると、その経費を消します。印刷費は品目の「刷り記録」に入れます(売れた分が原価として収支に入るので、ここには入れません)。</p>
+            <EquipmentUse ctx={ctx} eventId={eventId!} locked={locked} />
+            <p className="note">金額を空にすると、その経費を消します。備品(設定で登録)は、買った金額を使う回数で割った分を入れます。印刷費は品目の「刷り記録」に入れます(売れた分が原価として収支に入るので、ここには入れません)。</p>
           </div>
         </>
       )}

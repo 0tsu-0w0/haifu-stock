@@ -269,6 +269,21 @@ export interface Expense extends FromServer {
   label: string | null;
   planned_amount: number | null;
   actual_amount: number | null;
+  /** 備品を按分した経費(F-310)。ふつうの経費は null(古い行にはない) */
+  equipment_id?: Uuid | null;
+  client_updated_at: Iso;
+}
+
+/** 備品(F-310)。何回も使うものを、見込みの回数で割って使ったイベントの経費にする */
+export interface Equipment extends FromServer {
+  id: Uuid;
+  circle_id: Uuid;
+  name: string;
+  cost: number;
+  /** 見込みの使う回数 */
+  uses: number;
+  bought_on: string | null;
+  archived_at: Iso | null;
   client_updated_at: Iso;
 }
 
