@@ -120,7 +120,8 @@ export function EventPreparePage() {
     [ctx?.circleId, eventId, !!data?.event, data?.closed],
   );
   const evDays = data?.event ? daysOf(data.event) : 1;
-  const hints = useMemo(() => (analysis ? bringHints(analysis, eventId, DEFAULT_FORECAST, undefined, evDays) : new Map()), [analysis, eventId, evDays]);
+  const evType = data?.event?.event_type_id ?? null;
+  const hints = useMemo(() => (analysis ? bringHints(analysis, eventId, DEFAULT_FORECAST, undefined, evDays, evType) : new Map()), [analysis, eventId, evDays, evType]);
 
   if (!ctx || !data) return <main className="page" />;
   if (!isNew && !data.event) return <main className="page"><p>イベントが見つかりません。</p><Link to="/">ホームに戻る</Link></main>;
