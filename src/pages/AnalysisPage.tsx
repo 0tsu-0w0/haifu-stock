@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { db } from '../app/db';
 import { useCtx } from '../app/useCtx';
+import { ConsignAnalysisView } from '../components/ConsignAnalysis';
 import { EventCompare } from '../components/EventCompare';
 import { YearSummaryView } from '../components/YearSummary';
 import { LineChart } from '../components/LineChart';
@@ -17,8 +18,8 @@ import { loadEventSnapshot } from '../domain/snapshot';
 import { hhmm, yen } from '../lib/format';
 import { eventHasConsignment } from '../domain/consign';
 
-type Tab = 'forecast' | 'item' | 'event' | 'compare' | 'year';
-const TABS: [Tab, string][] = [['forecast', '刷り部数'], ['item', '頒布物の損益'], ['event', 'イベントの損益'], ['compare', 'イベントの比較'], ['year', '年間の集計']];
+type Tab = 'forecast' | 'item' | 'event' | 'compare' | 'consign' | 'year';
+const TABS: [Tab, string][] = [['forecast', '刷り部数'], ['item', '頒布物の損益'], ['event', 'イベントの損益'], ['compare', 'イベントの比較'], ['consign', '委託'], ['year', '年間の集計']];
 const man = (n: number) => (Math.abs(n) >= 10000 ? `${Math.round(n / 1000) / 10}万` : n.toLocaleString('ja-JP'));
 
 // 分析: 刷り部数の目安(F-801〜806)と損益分岐のグラフ(F-1101〜1103、F-1110)
@@ -40,6 +41,7 @@ export function AnalysisPage() {
       {!data ? <p className="note">計算しています…</p>
         : tab === 'compare' ? <EventCompare circleId={ctx!.circleId} />
         : tab === 'year' ? <YearSummaryView circleId={ctx!.circleId} />
+        : tab === 'consign' ? <ConsignAnalysisView circleId={ctx!.circleId} data={data} />
         : tab === 'forecast' ? <Forecast data={data} opts={opts} setOpts={setOpts} />
         : tab === 'item' ? <ItemBreakEvens data={data} selected={params.get('item')} onSelect={(id) => setParams({ tab: 'item', item: id }, { replace: true })} />
         : <EventBreakEven data={data} selected={params.get('event')} onSelect={(id) => setParams({ tab: 'event', event: id }, { replace: true })} />}

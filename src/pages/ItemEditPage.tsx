@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { db } from '../app/db';
+import { usePref } from '../app/prefs';
 import { useCtx } from '../app/useCtx';
 import { ConfirmButton } from '../components/ConfirmButton';
 import { NumberField } from '../components/NumberField';
@@ -27,6 +28,7 @@ export function ItemEditPage() {
   const navigate = useNavigate();
   const toast = useToast();
 
+  const [trackHome] = usePref('trackHome');
   const data = useLiveQuery(async () => {
     if (!ctx) return null;
     const [item, owners, items, storages, runs, comps, stock, prodCost] = await Promise.all([
@@ -268,16 +270,16 @@ export function ItemEditPage() {
 
       {item && item.kind !== 'set' && isOwn && (
         <>
-          <h3 className="section">在庫</h3>
-          <div className="card">
+          {trackHome && <h3 className="section">在庫</h3>}
+          {trackHome && <div className="card">
             {data.storages.filter((l) => !l.archived_at || (data.stock.get(`${item.id}|${l.id}`) ?? 0) !== 0).map((l) => (
               <div className="rowx" key={l.id}><span>{l.name}</span><b className="num">{data.stock.get(`${item.id}|${l.id}`) ?? 0}部</b></div>
             ))}
-          </div>
+          </div>}
 
           <h3 className="section">刷り記録</h3>
           <div className="card">
-            {data.runs.length === 0 && <span className="k">まだありません。刷った部数と印刷費を入れると、{home?.name ?? '自宅'}の在庫に入ります。</span>}
+            {data.runs.length === 0 && <span className="k">まだありません。刷った部数と印刷費を入れると、損益分岐が出せます。</span>}
             {data.runs.map((r) => (
               <div className="rowx" key={r.id}>
                 <span>{r.edition === 1 ? '初版' : `第${r.edition}版`}{r.printed_on ? `・${r.printed_on}` : ''}{r.printer ? `・${r.printer}` : ''}</span>
@@ -317,7 +319,7 @@ export function ItemEditPage() {
                 <input id="run-printer" value={run.printer} onChange={(e) => setRun({ ...run, printer: e.target.value })} placeholder="任意" />
               </span>
             </div>
-            {activeStorages.length > 1 && (
+            {trackHome && activeStorages.length > 1 && (
               <>
                 <label htmlFor="run-to">入れる保管場所</label>
                 <select id="run-to" value={home?.id ?? ''} onChange={(e) => setRunTo(e.target.value)}>
@@ -326,7 +328,7 @@ export function ItemEditPage() {
               </>
             )}
             {runError && <p className="error">{runError}</p>}
-            <button className="btn">追加して{home?.name ?? '自宅'}に入れる</button>
+            <button className="btn">{trackHome ? `追加して${home?.name ?? '自宅'}に入れる` : '刷り記録を追加'}</button>
           </form>
           <form className="card form" onSubmit={(e) => { e.preventDefault(); void saveProd(); }}>
             <label htmlFor="prod-cost">制作費(円)</label>

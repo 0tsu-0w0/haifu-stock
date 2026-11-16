@@ -20,6 +20,7 @@ export function YearSummaryView({ circleId }: { circleId: string }) {
 
   if (!years || !y) return <p className="note">計算しています…</p>;
   const t = y.totals;
+  const shopOn = y.shops.length > 0;
   const net = view === 'printing' ? y.net.byPrinting : y.net.byCost;
   const sign = (n: number) => `${n >= 0 ? '+' : '−'}${yen(Math.abs(n))}`;
 
@@ -34,8 +35,8 @@ export function YearSummaryView({ circleId }: { circleId: string }) {
       </div>
 
       <div className="metrics">
-        <div className="metric"><small>収入</small><strong className="num">{yen(t.own + t.fee)}</strong></div>
-        <div className="metric"><small>費用</small><strong className="num">{yen(t.expenses + (view === 'printing' ? t.printing + t.production : t.cost))}</strong></div>
+        <div className="metric"><small>収入</small><strong className="num">{yen(t.own + t.fee + t.shopSales)}</strong></div>
+        <div className="metric"><small>費用</small><strong className="num">{yen(t.expenses + t.shopFee + (view === 'printing' ? t.printing + t.production : t.cost + t.shopCost))}</strong></div>
         <div className="metric"><small>差し引き</small><strong className={`num ${net >= 0 ? 'pos' : 'neg-num'}`}>{sign(net)}</strong></div>
       </div>
 
@@ -53,7 +54,8 @@ export function YearSummaryView({ circleId }: { circleId: string }) {
       <div className="card table-scroll">
         <table className="tbl small report-tbl">
           <tbody>
-            <tr><td>{consign ? '自分の分の売上' : '売上'}</td><td className="num">{yen(t.own)}</td></tr>
+            <tr><td>{consign ? 'イベントの売上(自分の分)' : shopOn ? 'イベントの売上' : '売上'}</td><td className="num">{yen(t.own)}</td></tr>
+            {y.shops.map((s) => <tr key={s.name}><td>委託の売上: {s.name}<small className="k">({s.sold}部)</small></td><td className="num">{yen(s.sales)}</td></tr>)}
             {consign && <tr><td>受託手数料</td><td className="num">{yen(t.fee)}</td></tr>}
             {consign && <tr className="muted-row"><td>受託分の売上(受託元のもの・収入に含めない)</td><td className="num">{yen(t.consigned)}</td></tr>}
             {t.cashless > 0 && <tr className="muted-row"><td>うちキャッシュレスで受け取った分</td><td className="num">{yen(t.cashless)}</td></tr>}
@@ -67,13 +69,14 @@ export function YearSummaryView({ circleId }: { circleId: string }) {
           <tbody>
             {y.expensesByCategory.map((c) => <tr key={c.category}><td>{c.label}</td><td className="num">{yen(c.amount)}</td></tr>)}
             {y.expensesByCategory.length === 0 && <tr><td>経費</td><td className="num">{yen(0)}</td></tr>}
+            {shopOn && <tr><td>委託先の手数料</td><td className="num">{yen(t.shopFee)}</td></tr>}
             {view === 'printing' ? (
               <>
                 <tr><td>印刷費(この年に刷った分)</td><td className="num">{yen(t.printing)}</td></tr>
                 <tr><td>制作費(この年に初版を刷った品目)</td><td className="num">{yen(t.production)}</td></tr>
               </>
             ) : (
-              <tr><td>売れた分の印刷費(原価)</td><td className="num">{yen(t.cost)}</td></tr>
+              <tr><td>売れた分の印刷費(原価{shopOn ? '・委託で売れた分を含む' : ''})</td><td className="num">{yen(t.cost + t.shopCost)}</td></tr>
             )}
           </tbody>
         </table>
@@ -96,15 +99,16 @@ export function YearSummaryView({ circleId }: { circleId: string }) {
         </p>
       )}
 
-      <h3 className="section">月ごと(開催日の月)</h3>
+      <h3 className="section">月ごと({shopOn ? '開催日・報告の日の月' : '開催日の月'})</h3>
       <div className="card table-scroll">
         <table className="tbl small report-tbl">
-          <thead><tr><th>月</th><th>売上</th>{consign && <th>手数料</th>}<th>経費</th></tr></thead>
+          <thead><tr><th>月</th><th>{shopOn ? 'イベント' : '売上'}</th>{shopOn && <th>委託</th>}{consign && <th>手数料</th>}<th>経費</th></tr></thead>
           <tbody>
-            {y.months.filter((m) => m.own || m.fee || m.expenses).map((m) => (
+            {y.months.filter((m) => m.own || m.fee || m.expenses || m.shop).map((m) => (
               <tr key={m.month}>
                 <td>{m.month}月</td>
                 <td className="num">{yen(m.own)}</td>
+                {shopOn && <td className="num">{yen(m.shop)}</td>}
                 {consign && <td className="num">{yen(m.fee)}</td>}
                 <td className="num">{yen(m.expenses)}</td>
               </tr>

@@ -234,6 +234,8 @@ create table locations (
   kind              location_kind not null,
   name              text not null,
   event_id          uuid unique references events(id) on delete cascade,
+  -- 委託先(kind = 'consignee')の手数料率。書店・ほかのサークルに預けて売ってもらうときに使う(F-601)
+  fee_rate          numeric(5,4) check (fee_rate is null or (fee_rate >= 0 and fee_rate <= 1)),
   archived_at       timestamptz,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
@@ -491,6 +493,26 @@ create table consignment_settlements (
   unique (event_closing_id, owner_id)
 );
 
+-- 委託先(書店・ほかのサークル)からの販売の報告(F-602)。預けた・返ってきた数は stock_movements の transfer で持つ。
+-- 売れた分は在庫移動にせず、ここの lines で持つ(委託先の残り = 預けた − 返ってきた − 報告で売れた)。
+-- 入れ間違いは voided_at を入れて取り消す
+create table consignment_reports (
+  id                uuid primary key,
+  circle_id         uuid not null references circles(id) on delete cascade,
+  location_id       uuid not null references locations(id),
+  reported_on       date not null,
+  lines             jsonb not null default '[]',   -- [{item_id, qty, unit_price}]
+  sales_amount      int not null check (sales_amount >= 0),
+  fee_amount        int not null check (fee_amount >= 0),
+  note              text,
+  voided_at         timestamptz,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  client_updated_at timestamptz not null default now(),
+  server_seq        bigint not null default 0
+);
+create index consignment_reports_seq on consignment_reports (server_seq);
+
 -- ---------------------------------------------------------------------
 -- トリガーの取り付け
 -- ---------------------------------------------------------------------
@@ -502,7 +524,7 @@ begin
     'circles','circle_members','event_types','owners','items','set_components','print_runs',
     'production_costs','print_price_tiers','events','locations','event_items','event_breaks',
     'expenses','invites','event_staff','devices','reservations','transactions','transaction_lines',
-    'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements']
+    'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements','consignment_reports']
   loop
     execute format('create trigger %I before insert or update on %I for each row execute function app.touch_sync()',
                    t || '_sync', t);
@@ -511,7 +533,8 @@ begin
   -- 後勝ち
   foreach t in array array[
     'circles','event_types','owners','items','print_runs','production_costs','print_price_tiers',
-    'events','locations','event_items','event_breaks','expenses','cash_counts','closing_counts','devices','reservations']
+    'events','locations','event_items','event_breaks','expenses','cash_counts','closing_counts','devices','reservations',
+    'consignment_reports']
   loop
     execute format('create trigger %I before update on %I for each row execute function app.last_write_wins()',
                    t || '_lww', t);
@@ -631,6 +654,8 @@ create trigger event_closings_same_circle before insert or update on event_closi
   for each row execute function app.check_same_circle('event_id:events', 'return_location_id:locations');
 create trigger consignment_settlements_same_circle before insert on consignment_settlements
   for each row execute function app.check_same_circle('event_closing_id:event_closings', 'owner_id:owners');
+create trigger consignment_reports_same_circle before insert or update on consignment_reports
+  for each row execute function app.check_same_circle('location_id:locations');
 
 -- ---------------------------------------------------------------------
 -- 権限の判定
@@ -730,7 +755,7 @@ begin
     'circles','circle_members','event_types','owners','items','set_components','print_runs',
     'production_costs','print_price_tiers','events','locations','event_items','event_breaks',
     'expenses','invites','event_staff','devices','reservations','transactions','transaction_lines',
-    'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements']
+    'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements','consignment_reports']
   loop
     execute format('alter table %I enable row level security', t);
   end loop;
@@ -739,7 +764,8 @@ begin
   foreach t in array array[
     'event_types','owners','items','set_components','print_runs','production_costs',
     'print_price_tiers','events','locations','event_items','event_breaks','expenses','invites',
-    'event_staff','devices','reservations','cash_counts','closing_counts','event_closings','consignment_settlements']
+    'event_staff','devices','reservations','cash_counts','closing_counts','event_closings','consignment_settlements',
+    'consignment_reports']
   loop
     execute format('create policy %I on %I for all to authenticated
                       using (app.is_owner(circle_id)) with check (app.is_owner(circle_id))',
@@ -996,7 +1022,8 @@ language sql stable security invoker set search_path = public as $$
     'cash_counts', (select coalesce(max(server_seq), 0) from public.cash_counts),
     'closing_counts', (select coalesce(max(server_seq), 0) from public.closing_counts),
     'event_closings', (select coalesce(max(server_seq), 0) from public.event_closings),
-    'consignment_settlements', (select coalesce(max(server_seq), 0) from public.consignment_settlements)
+    'consignment_settlements', (select coalesce(max(server_seq), 0) from public.consignment_settlements),
+    'consignment_reports', (select coalesce(max(server_seq), 0) from public.consignment_reports)
   )
 $$;
 revoke execute on function public.sync_heads() from public, anon;

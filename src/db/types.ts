@@ -121,6 +121,8 @@ export interface Location extends FromServer {
   kind: LocationKind;
   name: string;
   event_id: Uuid | null;
+  /** 委託先(kind = 'consignee')の手数料率。古いデータや保管場所にはない */
+  fee_rate?: number | null;
   archived_at: Iso | null;
   client_updated_at: Iso;
 }
@@ -303,6 +305,24 @@ export interface ConsignmentSettlement extends FromServer {
   payout_amount: number;
   returned_qty: number;
   lines: { item_id: Uuid; name: string; sold_qty: number; amount: number; returned_qty: number }[];
+}
+
+/** 委託先(書店・ほかのサークル)からの販売の報告(F-602)。売れた分はここで持ち、在庫移動にはしない */
+export interface ConsignmentReport extends FromServer {
+  id: Uuid;
+  circle_id: Uuid;
+  /** 委託先(locations.kind = 'consignee') */
+  location_id: Uuid;
+  /** 報告の日(精算書の日付など) */
+  reported_on: string;
+  lines: { item_id: Uuid; qty: number; unit_price: number }[];
+  sales_amount: number;
+  /** 委託先に引かれる手数料 */
+  fee_amount: number;
+  note: string | null;
+  /** 入れ間違いで取り消した時刻 */
+  voided_at: Iso | null;
+  client_updated_at: Iso;
 }
 
 // まだ画面で使っていないテーブル

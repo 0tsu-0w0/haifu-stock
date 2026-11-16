@@ -242,7 +242,7 @@ await as(U2, async () => {
 await as(U1, async () => {
   const h = (await db.query(`select sync_heads() as h`)).rows[0].h;
   const max = (await db.query(`select max(server_seq)::int as m from transactions`)).rows[0].m;
-  ok(Object.keys(h).length === 22 && h.transactions === max, 'sync_heads はサークル主に、全部の表の最新の番号を返す');
+  ok(Object.keys(h).length === 23 && h.transactions === max, 'sync_heads はサークル主に、全部の表の最新の番号を返す');
 });
 await as(U2, async () => {
   const h = (await db.query(`select sync_heads() as h`)).rows[0].h;
@@ -331,6 +331,39 @@ await as(U1, async () => {
     ok(ev.rows[0].n === 0, 'サークルが食い違う event_staff の行では、イベントが見えない');
   });
   await db.query(`delete from event_staff where user_id = $1`, [U3]);
+}
+
+// 委託に出す(F-601〜603): 委託先の置き場所と、委託先からの報告
+{
+  const SHOP = id();
+  const REP = id();
+  await as(U1, async () => {
+    await db.query(`insert into locations (id, circle_id, kind, name, fee_rate) values ($1,$2,'consignee','書店X',0.3)`, [SHOP, C]);
+    await expectError(db.query(`insert into locations (id, circle_id, kind, name, fee_rate) values ($1,$2,'consignee','x',1.5)`, [id(), C]), '委託手数料率は0〜1');
+    await db.query(`insert into stock_movements (id, circle_id, item_id, qty, from_location_id, to_location_id, reason, device_id, recorded_by, recorded_at)
+                    values ($1,$2,$3,3,$4,$5,'transfer',$6,$7,now())`, [id(), C, A, HOME, SHOP, DEV1, U1]);
+    await db.query(`insert into consignment_reports (id, circle_id, location_id, reported_on, lines, sales_amount, fee_amount, client_updated_at)
+                    values ($1,$2,$3,'2099-01-10','[{"item_id":"${A}","qty":2,"unit_price":800}]',1600,480,'2099-01-10T00:00:00Z')`, [REP, C, SHOP]);
+    ok(true, 'サークル主は委託先に預け、報告を入れられる');
+    await db.query(`update consignment_reports set voided_at = now(), client_updated_at = '2099-01-11T00:00:00Z' where id=$1`, [REP]);
+    await db.query(`update consignment_reports set voided_at = null, client_updated_at = '2099-01-09T00:00:00Z' where id=$1`, [REP]);
+    const r = (await db.query(`select voided_at, server_seq from consignment_reports where id=$1`, [REP])).rows[0];
+    ok(r.voided_at !== null && Number(r.server_seq) > 0, '報告の取り消しは後勝ちで、差分同期の番号が振られる');
+    const h = (await db.query(`select sync_heads() h`)).rows[0].h;
+    ok(Number(h.consignment_reports) > 0, 'sync_heads に委託の報告が入る');
+    await expectError(db.query(`insert into consignment_reports (id, circle_id, location_id, reported_on, sales_amount, fee_amount) values ($1,$2,$3,'2099-01-10',-1,0)`, [id(), C, SHOP]), '売上は0円以上');
+  });
+  await as(U2, async () => {
+    const n = await db.query(`select count(*)::int n from consignment_reports`);
+    ok(n.rows[0].n === 0, '売り子には委託の報告が見えない');
+    await expectError(db.query(`insert into consignment_reports (id, circle_id, location_id, reported_on, sales_amount, fee_amount) values ($1,$2,$3,'2099-01-10',0,0)`, [id(), C, SHOP]), '売り子は委託の報告を入れられない');
+  });
+  const U3 = '00000000-0000-0000-0000-0000000000c3';
+  const c3 = (await db.query(`select circle_id from circle_members where user_id=$1`, [U3])).rows[0].circle_id;
+  await as(U3, async () => {
+    await expectError(db.query(`insert into consignment_reports (id, circle_id, location_id, reported_on, sales_amount, fee_amount) values ($1,$2,$3,'2099-01-10',0,0)`, [id(), c3, SHOP]),
+      '別のサークルの委託先を指す報告は入れられない');
+  });
 }
 
 await expectError(db.query(`update transactions set paid_amount = 0 where id=$1`, [T1]), 'RLSを通らない管理者でもトリガーで更新を拒否');

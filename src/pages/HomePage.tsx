@@ -107,6 +107,7 @@ export function HomePage() {
         <div className="home-actions">
           <Link className="btn center" to="/events/new">イベントを作る</Link>
           <Link className="btn center" to="/items">品目</Link>
+          <Link className="btn center" to="/consign">委託</Link>
           <Link className="btn center" to="/analysis">分析</Link>
         </div>
       )}

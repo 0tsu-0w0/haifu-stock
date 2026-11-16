@@ -35,6 +35,7 @@ export const TABLES: TableSpec[] = [
   { name: 'cash_counts', label: '釣り銭・現金の数え合わせ', pk: ['event_id', 'phase', 'denomination'], ledger: false, indexes: ['event_id'], parents: ['events'] },
   { name: 'closing_counts', label: '残数の確認', pk: ['event_id', 'item_id'], ledger: false, indexes: ['event_id'], parents: ['events', 'items'] },
   { name: 'event_closings', label: '終了処理の確定', pk: ['id'], ledger: false, indexes: ['event_id'], parents: ['events', 'locations'] },
+  { name: 'consignment_reports', label: '委託の報告', pk: ['id'], ledger: false, indexes: ['circle_id', 'location_id'], parents: ['locations'] },
   { name: 'consignment_settlements', label: '受託の精算書', pk: ['id'], ledger: true, indexes: [], parents: ['event_closings', 'owners'] },
 ];
 

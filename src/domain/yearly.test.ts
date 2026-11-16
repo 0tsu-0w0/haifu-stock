@@ -62,3 +62,26 @@ describe('確定申告用の年間の集計(Issue #38)', () => {
     expect(csv).toContain('刷った日がない');
   });
 });
+
+describe('年間の集計に委託の売上を分けて入れる(F-603)', () => {
+  it('報告の日の年で、委託の売上・委託先の手数料・売れた分の印刷費を数える', async () => {
+    const { saveConsignee, sendToConsignee, recordConsignReport } = await import('./consignOut');
+    const db = freshDb('yearly-shop');
+    const ctx = await createCircle(db, 'テスト');
+    const self = (await db.owners.filter((o) => o.is_self).first())!;
+    const home = (await db.locations.filter((l) => l.kind === 'storage').first())!;
+    const a = await saveItem(db, ctx, { name: '新刊A', kind: 'book', price: 1000, ownerId: self.id, lowThreshold: 3 });
+    await addPrintRun(db, ctx, { itemId: a.id, qty: 100, totalCost: 40000, printedOn: '2025-02-10', toLocationId: home.id });
+    const shop = await saveConsignee(db, ctx, { name: '書店X', feeRate: 0.3 });
+    await sendToConsignee(db, ctx, { to: shop.id, from: home.id, lines: [{ itemId: a.id, qty: 10 }] });
+    await recordConsignReport(db, ctx, { locationId: shop.id, reportedOn: '2026-04-30', lines: [{ itemId: a.id, qty: 5, unitPrice: 1000 }] });
+    await recordConsignReport(db, ctx, { locationId: shop.id, reportedOn: '2025-12-31', lines: [{ itemId: a.id, qty: 1, unitPrice: 1000 }] });
+
+    const y = await loadYearSummary(db, ctx.circleId, 2026);
+    expect(y.shops).toEqual([{ name: '書店X', sold: 5, sales: 5000, fee: 1500, cost: 2000 }]);
+    expect(y.months[3].shop).toBe(5000);
+    expect(y.net.byPrinting).toBe(3500); // 5,000 − 1,500(この年に刷った分はない)
+    expect(y.net.byCost).toBe(1500); // 5,000 − 1,500 − 5部 × 400円
+    expect(yearCsv(y)).toContain('委託の売上: 書店X(5部)');
+  });
+});

@@ -18,10 +18,12 @@ const KEYS = {
   regCovers: 'pref-reg-covers',
   /** 品目の画面の「印刷所の価格表と刷り部数」を開いておく(Issue #23) */
   printPlanOpen: 'pref-print-plan-open',
+  /** 自宅など保管場所の在庫を数える(棚卸し・在庫を移す・持ち込みの在庫の確認)。既定は数えない */
+  trackHome: 'pref-track-home',
 } as const;
 
 type Pref = keyof typeof KEYS;
-const DEFAULTS: Record<Pref, boolean> = { showBreakEven: true, instantSale: false, soldOutLast: false, lastOneRed: true, haptics: true, printPlanOpen: false, regCovers: true };
+const DEFAULTS: Record<Pref, boolean> = { showBreakEven: true, instantSale: false, soldOutLast: false, lastOneRed: true, haptics: true, printPlanOpen: false, regCovers: true, trackHome: false };
 
 /** 選ぶ形の設定。最初の値が既定 */
 export const CHOICES = {

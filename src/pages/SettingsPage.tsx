@@ -220,6 +220,7 @@ function DisplaySettings({ owner }: { owner: boolean }) {
   const [soldOutLast, setSoldOutLast] = usePref('soldOutLast');
   const [lastOneRed, setLastOneRed] = usePref('lastOneRed');
   const [regCovers, setRegCovers] = usePref('regCovers');
+  const [trackHome, setTrackHome] = usePref('trackHome');
   const [payMethods, setPayMethods] = usePayMethods();
   const [haptics, setHaptics] = usePref('haptics');
   const [tour, setTour] = useState(false);
@@ -295,6 +296,15 @@ function DisplaySettings({ owner }: { owner: boolean }) {
           <small className="k">オフ(おすすめ)のときは、タップした品目をカートに入れ、「決済」を押して記録します。オンにすると、タップした瞬間に1部ずつ記録し、まとめ買いは「カート」から入れます。</small>
         </span>
       </label>
+      {owner && (
+        <label className="check">
+          <input type="checkbox" checked={trackHome} onChange={(e) => setTrackHome(e.target.checked)} />
+          <span>
+            <b>家の在庫を数える</b>
+            <small className="k">オンにすると、品目の画面に保管場所の在庫・棚卸し・在庫を移すが出て、持ち込みのときに家の在庫と比べます。オフ(既定)のときは出しません。記録はどちらでも残ります。</small>
+          </span>
+        </label>
+      )}
       {owner && (
         <label className="check">
           <input type="checkbox" checked={showBE} onChange={(e) => setShowBE(e.target.checked)} />

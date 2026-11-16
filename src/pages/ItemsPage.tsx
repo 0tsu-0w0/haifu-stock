@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '../app/db';
+import { usePref } from '../app/prefs';
 import { useCtx } from '../app/useCtx';
 import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../components/Toast';
@@ -17,6 +18,7 @@ export function ItemsPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [showDeleted, setShowDeleted] = useState(false);
   const toast = useToast();
+  const [trackHome] = usePref('trackHome');
   const data = useLiveQuery(async () => {
     if (!ctx) return null;
     const [items, owners, storages, stock] = await Promise.all([
@@ -40,11 +42,11 @@ export function ItemsPage() {
   return (
     <main className="page">
       <PageHeader title="品目" right={<Link className="sbtn acc" to="/items/new">品目を追加</Link>} />
-      <Link className="card row-link" to="/stocktake">
+      {trackHome && <Link className="card row-link" to="/stocktake">
         <span><b>棚卸し</b><small>{activeStorages.length > 1 ? '保管場所' : activeStorages[0]?.name ?? '自宅'}の在庫を数えて、実際の数に合わせる(通販で発送した分など)</small></span>
         <span className="go-label">数える</span>
-      </Link>
-      {activeStorages.length > 1 && (
+      </Link>}
+      {trackHome && activeStorages.length > 1 && (
         <Link className="card row-link" to="/items/move">
           <span><b>在庫を移す</b><small>保管場所どうしで在庫を動かす({activeStorages.map((l) => l.name).join('・')})</small></span>
           <span className="go-label">移す</span>
@@ -73,7 +75,7 @@ export function ItemsPage() {
                       <b>{i.name}</b>
                       <small>{KIND_LABEL[i.kind]}・{yen(i.price)}{i.archived_at ? '・アーカイブ済み' : ''}</small>
                     </span>
-                    {o.is_self && i.kind !== 'set' && <span className="k num">保管 {atStorage(i.id)}</span>}
+                    {trackHome && o.is_self && i.kind !== 'set' && <span className="k num">保管 {atStorage(i.id)}</span>}
                   </Link>
                 </li>
               ))}

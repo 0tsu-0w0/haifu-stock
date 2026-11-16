@@ -3,6 +3,7 @@ import type { ExpenseCategory } from '../db/types';
 import { toCsv } from './backup';
 import { EXPENSE_LABEL } from './catalog';
 import { computeMoney, moneyAfterClosing, planCounts } from './closing';
+import { consigneeState } from './consignOut';
 import { deriveEvent, loadEventSnapshot } from './snapshot';
 
 // 確定申告用の年間の集計(Issue #38)。1〜12月の、自分の収入・費用を足し合わせる。
@@ -38,7 +39,9 @@ export interface YearSummary {
   year: number;
   events: YearEventRow[];
   /** 1〜12月(イベントの開催日の月) */
-  months: { month: number; own: number; fee: number; expenses: number }[];
+  months: { month: number; own: number; fee: number; expenses: number; shop: number }[];
+  /** 委託に出した分(書店・ほかのサークル)。報告の日の年で数える(F-603) */
+  shops: { name: string; sold: number; sales: number; fee: number; cost: number }[];
   expensesByCategory: { category: ExpenseCategory; label: string; amount: number }[];
   /** この年に刷った分の印刷費 */
   printRuns: YearPrintRow[];
@@ -53,6 +56,10 @@ export interface YearSummary {
     /** この年に刷った印刷費 */
     printing: number;
     production: number;
+    /** 委託先で売れた売上と、委託先に引かれた手数料、売れた分の印刷費 */
+    shopSales: number;
+    shopFee: number;
+    shopCost: number;
   };
   /** 差し引き: 印刷費を刷った年の費用にする見方と、売れた分だけ原価にする見方 */
   net: { byPrinting: number; byCost: number };
@@ -108,12 +115,35 @@ export async function loadYearSummary(db: HaifuDB, circleId: string, year: numbe
     });
   }
 
-  const months = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, own: 0, fee: 0, expenses: 0 }));
+  const months = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, own: 0, fee: 0, expenses: 0, shop: 0 }));
   for (const r of rows) {
     const m = months[Number(r.heldOn.slice(5, 7)) - 1];
     m.own += r.own;
     m.fee += r.fee;
     m.expenses += r.expenses;
+  }
+
+  // 委託に出した分。1部あたりの印刷費は、刷り記録の合計 ÷ 刷った部数
+  const unitCost = new Map<string, number>();
+  for (const id of ownIds) {
+    const rs = runs.filter((r) => r.item_id === id);
+    const qty = rs.reduce((a, r) => a + r.qty, 0);
+    if (qty > 0) unitCost.set(id, rs.reduce((a, r) => a + r.total_cost, 0) / qty);
+  }
+  const shops: YearSummary['shops'] = [];
+  for (const s of (await consigneeState(db, circleId)).values()) {
+    const row = { name: s.location.name, sold: 0, sales: 0, fee: 0, cost: 0 };
+    for (const r of s.reports.filter((x) => yearOf(x.reported_on) === year)) {
+      row.fee += r.fee_amount;
+      for (const l of r.lines) {
+        row.sold += l.qty;
+        row.sales += l.qty * l.unit_price;
+        row.cost += l.qty * (unitCost.get(l.item_id) ?? 0);
+        months[Number(r.reported_on.slice(5, 7)) - 1].shop += l.qty * l.unit_price;
+      }
+    }
+    row.cost = Math.round(row.cost);
+    if (row.sold > 0) shops.push(row);
   }
 
   const printRow = (r: (typeof runs)[number]): YearPrintRow => ({
@@ -143,9 +173,11 @@ export async function loadYearSummary(db: HaifuDB, circleId: string, year: numbe
     own: sum(rows, (r) => r.own), consigned: sum(rows, (r) => r.consigned), fee: sum(rows, (r) => r.fee),
     cashless: sum(rows, (r) => r.cashless), expenses: sum(rows, (r) => r.expenses), cost: sum(rows, (r) => r.cost),
     printing: sum(printRuns, (r) => r.cost), production: sum(production, (r) => r.amount),
+    shopSales: sum(shops, (r) => r.sales), shopFee: sum(shops, (r) => r.fee), shopCost: sum(shops, (r) => r.cost),
   };
+  const shopNet = totals.shopSales - totals.shopFee;
   return {
-    year, events: rows, months,
+    year, events: rows, months, shops,
     expensesByCategory: (Object.keys(EXPENSE_LABEL) as ExpenseCategory[])
       .filter((c) => (byCategory.get(c) ?? 0) > 0)
       .map((c) => ({ category: c, label: EXPENSE_LABEL[c], amount: byCategory.get(c)! })),
@@ -153,8 +185,8 @@ export async function loadYearSummary(db: HaifuDB, circleId: string, year: numbe
     undated: { printRuns: undatedRuns, production: undatedProduction },
     totals,
     net: {
-      byPrinting: totals.own + totals.fee - totals.expenses - totals.printing - totals.production,
-      byCost: totals.own + totals.fee - totals.expenses - totals.cost,
+      byPrinting: totals.own + totals.fee + shopNet - totals.expenses - totals.printing - totals.production,
+      byCost: totals.own + totals.fee + shopNet - totals.expenses - totals.cost - totals.shopCost,
     },
   };
 }
@@ -165,12 +197,14 @@ export function yearCsv(y: YearSummary): string {
     ['区分', '項目', '日付', '金額', 'メモ'],
     ['収入', '自分の分の売上', '', y.totals.own, ''],
     ['収入', '受託手数料', '', y.totals.fee, ''],
+    ...y.shops.map((s) => ['収入', `委託の売上: ${s.name}(${s.sold}部)`, '', s.sales, '委託先の売値']),
+    ...y.shops.map((s) => ['経費', `委託先の手数料: ${s.name}`, '', s.fee, '']),
     ['参考', '受託分の売上(受託元のもの)', '', y.totals.consigned, '自分の収入ではない'],
     ['参考', 'キャッシュレスで受け取った分', '', y.totals.cashless, '受託分を含む'],
     ...y.expensesByCategory.map((c) => ['経費', c.label, '', c.amount, ''] as (string | number)[]),
     ...y.printRuns.map((r) => ['印刷費', `${r.itemName}(${r.edition === 1 ? '初版' : `第${r.edition}版`}・${r.qty}部)`, r.printedOn, r.cost, '刷った年の費用']),
     ...y.production.map((p) => ['制作費', p.itemName, '', p.amount, '初版を刷った年の費用']),
-    ['参考', '売れた分の印刷費(原価)', '', y.totals.cost, '売れた分だけ原価にする見方'],
+    ['参考', '売れた分の印刷費(原価)', '', y.totals.cost + y.totals.shopCost, '売れた分だけ原価にする見方(委託で売れた分を含む)'],
     ['差し引き', '印刷費を刷った年の費用にする見方', '', y.net.byPrinting, ''],
     ['差し引き', '売れた分だけ原価にする見方', '', y.net.byCost, '制作費を含まない'],
     [],

@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { db } from '../app/db';
+import { usePref } from '../app/prefs';
 import { useCtx } from '../app/useCtx';
 import { ConfirmButton } from '../components/ConfirmButton';
 import { EventNav } from '../components/EventNav';
@@ -111,6 +112,7 @@ export function EventPreparePage() {
   }, [data]);
 
   // 持ち込み数の目安(F-304、F-901、F-902。Issue #28)。過去の記録を全部読むので、準備できるイベントのときだけ読む
+  const [trackHome] = usePref('trackHome');
   const analysis = useLiveQuery(
     () => (ctx && eventId && data?.event && !data.closed ? loadAnalysis(db, ctx.circleId, DEFAULT_FORECAST) : undefined),
     [ctx?.circleId, eventId, !!data?.event, data?.closed],
@@ -210,6 +212,7 @@ export function EventPreparePage() {
     const h = hints.get(id);
     if (!h) return null;
     const avail = (home ? data.stock.get(`${id}|${home.id}`) ?? 0 : 0) + (data.prepared.get(id) ?? 0);
+    if (!trackHome) return { ...h, capped: null };
     return { ...h, qty: Math.min(h.qty, Math.max(avail, 0)), capped: h.qty > avail ? avail : null };
   };
   const hinted = ordered.filter((i) => lineOf(i.id).included && i.kind !== 'set' && hintFor(i.id) && lineOf(i.id).bring !== hintFor(i.id)!.qty);
@@ -324,7 +327,7 @@ export function EventPreparePage() {
           {data.items.length === 0 && (
             <div className="card"><p className="note">品目がまだありません。</p><Link className="btn center" to="/items/new">品目を追加</Link></div>
           )}
-          {!locked && activeStorages.length > 1 && (
+          {!locked && trackHome && activeStorages.length > 1 && (
             <div className="card copy-prev">
               <label className="k" htmlFor="prep-src">持ち出す保管場所</label>
               <select id="prep-src" value={home?.id ?? ''} onChange={(e) => setSrcId(e.target.value)}>
@@ -354,7 +357,7 @@ export function EventPreparePage() {
                       <b>{i.name}</b>
                       <small className="k">
                         {yen(i.price)}{o && !own ? `・受託: ${o.name}` : ''}
-                        {i.kind === 'set' ? '・構成品の数で決まる' : own ? `・${home?.name ?? '自宅'}に ${atHome}部` : ''}
+                        {i.kind === 'set' ? '・構成品の数で決まる' : own && trackHome ? `・${home?.name ?? '自宅'}に ${atHome}部` : ''}
                       </small>
                     </span>
                   </label>
@@ -389,7 +392,7 @@ export function EventPreparePage() {
                       />
                     </div>
                   )}
-                  {own && l.included && i.kind !== 'set' && l.bring - prepared > atHome && (
+                  {trackHome && own && l.included && i.kind !== 'set' && l.bring - prepared > atHome && (
                     <p className="msg">{home?.name ?? '自宅'}の在庫より多く持ち込もうとしています。刷り記録が未入力でないか確かめてください。</p>
                   )}
                 </div>
@@ -405,7 +408,8 @@ export function EventPreparePage() {
           <button className="btn primary" disabled={busy || locked || !changed} onClick={() => void applyBring()}>
             {changed ? '持ち込みを反映する' : '持ち込みは反映済みです'}
           </button>
-          <p className="note">反映すると、{hasConsignors(data.owners) ? <>自分の品目は{home?.name ?? '自宅'}からイベントへ、受託品は預かりとして</> : <>{home?.name ?? '自宅'}からイベントへ</>}在庫が動きます。あとで数を変えると、差の分だけ動きます。</p>
+          {trackHome ? <p className="note">反映すると、{hasConsignors(data.owners) ? <>自分の品目は{home?.name ?? '自宅'}からイベントへ、受託品は預かりとして</> : <>{home?.name ?? '自宅'}からイベントへ</>}在庫が動きます。あとで数を変えると、差の分だけ動きます。</p>
+            : <p className="note">反映すると、レジで売れる数が決まります。あとで数を変えても直せます。</p>}
 
           <h3 id="prep-resv" className="section">取り置き</h3>
           <ReservationsCard
