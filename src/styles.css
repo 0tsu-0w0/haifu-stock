@@ -423,6 +423,7 @@ details[open] summary { margin-bottom: 6px; }
 .report-tbl td:first-child { white-space: normal; min-width: 7em; }
 .chart .bar { fill: var(--series-1); }
 .chart .bar.on { opacity: .8; }
+.chart .trend-bring { stroke: var(--ink-2); stroke-width: 2; }
 .sold-outs { padding: 2px 4px 0; }
 .slot-table { padding: 4px 4px 0; }
 
@@ -605,8 +606,8 @@ details[open] summary { margin-bottom: 6px; }
 .compare-tbl td:first-child { min-width: 128px; }
 .compare-tbl td:first-child a { color: var(--accent); font-weight: 700; }
 .compare-tbl td:first-child small { display: block; }
-/* タブの数に合わせて並べ、長い名前は2行に折り返す */
-.tabs { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
+/* 4つずつ2段に並べ、長い名前は2行に折り返す */
+.tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .tab { white-space: normal; line-height: 1.25; }
 
 /* 設定: 同期の状態(#17) */
