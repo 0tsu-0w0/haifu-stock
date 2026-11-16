@@ -349,6 +349,21 @@ create table devices (
 create index devices_circle on devices (circle_id);
 create index devices_seq on devices (server_seq);
 
+-- 端末ごとの最後の同期(F-500)。各端末が同期を終えるたびに、自分の行を書き直す。
+-- 終了処理で、売り子の端末の記録が届いているかを確かめるのに使う
+create table device_syncs (
+  id                uuid primary key,            -- 端末のID(devices.id と同じ。名前がなくても作る)
+  circle_id         uuid not null references circles(id) on delete cascade,
+  user_id           uuid not null,
+  synced_at         timestamptz not null,
+  pending           int not null default 0 check (pending >= 0),   -- 同期を終えた時点で、送れずに残っていた件数
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  client_updated_at timestamptz not null default now(),
+  server_seq        bigint not null default 0
+);
+create index device_syncs_seq on device_syncs (server_seq);
+
 -- ---------------------------------------------------------------------
 -- 台帳(追記だけ)
 -- ---------------------------------------------------------------------
@@ -525,7 +540,8 @@ begin
     'circles','circle_members','event_types','owners','items','set_components','print_runs',
     'production_costs','print_price_tiers','events','locations','event_items','event_breaks',
     'expenses','invites','event_staff','devices','reservations','transactions','transaction_lines',
-    'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements','consignment_reports']
+    'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements','consignment_reports',
+    'device_syncs']
   loop
     execute format('create trigger %I before insert or update on %I for each row execute function app.touch_sync()',
                    t || '_sync', t);
@@ -535,7 +551,7 @@ begin
   foreach t in array array[
     'circles','event_types','owners','items','print_runs','production_costs','print_price_tiers',
     'events','locations','event_items','event_breaks','expenses','cash_counts','closing_counts','devices','reservations',
-    'consignment_reports']
+    'consignment_reports','device_syncs']
   loop
     execute format('create trigger %I before update on %I for each row execute function app.last_write_wins()',
                    t || '_lww', t);
@@ -756,7 +772,8 @@ begin
     'circles','circle_members','event_types','owners','items','set_components','print_runs',
     'production_costs','print_price_tiers','events','locations','event_items','event_breaks',
     'expenses','invites','event_staff','devices','reservations','transactions','transaction_lines',
-    'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements','consignment_reports']
+    'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements','consignment_reports',
+    'device_syncs']
   loop
     execute format('alter table %I enable row level security', t);
   end loop;
@@ -766,7 +783,7 @@ begin
     'event_types','owners','items','set_components','print_runs','production_costs',
     'print_price_tiers','events','locations','event_items','event_breaks','expenses','invites',
     'event_staff','devices','reservations','cash_counts','closing_counts','event_closings','consignment_settlements',
-    'consignment_reports']
+    'consignment_reports','device_syncs']
   loop
     execute format('create policy %I on %I for all to authenticated
                       using (app.is_owner(circle_id)) with check (app.is_owner(circle_id))',
@@ -826,6 +843,9 @@ language sql stable security definer set search_path = public as $$
                    and revoked_at is null and expires_at > now())
 $$;
 create policy devices_staff_rw on devices for all to authenticated
+  using (user_id = (select auth.uid()) and app.is_circle_staff(circle_id))
+  with check (user_id = (select auth.uid()) and app.is_circle_staff(circle_id));
+create policy device_syncs_staff_rw on device_syncs for all to authenticated
   using (user_id = (select auth.uid()) and app.is_circle_staff(circle_id))
   with check (user_id = (select auth.uid()) and app.is_circle_staff(circle_id));
 
@@ -1024,7 +1044,8 @@ language sql stable security invoker set search_path = public as $$
     'closing_counts', (select coalesce(max(server_seq), 0) from public.closing_counts),
     'event_closings', (select coalesce(max(server_seq), 0) from public.event_closings),
     'consignment_settlements', (select coalesce(max(server_seq), 0) from public.consignment_settlements),
-    'consignment_reports', (select coalesce(max(server_seq), 0) from public.consignment_reports)
+    'consignment_reports', (select coalesce(max(server_seq), 0) from public.consignment_reports),
+    'device_syncs', (select coalesce(max(server_seq), 0) from public.device_syncs)
   )
 $$;
 revoke execute on function public.sync_heads() from public, anon;

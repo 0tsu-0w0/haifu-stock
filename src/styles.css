@@ -686,3 +686,6 @@ details[open] summary { margin-bottom: 6px; }
 /* シートを開いているあいだの知らせは、シートの説明に重ならないよう画面の上に出す */
 body:has(.scrim) .toast { bottom: auto; top: calc(12px + env(safe-area-inset-top, 0px)); transform: translate(-50%, -12px); }
 body:has(.scrim) .toast.show { transform: translate(-50%, 0); }
+.dev-sync { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.dev-sync:last-of-type { border-bottom: 0; }
+.dev-sync.warn b { color: var(--warn); }
