@@ -3,7 +3,7 @@ import { freshDb } from '../test/helpers';
 import { addPrintRun, saveItem } from './catalog';
 import {
   consignAnalysis, consigneeState, recordConsignReport, returnFromConsignee, saveConsignee, sendToConsignee,
-  markConsigneePaid, setConsigneeArchived, setConsignReportPaid, setConsignReportVoided,
+  markConsigneePaid, setConsigneeArchived, setConsignReportPaid, setConsignReportVoided, updateConsignReport,
 } from './consignOut';
 import { storageStock } from './stock';
 import { createCircle } from './setup';
@@ -111,5 +111,30 @@ describe('委託の入金', () => {
     expect(await unpaid()).toBe(560);
     const all = consignAnalysis(await consigneeState(db, ctx.circleId), [a], new Map());
     expect(all.totals.shopUnpaid).toBe(560);
+  });
+});
+
+describe('委託の報告を直す', () => {
+  it('部数・売値・手数料を直せる。直す報告の分は残りに戻して数え、入金の日は変えない', async () => {
+    const { db, ctx, home, a, shop } = await setup();
+    await sendToConsignee(db, ctx, { to: shop.id, from: home.id, lines: [{ itemId: a.id, qty: 5 }] });
+    const r = await recordConsignReport(db, ctx, { locationId: shop.id, reportedOn: '2026-11-30', lines: [{ itemId: a.id, qty: 4, unitPrice: 800 }] });
+    await setConsignReportPaid(db, r.id, '2026-12-10');
+    // 残りは1部だが、この報告の4部を直すので5部まで入れられる
+    const next = await updateConsignReport(db, r.id, { reportedOn: '2026-12-01', lines: [{ itemId: a.id, qty: 5, unitPrice: 700 }], note: '精算書 12' });
+    expect(next).toMatchObject({ id: r.id, reported_on: '2026-12-01', sales_amount: 3500, fee_amount: 1050, paid_on: '2026-12-10', note: '精算書 12' });
+    expect((await consigneeState(db, ctx.circleId)).get(shop.id)!.left).toBe(0);
+    await expect(updateConsignReport(db, r.id, { reportedOn: '2026-12-01', lines: [{ itemId: a.id, qty: 6, unitPrice: 700 }] }))
+      .rejects.toThrow('5部しか預けていません');
+  });
+
+  it('取り消した報告は、残りが足りなければ戻せない', async () => {
+    const { db, ctx, home, a, shop } = await setup();
+    await sendToConsignee(db, ctx, { to: shop.id, from: home.id, lines: [{ itemId: a.id, qty: 3 }] });
+    const r = await recordConsignReport(db, ctx, { locationId: shop.id, reportedOn: '2026-11-30', lines: [{ itemId: a.id, qty: 3, unitPrice: 800 }] });
+    await setConsignReportVoided(db, r.id, true);
+    await expect(updateConsignReport(db, r.id, { reportedOn: '2026-11-30', lines: [{ itemId: a.id, qty: 1, unitPrice: 800 }] })).rejects.toThrow('取り消した報告は直せません');
+    await returnFromConsignee(db, ctx, { from: shop.id, to: home.id, lines: [{ itemId: a.id, qty: 2 }] });
+    await expect(setConsignReportVoided(db, r.id, false)).rejects.toThrow('残りが1部しかありません');
   });
 });

@@ -27,6 +27,16 @@ describe('品目と刷り記録', () => {
     expect(await stockAt(item.id, home.id)).toBe(80);
   });
 
+  it('発行日とメモを入れられる。渡さなければ今のまま、空にすれば消える(F-101)', async () => {
+    const { db, ctx, self } = await setup();
+    const base = { name: '新刊A', kind: 'book' as const, price: 800, ownerId: self.id, lowThreshold: 3 };
+    const item = await saveItem(db, ctx, { ...base, issuedOn: '2026-11-01', memo: ' B5・24ページ ' });
+    expect(item).toMatchObject({ issued_on: '2026-11-01', memo: 'B5・24ページ' });
+    expect(await saveItem(db, ctx, { ...base, id: item.id, price: 900 })).toMatchObject({ issued_on: '2026-11-01', memo: 'B5・24ページ', price: 900 });
+    expect(await saveItem(db, ctx, { ...base, id: item.id, issuedOn: null, memo: '' })).toMatchObject({ issued_on: null, memo: null });
+    await expect(saveItem(db, ctx, { ...base, id: item.id, issuedOn: '2026/11/01' })).rejects.toThrow('発行日');
+  });
+
   it('入力が正しくないときは保存しない', async () => {
     const { db, ctx, self } = await setup();
     await expect(saveItem(db, ctx, { name: ' ', kind: 'book', price: 800, ownerId: self.id, lowThreshold: 3 })).rejects.toThrow('品目名');

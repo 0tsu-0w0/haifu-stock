@@ -7,11 +7,11 @@ import { useCtx } from '../app/useCtx';
 import { NumberField } from '../components/NumberField';
 import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../components/Toast';
-import type { Item, Location } from '../db/types';
+import type { ConsignmentReport, Item, Location } from '../db/types';
 import { decodeCsv, matchSales, readSalesCsv, type CsvSale } from '../domain/consignCsv';
 import {
   consigneeState, defaultFee, markConsigneePaid, recordConsignReport, returnFromConsignee, saveConsignee, sendToConsignee,
-  setConsigneeArchived, setConsignReportPaid, setConsignReportVoided, type ConsigneeState,
+  setConsigneeArchived, setConsignReportPaid, setConsignReportVoided, updateConsignReport, type ConsigneeState,
 } from '../domain/consignOut';
 import { storageStock } from '../domain/stock';
 import { yen } from '../lib/format';
@@ -140,6 +140,7 @@ function ShopCard(props: {
   const [showReports, setShowReports] = useState(false);
   const [paying, setPaying] = useState(false);
   const [paidOn, setPaidOn] = useState(today());
+  const [fixing, setFixing] = useState<ConsignmentReport | null>(null);
   const nameOf = (id: string) => items.find((i) => i.id === id)?.name ?? '品目';
   const rows = [...s.items.values()].filter((x) => x.sent > 0).sort((a, b) => b.left - a.left || nameOf(a.itemId).localeCompare(nameOf(b.itemId), 'ja'));
   const ctx = useCtx();
@@ -222,7 +223,16 @@ function ShopCard(props: {
           {showReports ? '報告を隠す' : `これまでの報告(${s.reports.length}件)`}
         </button>
       )}
-      {showReports && <Reports locationId={s.location.id} nameOf={nameOf} attempt={attempt} />}
+      {showReports && <Reports locationId={s.location.id} nameOf={nameOf} attempt={attempt} fixingId={fixing?.id ?? null} onFix={(r) => setFixing(fixing?.id === r.id ? null : r)} />}
+      {fixing && (
+        <MoveForm
+          key={fixing.id} mode="report" initial={fixing} s={s} items={items} storages={props.storages} stock={props.stock} trackHome={props.trackHome}
+          onSubmit={async (lines, extra) => {
+            const ok = await attempt(() => updateConsignReport(db, fixing.id, { reportedOn: extra.date, lines, fee: extra.fee, note: extra.note }), '報告を直しました');
+            if (ok) setFixing(null);
+          }}
+        />
+      )}
 
       <div className="sub-links">
         <button className="link-btn small-link" onClick={() => setEdit((v) => !v)}>{edit ? '閉じる' : '名前・手数料を直す'}</button>
@@ -250,8 +260,9 @@ function ShopEdit({ loc, onSave }: { loc: Location; onSave: (name: string, fee: 
   );
 }
 
-function Reports({ locationId, nameOf, attempt }: {
+function Reports({ locationId, nameOf, attempt, fixingId, onFix }: {
   locationId: string; nameOf: (id: string) => string; attempt: (fn: () => Promise<unknown>, done: string) => Promise<boolean>;
+  fixingId: string | null; onFix: (r: ConsignmentReport) => void;
 }) {
   // 取り消した報告も出す(戻せるように)
   const reports = useLiveQuery(() => db.consignment_reports.where('location_id').equals(locationId).toArray(), [locationId]);
@@ -272,6 +283,9 @@ function Reports({ locationId, nameOf, attempt }: {
                 {r.paid_on ? '入金を戻す' : '入金済みにする'}
               </button>
             )}
+            {!r.voided_at && (
+              <button className="link-btn small-link" aria-pressed={fixingId === r.id} onClick={() => onFix(r)}>{fixingId === r.id ? '直すのをやめる' : '直す'}</button>
+            )}
             <button className="link-btn small-link" onClick={() => void attempt(() => setConsignReportVoided(db, r.id, !r.voided_at), r.voided_at ? '報告を戻しました' : '報告を取り消しました')}>
               {r.voided_at ? '戻す' : '取り消す'}
             </button>
@@ -287,22 +301,27 @@ type Line = { itemId: string; qty: number; unitPrice: number };
 
 function MoveForm(props: {
   mode: Mode; s: ConsigneeState; items: Item[]; storages: Location[]; stock: Map<string, number>; trackHome: boolean;
+  /** 直している報告(売れた報告のときだけ)。その分の部数は、預け中に戻して数える */
+  initial?: ConsignmentReport;
   onSubmit: (lines: Line[], extra: { storageId: string; date: string; fee: number | null; note: string }) => Promise<void>;
 }) {
-  const { mode, s, items, storages, stock, trackHome } = props;
-  const [qty, setQty] = useState<Map<string, number>>(new Map());
-  const [price, setPrice] = useState<Map<string, string>>(new Map());
+  const { mode, s, items, storages, stock, trackHome, initial } = props;
+  const own = new Map<string, number>();
+  for (const l of initial?.lines ?? []) own.set(l.item_id, (own.get(l.item_id) ?? 0) + l.qty);
+  const [qty, setQty] = useState<Map<string, number>>(new Map(own));
+  const [price, setPrice] = useState<Map<string, string>>(new Map((initial?.lines ?? []).map((l) => [l.item_id, String(l.unit_price)])));
   const [storageId, setStorageId] = useState(storages[0]?.id ?? '');
-  const [date, setDate] = useState(today());
-  const [fee, setFee] = useState('');
-  const [note, setNote] = useState('');
+  const [date, setDate] = useState(initial?.reported_on ?? today());
+  // 手数料が手数料率どおりだった報告は、空のままにする(部数を直したら手数料も計算し直す)
+  const [fee, setFee] = useState(initial && initial.fee_amount !== defaultFee(initial.sales_amount, s.location.fee_rate) ? String(initial.fee_amount) : '');
+  const [note, setNote] = useState(initial?.note ?? '');
   const [busy, setBusy] = useState(false);
   // CSV から読んだ行のうち、どの品目か分からなかったもの(F-604)
   const [loose, setLoose] = useState<CsvSale[]>([]);
   const [csvMsg, setCsvMsg] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const leftOf = (id: string) => s.items.get(id)?.left ?? 0;
+  const leftOf = (id: string) => (s.items.get(id)?.left ?? 0) + (own.get(id) ?? 0);
   const list = mode === 'send' ? items.filter((i) => !i.archived_at || leftOf(i.id) > 0) : items.filter((i) => leftOf(i.id) > 0);
   const priceOf = (i: Item) => {
     const v = price.get(i.id);
@@ -367,6 +386,7 @@ function MoveForm(props: {
         void props.onSubmit(lines, { storageId, date, fee: fee === '' ? null : Number(fee), note }).finally(() => setBusy(false));
       }}
     >
+      {initial && <p className="k"><b>{initial.reported_on} の報告を直す</b></p>}
       {list.length === 0 && <p className="note">{mode === 'send' ? '自分の品目がまだありません。' : '預けている本がありません。'}</p>}
       {list.map((i) => (
         <div key={i.id} className="prep-row">
@@ -402,7 +422,7 @@ function MoveForm(props: {
         </div>
       )}
 
-      {mode === 'report' && list.length > 0 && (
+      {mode === 'report' && !initial && list.length > 0 && (
         <div className="consign-csv">
           <input
             ref={fileRef} type="file" accept=".csv,.tsv,.txt,text/csv" hidden
@@ -457,7 +477,7 @@ function MoveForm(props: {
       )}
 
       <button className="btn primary" disabled={busy || count === 0 || (mode === 'report' && !date)}>
-        {count === 0 ? '部数を入れてください' : mode === 'send' ? `${count}部を預ける` : mode === 'return' ? `${count}部が返ってきた` : `${count}部が売れたと記録する`}
+        {count === 0 ? '部数を入れてください' : mode === 'send' ? `${count}部を預ける` : mode === 'return' ? `${count}部が返ってきた` : initial ? `${count}部の報告として保存する` : `${count}部が売れたと記録する`}
       </button>
     </form>
   );

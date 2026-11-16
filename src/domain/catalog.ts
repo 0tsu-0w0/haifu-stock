@@ -39,6 +39,10 @@ export interface ItemInput {
   printLot?: number | null;
   /** レジで見分けるための色。渡さなければ今の色のまま */
   color?: string | null;
+  /** 発行日(YYYY-MM-DD)。渡さなければ今のまま、null か空で消す */
+  issuedOn?: string | null;
+  /** メモ。渡さなければ今のまま */
+  memo?: string | null;
   /** セットの構成。作るときだけ指定できる(構成を変えると過去の在庫の意味が変わるため) */
   components?: { itemId: string; qty: number }[];
 }
@@ -52,6 +56,8 @@ export async function saveItem(db: HaifuDB, ctx: Ctx, input: ItemInput): Promise
   if (cur && cur.kind !== input.kind) throw new Error('作った後で種類は変えられません');
   if (input.color != null && !isItemColor(input.color)) throw new Error('色が正しくありません');
   if (input.printLot != null && (!Number.isInteger(input.printLot) || input.printLot <= 0)) throw new Error('部数の刻みは1以上の整数で入れてください');
+  if (input.issuedOn && !/^\d{4}-\d{2}-\d{2}$/.test(input.issuedOn)) throw new Error('発行日が正しくありません');
+  if ((input.memo ?? '').length > 2000) throw new Error('メモは2000文字までにしてください');
   const isNew = !cur;
   if (input.kind === 'set' && isNew) {
     const comps = input.components ?? [];
@@ -64,6 +70,8 @@ export async function saveItem(db: HaifuDB, ctx: Ctx, input: ItemInput): Promise
     low_threshold: input.lowThreshold,
     color: input.color === undefined ? cur?.color ?? null : input.color,
     cover: cur?.cover ?? null,
+    issued_on: input.issuedOn === undefined ? cur?.issued_on ?? null : input.issuedOn || null,
+    memo: input.memo === undefined ? cur?.memo ?? null : input.memo?.trim() || null,
     archived_at: cur?.archived_at ?? null, deleted_at: cur?.deleted_at ?? null, client_updated_at: stamp(),
   };
   await db.transaction('rw', ['items', 'set_components', 'outbox'], async () => {

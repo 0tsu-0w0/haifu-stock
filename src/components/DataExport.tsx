@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { db } from '../app/db';
 import type { Ctx } from '../domain/record';
-import { eventsCsv, exportBackup, importBackup, movementsCsv, salesCsv, type BackupFile } from '../domain/backup';
+import { consignCsv, eventsCsv, exportBackup, importBackup, movementsCsv, salesCsv, type BackupFile } from '../domain/backup';
 import { downloadText, fileStamp } from '../lib/download';
 import { useToast } from './Toast';
 
@@ -75,6 +75,7 @@ export function DataExport({ ctx }: { ctx: Ctx }) {
           <button className="sbtn" disabled={busy} onClick={() => void csv('sales', () => salesCsv(db, ctx.circleId))}>取引明細</button>
           <button className="sbtn" disabled={busy} onClick={() => void csv('stock', () => movementsCsv(db, ctx.circleId))}>在庫の履歴</button>
           <button className="sbtn" disabled={busy} onClick={() => void csv('events', () => eventsCsv(db, ctx.circleId))}>イベント別の集計</button>
+          <button className="sbtn" disabled={busy} onClick={() => void csv('consign', () => consignCsv(db, ctx.circleId))}>委託の報告</button>
         </div>
       </div>
     </>

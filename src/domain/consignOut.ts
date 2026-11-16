@@ -183,44 +183,75 @@ export async function returnFromConsignee(
 /** 手数料の既定値(売上 × 委託先の手数料率。1円未満は四捨五入) */
 export const defaultFee = (sales: number, rate: number | null | undefined) => Math.round(sales * (rate ?? 0));
 
-/**
- * 委託先からの報告を入れる(F-602)。売れた部数と単価、引かれた手数料。
- * 手数料を渡さなければ、委託先の手数料率で計算する。残っている部数より多くは売れない
- */
-export async function recordConsignReport(
-  db: HaifuDB, ctx: Ctx,
-  input: { locationId: string; reportedOn: string; lines: { itemId: string; qty: number; unitPrice: number }[]; fee?: number | null; note?: string },
-): Promise<ConsignmentReport> {
-  const loc = await db.locations.get(input.locationId);
-  if (!isConsignee(loc)) throw new Error('委託先が見つかりません');
+type ReportInput = { reportedOn: string; lines: { itemId: string; qty: number; unitPrice: number }[]; fee?: number | null; note?: string };
+
+/** 報告の中身を確かめて、保存する形にする。editing は直している報告(その分の部数は、残りに戻して数える) */
+async function buildReport(db: HaifuDB, loc: Location, input: ReportInput, editing?: ConsignmentReport) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.reportedOn)) throw new Error('報告の日を入れてください');
   const lines = input.lines.filter((l) => l.qty > 0);
   if (lines.length === 0) throw new Error('売れた部数を入れてください');
   const state = (await consigneeState(db, loc.circle_id)).get(loc.id);
+  const own = new Map<string, number>();
+  if (editing && !editing.voided_at) for (const l of editing.lines) own.set(l.item_id, (own.get(l.item_id) ?? 0) + l.qty);
   for (const l of lines) {
     if (!Number.isInteger(l.qty)) throw new Error('部数は整数で入れてください');
     if (!Number.isInteger(l.unitPrice) || l.unitPrice < 0) throw new Error('単価は0円以上の整数で入れてください');
-    const left = state?.items.get(l.itemId)?.left ?? 0;
+    const left = (state?.items.get(l.itemId)?.left ?? 0) + (own.get(l.itemId) ?? 0);
     if (l.qty > left) throw new Error(`${(await db.items.get(l.itemId))?.name ?? '品目'}は「${loc.name}」に${left}部しか預けていません`);
   }
   const sales = lines.reduce((a, l) => a + l.qty * l.unitPrice, 0);
   const fee = input.fee ?? defaultFee(sales, loc.fee_rate);
   if (!Number.isInteger(fee) || fee < 0) throw new Error('手数料は0円以上の整数で入れてください');
   if (fee > sales) throw new Error('手数料が売上より多くなっています');
-  const report: ConsignmentReport = {
-    id: uuidv7(), circle_id: ctx.circleId, location_id: loc.id, reported_on: input.reportedOn,
+  return {
+    reported_on: input.reportedOn,
     lines: lines.map((l) => ({ item_id: l.itemId, qty: l.qty, unit_price: l.unitPrice })),
-    sales_amount: sales, fee_amount: fee, note: input.note?.trim() || null, voided_at: null, paid_on: null, client_updated_at: stamp(),
+    sales_amount: sales, fee_amount: fee, note: input.note?.trim() || null,
+  };
+}
+
+/**
+ * 委託先からの報告を入れる(F-602)。売れた部数と単価、引かれた手数料。
+ * 手数料を渡さなければ、委託先の手数料率で計算する。残っている部数より多くは売れない
+ */
+export async function recordConsignReport(
+  db: HaifuDB, ctx: Ctx, input: ReportInput & { locationId: string },
+): Promise<ConsignmentReport> {
+  const loc = await db.locations.get(input.locationId);
+  if (!isConsignee(loc)) throw new Error('委託先が見つかりません');
+  const report: ConsignmentReport = {
+    id: uuidv7(), circle_id: ctx.circleId, location_id: loc.id, ...(await buildReport(db, loc, input)),
+    voided_at: null, paid_on: null, client_updated_at: stamp(),
   };
   await db.transaction('rw', ['consignment_reports', 'outbox'], () => putAndQueue(db, 'consignment_reports', report));
   return report;
 }
 
+/** 入れた報告を直す(部数・売値・日付・手数料・メモ)。入金の日はそのまま */
+export async function updateConsignReport(db: HaifuDB, reportId: string, input: ReportInput): Promise<ConsignmentReport> {
+  const cur = await db.consignment_reports.get(reportId);
+  if (!cur) throw new Error('報告が見つかりません');
+  if (cur.voided_at) throw new Error('取り消した報告は直せません。先に戻してください');
+  const loc = await db.locations.get(cur.location_id);
+  if (!isConsignee(loc)) throw new Error('委託先が見つかりません');
+  const next: ConsignmentReport = { ...cur, ...(await buildReport(db, loc, input, cur)), client_updated_at: stamp() };
+  await db.transaction('rw', ['consignment_reports', 'outbox'], () => putAndQueue(db, 'consignment_reports', next));
+  return next;
+}
+
 /** 報告を取り消す・戻す(入れ間違い) */
 export async function setConsignReportVoided(db: HaifuDB, reportId: string, voided: boolean): Promise<void> {
-  await db.transaction('rw', ['consignment_reports', 'outbox'], async () => {
+  await db.transaction('rw', ['consignment_reports', 'outbox', 'locations', 'stock_movements', 'items'], async () => {
     const cur = await db.consignment_reports.get(reportId);
     if (!cur) throw new Error('報告が見つかりません');
+    if (!voided && cur.voided_at) {
+      // 戻すと、売れた分がまた委託先の残りから引かれる。残りより多くなるなら戻せない
+      const state = (await consigneeState(db, cur.circle_id)).get(cur.location_id);
+      for (const l of cur.lines) {
+        const left = state?.items.get(l.item_id)?.left ?? 0;
+        if (l.qty > left) throw new Error(`戻せません。${(await db.items.get(l.item_id))?.name ?? '品目'}の残りが${left}部しかありません`);
+      }
+    }
     await putAndQueue(db, 'consignment_reports', { ...cur, voided_at: voided ? stamp() : null, client_updated_at: stamp() });
   });
 }

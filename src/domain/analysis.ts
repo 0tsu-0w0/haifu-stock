@@ -65,6 +65,8 @@ export interface AnalysisData {
   productionCosts: Map<string, number>;
   /** 品目ごとの累計の販売部数と売上(セットで売れた分は通常価格の比で按分) */
   soldTotals: Map<string, { qty: number; amount: number }>;
+  /** 同じものを、開催日の年ごとに分けたもの */
+  soldByYear: Map<number, Map<string, { qty: number; amount: number }>>;
   /** 累積販売曲線 F(t) と、その作り方 */
   curve: (t: number) => number;
   curveSource: 'data' | 'default';
@@ -259,11 +261,19 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
 
   // 累計の販売(損益分岐の「いまどこまで来たか」)。セットで売れた分は、いまの通常価格の比で構成品に按分する
   const soldTotals = new Map<string, { qty: number; amount: number }>();
+  const soldByYear = new Map<number, Map<string, { qty: number; amount: number }>>();
+  const heldYear = new Map(events.map((e) => [e.id, Number(e.held_on.slice(0, 4))]));
+  let year = 0;
   const add = (id: string, qty: number, amount: number) => {
     const x = soldTotals.get(id) ?? { qty: 0, amount: 0 };
     soldTotals.set(id, { qty: x.qty + qty, amount: x.amount + amount });
+    let m = soldByYear.get(year);
+    if (!m) soldByYear.set(year, (m = new Map()));
+    const y = m.get(id) ?? { qty: 0, amount: 0 };
+    m.set(id, { qty: y.qty + qty, amount: y.amount + amount });
   };
-  for (const d of digests.values()) {
+  for (const [eventId, d] of digests) {
+    year = heldYear.get(eventId) ?? 0;
     for (const [itemId, x] of d.sold) {
       const it = itemById.get(itemId);
       if (!it) continue;
@@ -280,7 +290,7 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
     }
   }
 
-  return { events: events.filter((e) => !e.deleted_at), items, ownItems, histories, storageStock, printRuns, productionCosts, soldTotals, curve, curveSource, curveSamples: samples };
+  return { events: events.filter((e) => !e.deleted_at), items, ownItems, histories, storageStock, printRuns, productionCosts, soldTotals, soldByYear, curve, curveSource, curveSamples: samples };
 }
 
 const quantile = (xs: number[], q: number) => {

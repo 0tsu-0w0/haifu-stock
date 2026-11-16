@@ -681,3 +681,4 @@ details[open] summary { margin-bottom: 6px; }
 .consign-csv { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
 .consign-csv > .link-btn { align-self: flex-start; }
 .consign-csv select, .consign-form .rowx > input[type="date"] { height: 40px; max-width: 60%; border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font: inherit; padding: 0 8px; }
+.form textarea { border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font: inherit; padding: 10px 12px; resize: vertical; min-height: 64px; }

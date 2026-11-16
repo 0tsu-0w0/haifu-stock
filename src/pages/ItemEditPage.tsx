@@ -46,7 +46,7 @@ export function ItemEditPage() {
     return { item, owners: owners.filter((o) => !o.archived_at || o.id === item?.owner_id), items, storages, runs, comps, prodCost, stock };
   }, [ctx?.circleId, itemId]);
 
-  const [form, setForm] = useState({ name: '', kind: 'book' as ItemKind, price: '', ownerId: '', low: '3', color: null as string | null });
+  const [form, setForm] = useState({ name: '', kind: 'book' as ItemKind, price: '', ownerId: '', low: '3', color: null as string | null, issuedOn: '', memo: '' });
   const [newOwner, setNewOwner] = useState({ name: '', fee: '0' });
   const [components, setComponents] = useState<Map<string, number>>(new Map());
   const [run, setRun] = useState({ qty: '', cost: '', date: '', printer: '' });
@@ -62,7 +62,7 @@ export function ItemEditPage() {
     if (!data || loaded) return;
     const self = data.owners.find((o) => o.is_self);
     if (data.item) {
-      setForm({ name: data.item.name, kind: data.item.kind, price: String(data.item.price), ownerId: data.item.owner_id, low: String(data.item.low_threshold), color: data.item.color ?? null });
+      setForm({ name: data.item.name, kind: data.item.kind, price: String(data.item.price), ownerId: data.item.owner_id, low: String(data.item.low_threshold), color: data.item.color ?? null, issuedOn: data.item.issued_on ?? '', memo: data.item.memo ?? '' });
     } else if (self) {
       setForm((f) => ({ ...f, ownerId: self.id }));
     }
@@ -99,6 +99,8 @@ export function ItemEditPage() {
         id: item?.id, name: form.name, kind: form.kind, price: Number(form.price === '' ? NaN : form.price), ownerId,
         lowThreshold: Number(form.low === '' ? NaN : form.low),
         color: form.color,
+        issuedOn: form.issuedOn || null,
+        memo: form.memo,
         components: [...components].filter(([, q]) => q > 0).map(([id, q]) => ({ itemId: id, qty: q })),
       });
       toast(item ? '保存しました' : `${saved.name} を登録しました`);
@@ -229,6 +231,11 @@ export function ItemEditPage() {
 
         <label htmlFor="item-low">「残りわずか」と表示する部数</label>
         <input id="item-low" inputMode="numeric" value={form.low} onChange={(e) => setForm({ ...form, low: e.target.value.replace(/\D/g, '') })} />
+
+        <label htmlFor="item-issued">発行日<small className="k">(任意)</small></label>
+        <input id="item-issued" type="date" value={form.issuedOn} onChange={(e) => setForm({ ...form, issuedOn: e.target.value })} />
+        <label htmlFor="item-memo">メモ<small className="k">(任意。判型・ページ数・印刷所など)</small></label>
+        <textarea id="item-memo" rows={2} maxLength={2000} value={form.memo} onChange={(e) => setForm({ ...form, memo: e.target.value })} />
 
         {error && <p className="error">{error}</p>}
         <button className="btn primary">{item ? '保存する' : '登録する'}</button>

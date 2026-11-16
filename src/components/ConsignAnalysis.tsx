@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '../app/db';
 import type { AnalysisData } from '../domain/analysis';
@@ -11,10 +11,18 @@ const share = (part: number, all: number) => (all > 0 ? `${Math.round((part / al
 /** イベントで売れた分と、委託先で売れた分を分けて見る(F-603) */
 export function ConsignAnalysisView({ circleId, data }: { circleId: string; data: AnalysisData }) {
   const states = useLiveQuery(() => consigneeState(db, circleId), [circleId]);
-  const a = useMemo(
-    () => (states ? consignAnalysis(states, data.ownItems, new Map([...data.soldTotals].map(([id, v]) => [id, { qty: v.qty, sales: Math.round(v.amount) }]))) : null),
-    [states, data],
-  );
+  const [year, setYear] = useState<number | null>(null);
+  // イベントか委託の報告がある年(新しい順)
+  const years = useMemo(() => {
+    const ys = new Set<number>([...data.soldByYear.keys()].filter((y) => y > 0));
+    for (const s of states?.values() ?? []) for (const r of s.reports) ys.add(Number(r.reported_on.slice(0, 4)));
+    return [...ys].sort((x, y) => y - x);
+  }, [states, data]);
+  const a = useMemo(() => {
+    if (!states) return null;
+    const sold = year === null ? data.soldTotals : data.soldByYear.get(year) ?? new Map<string, { qty: number; amount: number }>();
+    return consignAnalysis(states, data.ownItems, new Map([...sold].map(([id, v]) => [id, { qty: v.qty, sales: Math.round(v.amount) }])), year ?? undefined);
+  }, [states, data, year]);
   if (!a) return <p className="note">計算しています…</p>;
   if (a.shops.length === 0) {
     return (
@@ -29,11 +37,20 @@ export function ConsignAnalysisView({ circleId, data }: { circleId: string; data
   const all = t.eventSales + t.shopSales;
   return (
     <>
+      {years.length > 1 && (
+        <div className="year-bar">
+          <label className="k" htmlFor="consign-year">期間</label>
+          <select id="consign-year" value={year ?? ''} onChange={(e) => setYear(e.target.value ? Number(e.target.value) : null)}>
+            <option value="">これまでの累計</option>
+            {years.map((v) => <option key={v} value={v}>{v}年</option>)}
+          </select>
+        </div>
+      )}
       <div className="metrics">
         <div className="metric"><small>イベントの売上</small><strong className="num">{yen(t.eventSales)}</strong><small>{share(t.eventSales, all)}</small></div>
         <div className="metric"><small>委託の売上</small><strong className="num">{yen(t.shopSales)}</strong><small>{share(t.shopSales, all)}・手数料 {yen(t.shopFee)}</small></div>
       </div>
-      <p className="note">これまでの累計です(自分の頒布物だけ)。委託の売上は委託先の売値で数え、受け取る金額は手数料を引いた {yen(t.shopNet)} です{t.shopUnpaid > 0 ? `(うち ${yen(t.shopUnpaid)} は、まだ入金されていません)` : ''}。委託先に残っている本は {t.shopLeft}部です。</p>
+      <p className="note">{year === null ? 'これまでの累計' : `${year}年(イベントは開催日、委託は報告の日)`}です(自分の頒布物だけ)。委託の売上は委託先の売値で数え、受け取る金額は手数料を引いた {yen(t.shopNet)} です{t.shopUnpaid > 0 ? `(うち ${yen(t.shopUnpaid)} は、まだ入金されていません)` : ''}。委託先に残っている本は、いま {t.shopLeft}部です。</p>
 
       <h3 className="section">委託先ごと</h3>
       <div className="card table-scroll">

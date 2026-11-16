@@ -39,6 +39,10 @@ export interface Item extends FromServer {
   color?: string | null;
   /** 表紙画像(小さくした data URL。Issue #36)。なしは null */
   cover?: string | null;
+  /** 発行日(初版を出した日)。なしは null */
+  issued_on?: string | null;
+  /** 仕様など、自分用のメモ(判型・ページ数・印刷所など) */
+  memo?: string | null;
   archived_at: Iso | null;
   /** 削除した時刻(表示から消す。記録は残す) */
   deleted_at?: Iso | null;
