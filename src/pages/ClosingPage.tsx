@@ -1,3 +1,4 @@
+import { usePref } from '../app/prefs';
 import { useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../app/AuthProvider';
@@ -327,6 +328,8 @@ function CashStep({ data, ctx, rows, money }: { data: Data; ctx: Ctx; rows: Coun
 function SettleStep(props: {
   data: Data; rows: CountRow[]; money: ReturnType<typeof computeMoney>; returnTo: string | null; setDest: (id: string) => void;
 }) {
+  // 家の在庫を数えないときは、残りの戻し先を聞かない(戻し先は最初の保管場所のまま)
+  const [trackHome] = usePref('trackHome');
   const { data, rows, money, returnTo, setDest } = props;
   const toast = useToast();
   const [fallback, setFallback] = useState<{ owner: string; text: string } | null>(null);
@@ -374,16 +377,20 @@ function SettleStep(props: {
         </div>
       ))}
 
-      <h3>{consign ? '自分の分の持ち帰り' : '持ち帰り'}</h3>
-      <div className="card">
-        <div className="rowx">
-          <label htmlFor="dest">残り <b className="num">{ownLeft}</b>部の戻し先</label>
-          <select id="dest" value={returnTo ?? ''} onChange={(e) => setDest(e.target.value)}>
-            {data.storages.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
+      {(trackHome || consign) && <h3>{consign ? '自分の分の持ち帰り' : '持ち帰り'}</h3>}
+      {(trackHome || consign) && (
+        <div className="card">
+          {trackHome ? (
+            <div className="rowx">
+              <label htmlFor="dest">残り <b className="num">{ownLeft}</b>部の戻し先</label>
+              <select id="dest" value={returnTo ?? ''} onChange={(e) => setDest(e.target.value)}>
+                {data.storages.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            </div>
+          ) : <p>残り <b className="num">{ownLeft}</b>部を持ち帰ります。</p>}
+          {consign && <p className="note">受託分の残りは持ち主に返却します。</p>}
         </div>
-        {consign && <p className="note">受託分の残りは持ち主に返却します。</p>}
-      </div>
+      )}
 
       <h3>{consign ? 'このイベントの収支(自分の分)' : 'このイベントの収支'}</h3>
       <div className="card">
@@ -403,6 +410,7 @@ function SettleStep(props: {
 }
 
 function DoneView({ data, ctx, onReopened }: { data: Data; ctx: Ctx; onReopened: () => void }) {
+  const [trackHome] = usePref('trackHome');
   const c = data.closing!;
   const toast = useToast();
   const [fallback, setFallback] = useState<{ owner: string; text: string } | null>(null);
@@ -480,7 +488,7 @@ function DoneView({ data, ctx, onReopened }: { data: Data; ctx: Ctx; onReopened:
           </div>
         ))}
       </div>
-      <p className="lead">自分の分の残りは「{data.storages.find((l) => l.id === c.return_location_id)?.name ?? '戻し先'}」に戻しました。</p>
+      {trackHome && <p className="lead">自分の分の残りは「{data.storages.find((l) => l.id === c.return_location_id)?.name ?? '戻し先'}」に戻しました。</p>}
       <Link className="btn center" to={`/events/${data.event.id}/report`}>このイベントのレポートを見る</Link>
       <Link className="sub-link" to={`/analysis?tab=event&event=${data.event.id}`}>このイベントの損益分岐のグラフを見る</Link>
       <ReopenCard ctx={ctx} eventId={data.event.id} onReopened={onReopened} />

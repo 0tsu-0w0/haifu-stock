@@ -683,3 +683,6 @@ details[open] summary { margin-bottom: 6px; }
 .consign-csv select, .consign-form .rowx > input[type="date"] { height: 40px; max-width: 60%; border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font: inherit; padding: 0 8px; }
 .form textarea { border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font: inherit; padding: 10px 12px; resize: vertical; min-height: 64px; }
 .low-tag { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-line); white-space: nowrap; }
+/* シートを開いているあいだの知らせは、シートの説明に重ならないよう画面の上に出す */
+body:has(.scrim) .toast { bottom: auto; top: calc(12px + env(safe-area-inset-top, 0px)); transform: translate(-50%, -12px); }
+body:has(.scrim) .toast.show { transform: translate(-50%, 0); }
