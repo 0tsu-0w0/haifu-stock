@@ -15,7 +15,7 @@ import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../components/Toast';
 import type { ExpenseCategory } from '../db/types';
 import {
-  EXPENSE_LABEL, copyFloatAndExpenses, deleteEvent, ensureEventType, eventTypes, planFromEvent, prepareEvent, preparedQty, saveEventInfo, saveExpense, saveFloat, saveSortOrder,
+  EXPENSE_LABEL, copyFloatAndExpenses, deleteEvent, directDelivered, ensureEventType, eventTypes, planFromEvent, prepareEvent, preparedQty, saveEventInfo, saveExpense, saveFloat, saveSortOrder,
   type PrepareLine,
 } from '../domain/catalog';
 import { DENOMINATIONS } from '../domain/closing';
@@ -49,7 +49,7 @@ export function EventPreparePage() {
 
   const data = useLiveQuery(async () => {
     if (!ctx) return null;
-    const [event, items, owners, storages, eventItems, prepared, cash, expenses, closings, stock, events, types] = await Promise.all([
+    const [event, items, owners, storages, eventItems, prepared, cash, expenses, closings, stock, events, types, direct] = await Promise.all([
       isNew ? undefined : db.events.get(eventId!),
       db.items.where('circle_id').equals(ctx.circleId).toArray(),
       db.owners.where('circle_id').equals(ctx.circleId).toArray(),
@@ -62,11 +62,12 @@ export function EventPreparePage() {
       storageStock(db, ctx.circleId),
       db.events.where('circle_id').equals(ctx.circleId).toArray(),
       eventTypes(db, ctx.circleId),
+      isNew ? new Map<string, number>() : directDelivered(db, eventId!),
     ]);
     // コピー元にできるイベント(F-303): 削除していない、ほかのイベント。新しい順
     const others = events.filter((e) => !e.deleted_at && e.id !== eventId).sort((a, b) => b.held_on.localeCompare(a.held_on));
     return {
-      event, items, owners, storages, eventItems, prepared, cash, expenses, others, types,
+      event, items, owners, storages, eventItems, prepared, cash, expenses, others, types, direct,
       closed: closings.some((c) => !c.reopened_at), stock,
     };
   }, [ctx?.circleId, eventId]);
@@ -364,7 +365,10 @@ export function EventPreparePage() {
                   </label>
                   {l.included && i.kind !== 'set' && (
                     <div className="rowx">
-                      <span className="k">{own ? '持ち込み' : '預かり'}{prepared ? `(いま ${prepared})` : ''}</span>
+                      <span className="k">
+                        {own ? '持ち込み' : '預かり'}{prepared ? `(いま ${prepared})` : ''}
+                        {data.direct.get(i.id) ? <small>・うち直接搬入 {data.direct.get(i.id)}部</small> : null}
+                      </span>
                       <NumberField id={`bring-${i.id}`} label={`${i.name}の${own ? '持ち込み' : '預かり'}数`} value={l.bring} onCommit={(v) => setLine(i.id, { bring: v })} />
                     </div>
                   )}
