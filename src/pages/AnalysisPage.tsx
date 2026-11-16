@@ -1,3 +1,4 @@
+import { consignByItem, consigneeState } from '../domain/consignOut';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -43,7 +44,7 @@ export function AnalysisPage() {
         : tab === 'year' ? <YearSummaryView circleId={ctx!.circleId} />
         : tab === 'consign' ? <ConsignAnalysisView circleId={ctx!.circleId} data={data} />
         : tab === 'forecast' ? <Forecast data={data} opts={opts} setOpts={setOpts} />
-        : tab === 'item' ? <ItemBreakEvens data={data} selected={params.get('item')} onSelect={(id) => setParams({ tab: 'item', item: id }, { replace: true })} />
+        : tab === 'item' ? <ItemBreakEvens circleId={ctx!.circleId} data={data} selected={params.get('item')} onSelect={(id) => setParams({ tab: 'item', item: id }, { replace: true })} />
         : <EventBreakEven data={data} selected={params.get('event')} onSelect={(id) => setParams({ tab: 'event', event: id }, { replace: true })} />}
     </main>
   );
@@ -184,7 +185,9 @@ function ReprintCard({ plan, opts }: { plan: ReprintPlan; opts: ForecastOptions 
   );
 }
 
-function ItemBreakEvens({ data, selected, onSelect }: { data: AnalysisData; selected: string | null; onSelect: (id: string) => void }) {
+function ItemBreakEvens({ circleId, data, selected, onSelect }: { circleId: string; data: AnalysisData; selected: string | null; onSelect: (id: string) => void }) {
+  // 委託で売れた分(損益分岐には入れず、並べて出す。決定事項 #15)
+  const shop = useLiveQuery(async () => consignByItem(await consigneeState(db, circleId)), [circleId]);
   const list = useMemo(() => data.ownItems.filter((i) => !i.archived_at).map((i) => itemBreakEven(data, i)), [data]);
   const [edition, setEdition] = useState<number | undefined>(undefined);
   // 価格を変えたときの試算(F-1106)。null は試算していない
@@ -233,6 +236,16 @@ function ItemBreakEvens({ data, selected, onSelect }: { data: AnalysisData; sele
               <strong className="num">{recovered ? `${be}部目で回収` : `あと${Math.max(be - cur.soldQty, 0)}部`}</strong>
             </div>
           </div>
+          {ed === undefined && (shop?.get(cur.item.id)?.qty ?? 0) > 0 && (() => {
+            const c = shop!.get(cur.item.id)!;
+            const rest = cur.fixedCost - cur.soldAmount - c.net;
+            return (
+              <p className="note">
+                このほかに、委託で {c.qty}部売れ、手数料を引いて {yen(c.net)} を受け取ります(上の損益分岐とグラフは、イベントの販売だけで数えています)。
+                委託の分も合わせると、{rest <= 0 ? `費用を回収して ${yen(-rest)} の黒字です。` : `回収まであと ${yen(rest)} です。`}
+              </p>
+            );
+          })()}
           <LineChart
             title={`${cur.item.name}${ed === undefined ? '' : ed === editions[0] ? '(初版)' : `(第${ed}版)`} の損益分岐`}
             xMax={xMax}

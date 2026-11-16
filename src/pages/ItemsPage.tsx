@@ -75,7 +75,11 @@ export function ItemsPage() {
                       <b>{i.name}</b>
                       <small>{KIND_LABEL[i.kind]}・{yen(i.price)}{i.archived_at ? '・アーカイブ済み' : ''}</small>
                     </span>
-                    {trackHome && o.is_self && i.kind !== 'set' && <span className="k num">保管 {atStorage(i.id)}</span>}
+                    {trackHome && o.is_self && i.kind !== 'set' && (
+                      !i.archived_at && atStorage(i.id) <= i.low_threshold
+                        ? <span className="low-tag num">保管 {atStorage(i.id)}・残りわずか</span>
+                        : <span className="k num">保管 {atStorage(i.id)}</span>
+                    )}
                   </Link>
                 </li>
               ))}

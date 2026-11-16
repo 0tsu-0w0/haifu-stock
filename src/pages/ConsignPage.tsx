@@ -10,7 +10,7 @@ import { useToast } from '../components/Toast';
 import type { ConsignmentReport, Item, Location } from '../db/types';
 import { decodeCsv, matchSales, readSalesCsv, type CsvSale } from '../domain/consignCsv';
 import {
-  consigneeState, defaultFee, markConsigneePaid, recordConsignReport, returnFromConsignee, saveConsignee, sendToConsignee,
+  consigneeState, defaultFee, lastConsignPrice, markConsigneePaid, recordConsignReport, returnFromConsignee, saveConsignee, sendToConsignee,
   setConsigneeArchived, setConsignReportPaid, setConsignReportVoided, updateConsignReport, type ConsigneeState,
 } from '../domain/consignOut';
 import { storageStock } from '../domain/stock';
@@ -323,9 +323,11 @@ function MoveForm(props: {
 
   const leftOf = (id: string) => (s.items.get(id)?.left ?? 0) + (own.get(id) ?? 0);
   const list = mode === 'send' ? items.filter((i) => !i.archived_at || leftOf(i.id) > 0) : items.filter((i) => leftOf(i.id) > 0);
+  // 売値の既定: この委託先で前に売った値段(書店ごとに売値が違うことがある)。なければ品目の価格
+  const basePrice = (i: Item) => lastConsignPrice(s, i.id) ?? i.price;
   const priceOf = (i: Item) => {
     const v = price.get(i.id);
-    return v === undefined || v === '' ? i.price : Number(v);
+    return v === undefined || v === '' ? basePrice(i) : Number(v);
   };
   const lines: Line[] = list.filter((i) => (qty.get(i.id) ?? 0) > 0).map((i) => ({ itemId: i.id, qty: qty.get(i.id)!, unitPrice: priceOf(i) }));
   const count = lines.reduce((a, l) => a + l.qty, 0);
@@ -405,7 +407,7 @@ function MoveForm(props: {
             <div className="rowx">
               <label className="k" htmlFor={`cs-price-${i.id}`}>1部の売値</label>
               <input
-                id={`cs-price-${i.id}`} className="price-in" inputMode="numeric" placeholder={String(i.price)} value={price.get(i.id) ?? ''}
+                id={`cs-price-${i.id}`} className="price-in" inputMode="numeric" placeholder={String(basePrice(i))} value={price.get(i.id) ?? ''}
                 onChange={(e) => setPrice((m) => new Map(m).set(i.id, e.target.value.replace(/\D/g, '')))}
               />
             </div>

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { freshDb } from '../test/helpers';
 import { addPrintRun, saveItem } from './catalog';
 import {
-  consignAnalysis, consigneeState, recordConsignReport, returnFromConsignee, saveConsignee, sendToConsignee,
+  consignAnalysis, consignByItem, consigneeState, lastConsignPrice, recordConsignReport, returnFromConsignee, saveConsignee, sendToConsignee,
   markConsigneePaid, setConsigneeArchived, setConsignReportPaid, setConsignReportVoided, updateConsignReport,
 } from './consignOut';
 import { storageStock } from './stock';
@@ -136,5 +136,26 @@ describe('委託の報告を直す', () => {
     await expect(updateConsignReport(db, r.id, { reportedOn: '2026-11-30', lines: [{ itemId: a.id, qty: 1, unitPrice: 800 }] })).rejects.toThrow('取り消した報告は直せません');
     await returnFromConsignee(db, ctx, { from: shop.id, to: home.id, lines: [{ itemId: a.id, qty: 2 }] });
     await expect(setConsignReportVoided(db, r.id, false)).rejects.toThrow('残りが1部しかありません');
+  });
+});
+
+describe('品目ごとの委託の受け取る金額', () => {
+  it('手数料は報告の中の売上の比で品目に分ける。売値は委託先で最後に売った値段を覚える', async () => {
+    const { db, ctx, home, a, b, shop } = await setup();
+    await addPrintRun(db, ctx, { itemId: b.id, qty: 20, totalCost: 6000, printedOn: '2026-10-01', toLocationId: home.id });
+    await sendToConsignee(db, ctx, { to: shop.id, from: home.id, lines: [{ itemId: a.id, qty: 10 }, { itemId: b.id, qty: 10 }] });
+    // 売上 3,000 + 1,000 = 4,000、手数料 1,000 → A に 750、B に 250
+    await recordConsignReport(db, ctx, { locationId: shop.id, reportedOn: '2026-11-30', lines: [{ itemId: a.id, qty: 3, unitPrice: 1000 }, { itemId: b.id, qty: 2, unitPrice: 500 }], fee: 1000 });
+    await recordConsignReport(db, ctx, { locationId: shop.id, reportedOn: '2026-12-31', lines: [{ itemId: a.id, qty: 1, unitPrice: 900 }], fee: 0 });
+    const voided = await recordConsignReport(db, ctx, { locationId: shop.id, reportedOn: '2027-01-31', lines: [{ itemId: a.id, qty: 1, unitPrice: 100 }] });
+    await setConsignReportVoided(db, voided.id, true);
+    const states = await consigneeState(db, ctx.circleId);
+    const by = consignByItem(states);
+    expect(by.get(a.id)).toEqual({ qty: 4, sales: 3900, net: 3150 });
+    expect(by.get(b.id)).toEqual({ qty: 2, sales: 1000, net: 750 });
+    const s = states.get(shop.id)!;
+    expect(lastConsignPrice(s, a.id)).toBe(900); // 取り消した報告(100円)は見ない
+    expect(lastConsignPrice(s, b.id)).toBe(500);
+    expect(lastConsignPrice(s, 'none')).toBeUndefined();
   });
 });

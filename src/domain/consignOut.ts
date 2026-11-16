@@ -332,3 +332,33 @@ export function consignAnalysis(
     },
   };
 }
+
+/**
+ * 品目ごとの、委託で売れた部数・売上・受け取る金額(売上 − 手数料)。
+ * 手数料は報告ごとにしか分からないので、報告の中の売上の比で品目に分ける
+ */
+export function consignByItem(states: Map<string, ConsigneeState>): Map<string, { qty: number; sales: number; net: number }> {
+  const out = new Map<string, { qty: number; sales: number; net: number }>();
+  for (const s of states.values()) {
+    for (const r of s.reports) {
+      const total = r.lines.reduce((a, l) => a + l.qty * l.unit_price, 0);
+      for (const l of r.lines) {
+        const sales = l.qty * l.unit_price;
+        const fee = total > 0 ? (r.fee_amount * sales) / total : 0;
+        const x = out.get(l.item_id) ?? { qty: 0, sales: 0, net: 0 };
+        out.set(l.item_id, { qty: x.qty + l.qty, sales: x.sales + sales, net: x.net + sales - fee });
+      }
+    }
+  }
+  for (const x of out.values()) x.net = Math.round(x.net);
+  return out;
+}
+
+/** 委託先でその品目を最後に売った値段(報告の新しい順に探す)。なければ undefined */
+export function lastConsignPrice(s: ConsigneeState, itemId: string): number | undefined {
+  for (const r of s.reports) {
+    const l = r.lines.find((x) => x.item_id === itemId);
+    if (l) return l.unit_price;
+  }
+  return undefined;
+}
