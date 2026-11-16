@@ -1,3 +1,4 @@
+import { ItemConsign } from '../components/ConsignGlance';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -276,6 +277,7 @@ export function ItemEditPage() {
               <div className="rowx" key={l.id}><span>{l.name}</span><b className="num">{data.stock.get(`${item.id}|${l.id}`) ?? 0}部</b></div>
             ))}
           </div>}
+          <ItemConsign circleId={ctx.circleId} itemId={item.id} />
 
           <h3 className="section">刷り記録</h3>
           <div className="card">

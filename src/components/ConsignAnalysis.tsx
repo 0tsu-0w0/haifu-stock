@@ -33,12 +33,12 @@ export function ConsignAnalysisView({ circleId, data }: { circleId: string; data
         <div className="metric"><small>イベントの売上</small><strong className="num">{yen(t.eventSales)}</strong><small>{share(t.eventSales, all)}</small></div>
         <div className="metric"><small>委託の売上</small><strong className="num">{yen(t.shopSales)}</strong><small>{share(t.shopSales, all)}・手数料 {yen(t.shopFee)}</small></div>
       </div>
-      <p className="note">これまでの累計です(自分の頒布物だけ)。委託の売上は委託先の売値で数え、受け取る金額は手数料を引いた {yen(t.shopNet)} です。委託先に残っている本は {t.shopLeft}部です。</p>
+      <p className="note">これまでの累計です(自分の頒布物だけ)。委託の売上は委託先の売値で数え、受け取る金額は手数料を引いた {yen(t.shopNet)} です{t.shopUnpaid > 0 ? `(うち ${yen(t.shopUnpaid)} は、まだ入金されていません)` : ''}。委託先に残っている本は {t.shopLeft}部です。</p>
 
       <h3 className="section">委託先ごと</h3>
       <div className="card table-scroll">
         <table className="tbl small report-tbl">
-          <thead><tr><th>委託先</th><th>売れた</th><th>売上</th><th>手数料</th><th>受け取る</th><th>残り</th></tr></thead>
+          <thead><tr><th>委託先</th><th>売れた</th><th>売上</th><th>手数料</th><th>受け取る</th><th>未入金</th><th>残り</th></tr></thead>
           <tbody>
             {a.shops.map((s) => (
               <tr key={s.id}>
@@ -47,6 +47,7 @@ export function ConsignAnalysisView({ circleId, data }: { circleId: string; data
                 <td className="num">{yen(s.sales)}</td>
                 <td className="num">{yen(s.fee)}</td>
                 <td className="num">{yen(s.net)}</td>
+                <td className="num">{s.unpaid > 0 ? yen(s.unpaid) : '−'}</td>
                 <td className="num">{s.left}</td>
               </tr>
             ))}

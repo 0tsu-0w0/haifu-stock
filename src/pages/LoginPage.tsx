@@ -7,7 +7,7 @@ import { isIos, isStandalone } from '../app/install';
 import { useSync } from '../app/SyncProvider';
 import { useToast } from '../components/Toast';
 import { getMeta, setMeta } from '../db/local';
-import { authCodeInUrl } from '../sync/supabaseClient';
+import { server } from '../server';
 
 // Google やメールのリンクから戻ってきたら、ログイン後の処理を続けるための印(1時間で無効)
 const PENDING_KEY = 'pending_login';
@@ -57,7 +57,7 @@ export function LoginPage() {
   const [sentAt, setSentAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const resumed = useRef(false);
-  const loggedIn = !!session && !session.user.is_anonymous;
+  const loggedIn = !!session && !session.anonymous;
 
   // もう一度送れるまでの残り秒数を出すため、送ったあとは1秒ごとに描き直す
   useEffect(() => {
@@ -71,7 +71,7 @@ export function LoginPage() {
   useEffect(() => {
     if (!sent || !loggedIn || resumed.current) return;
     void (async () => {
-      if ((await getMeta<string>(db, 'user_id')) !== session!.user.id || resumed.current) return;
+      if ((await getMeta<string>(db, 'user_id')) !== session!.userId || resumed.current) return;
       toast('ログインしました');
       navigate('/');
     })();
@@ -93,20 +93,20 @@ export function LoginPage() {
       window.history.replaceState(null, '', '/login');
       return;
     }
-    if (authCodeInUrl && session === null && !resumed.current) {
+    if (server?.returnedFromLogin && session === null && !resumed.current) {
       setError('このリンクは、ログインのメールを送ったのと同じブラウザで開いてください(ホーム画面に追加したアプリから送った場合は、そのアプリで)。もう一度メールを送ってください');
       window.history.replaceState(null, '', '/login');
       return;
     }
-    if (!backend || !session || session.user.is_anonymous || resumed.current) return;
+    if (!backend || !session || session.anonymous || resumed.current) return;
     void (async () => {
       const at = await getMeta<number>(db, PENDING_KEY);
       const pending = !!at && Date.now() - at <= PENDING_MS;
-      const adopted = (await getMeta<string>(db, 'user_id')) === session.user.id;
+      const adopted = (await getMeta<string>(db, 'user_id')) === session.userId;
       if ((!pending && adopted) || resumed.current) return;
       resumed.current = true;
       await setMeta(db, PENDING_KEY, null);
-      await run(() => completeLogin(session.user.id));
+      await run(() => completeLogin(session.userId));
     })();
   }, [backend, session]);
 
@@ -195,7 +195,7 @@ export function LoginPage() {
       <main className="page">
         <h1>ログイン</h1>
         <div className="card form">
-          <p><b>{session!.user.email}</b> でログインしています。</p>
+          <p><b>{session!.email}</b> でログインしています。</p>
           {error && <p className="error">{error}</p>}
           <Link className="btn primary center" to="/">ホームに戻る</Link>
           <button className="link-btn" onClick={() => { setSwitching(true); setEmail(''); }}>別のアカウントでログインする</button>

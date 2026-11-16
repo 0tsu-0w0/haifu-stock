@@ -69,6 +69,8 @@ export interface ConsigneeState {
   fee: number;
   /** 受け取る金額(売上 − 手数料) */
   net: number;
+  /** そのうち、まだ入金されていない金額 */
+  unpaid: number;
   reports: ConsignmentReport[];
   /** 最後に預けた・報告した日 */
   lastActivity: string | null;
@@ -80,7 +82,7 @@ export function summarizeConsignees(
 ): Map<string, ConsigneeState> {
   const out = new Map<string, ConsigneeState>();
   for (const l of locations.filter((x) => x.kind === 'consignee')) {
-    out.set(l.id, { location: l, items: new Map(), sent: 0, returned: 0, sold: 0, left: 0, sales: 0, fee: 0, net: 0, reports: [], lastActivity: null });
+    out.set(l.id, { location: l, items: new Map(), sent: 0, returned: 0, sold: 0, left: 0, sales: 0, fee: 0, net: 0, unpaid: 0, reports: [], lastActivity: null });
   }
   const itemOf = (s: ConsigneeState, itemId: string) => {
     let x = s.items.get(itemId);
@@ -104,6 +106,7 @@ export function summarizeConsignees(
     if (!s || r.voided_at) continue;
     s.reports.push(r);
     s.fee += r.fee_amount;
+    if (!r.paid_on) s.unpaid += r.sales_amount - r.fee_amount;
     touch(s, r.reported_on);
     for (const l of r.lines) {
       const x = itemOf(s, l.item_id);
@@ -207,7 +210,7 @@ export async function recordConsignReport(
   const report: ConsignmentReport = {
     id: uuidv7(), circle_id: ctx.circleId, location_id: loc.id, reported_on: input.reportedOn,
     lines: lines.map((l) => ({ item_id: l.itemId, qty: l.qty, unit_price: l.unitPrice })),
-    sales_amount: sales, fee_amount: fee, note: input.note?.trim() || null, voided_at: null, client_updated_at: stamp(),
+    sales_amount: sales, fee_amount: fee, note: input.note?.trim() || null, voided_at: null, paid_on: null, client_updated_at: stamp(),
   };
   await db.transaction('rw', ['consignment_reports', 'outbox'], () => putAndQueue(db, 'consignment_reports', report));
   return report;
@@ -222,12 +225,35 @@ export async function setConsignReportVoided(db: HaifuDB, reportId: string, void
   });
 }
 
+const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+/** 報告の分の入金を記録する・取り消す(paidOn に null を渡すと「まだ」に戻す) */
+export async function setConsignReportPaid(db: HaifuDB, reportId: string, paidOn: string | null): Promise<void> {
+  if (paidOn !== null && !isDate(paidOn)) throw new Error('入金の日を入れてください');
+  await db.transaction('rw', ['consignment_reports', 'outbox'], async () => {
+    const cur = await db.consignment_reports.get(reportId);
+    if (!cur) throw new Error('報告が見つかりません');
+    if (cur.voided_at) throw new Error('取り消した報告です');
+    await putAndQueue(db, 'consignment_reports', { ...cur, paid_on: paidOn, client_updated_at: stamp() });
+  });
+}
+
+/** 委託先の、まだ入金されていない報告をまとめて入金済みにする。入金済みにした件数を返す */
+export async function markConsigneePaid(db: HaifuDB, locationId: string, paidOn: string): Promise<number> {
+  if (!isDate(paidOn)) throw new Error('入金の日を入れてください');
+  return db.transaction('rw', ['consignment_reports', 'outbox'], async () => {
+    const rows = await db.consignment_reports.where('location_id').equals(locationId).filter((r) => !r.voided_at && !r.paid_on).toArray();
+    for (const r of rows) await putAndQueue(db, 'consignment_reports', { ...r, paid_on: paidOn, client_updated_at: stamp() });
+    return rows.length;
+  });
+}
+
 export interface ConsignAnalysis {
   /** 委託先ごと(期間内の報告だけで数える) */
-  shops: { id: string; name: string; feeRate: number; sold: number; sales: number; fee: number; net: number; left: number }[];
+  shops: { id: string; name: string; feeRate: number; sold: number; sales: number; fee: number; net: number; unpaid: number; left: number }[];
   /** 品目ごとの、イベントで売れた分と委託で売れた分 */
   items: { itemId: string; name: string; eventQty: number; eventSales: number; shopQty: number; shopSales: number }[];
-  totals: { eventSales: number; shopSales: number; shopFee: number; shopNet: number; shopLeft: number };
+  totals: { eventSales: number; shopSales: number; shopFee: number; shopNet: number; shopUnpaid: number; shopLeft: number };
 }
 
 /**
@@ -242,9 +268,10 @@ export function consignAnalysis(
   const shopByItem = new Map<string, { qty: number; sales: number }>();
   const shops: ConsignAnalysis['shops'] = [];
   for (const s of states.values()) {
-    let sold = 0, sales = 0, fee = 0;
+    let sold = 0, sales = 0, fee = 0, unpaid = 0;
     for (const r of s.reports.filter((x) => inYear(x.reported_on))) {
       fee += r.fee_amount;
+      if (!r.paid_on) unpaid += r.sales_amount - r.fee_amount;
       for (const l of r.lines) {
         sold += l.qty;
         sales += l.qty * l.unit_price;
@@ -255,7 +282,7 @@ export function consignAnalysis(
       }
     }
     if (sold === 0 && s.left === 0 && s.location.archived_at) continue;
-    shops.push({ id: s.location.id, name: s.location.name, feeRate: s.location.fee_rate ?? 0, sold, sales, fee, net: sales - fee, left: s.left });
+    shops.push({ id: s.location.id, name: s.location.name, feeRate: s.location.fee_rate ?? 0, sold, sales, fee, net: sales - fee, unpaid, left: s.left });
   }
   const ids = new Set([...eventSales.keys(), ...shopByItem.keys()]);
   const rows = items.filter((i) => ids.has(i.id)).map((i) => ({
@@ -270,7 +297,7 @@ export function consignAnalysis(
     items: rows,
     totals: {
       eventSales: sum(rows, (r) => r.eventSales), shopSales: sum(shops, (s) => s.sales), shopFee: sum(shops, (s) => s.fee),
-      shopNet: sum(shops, (s) => s.net), shopLeft: sum(shops, (s) => s.left),
+      shopNet: sum(shops, (s) => s.net), shopUnpaid: sum(shops, (s) => s.unpaid), shopLeft: sum(shops, (s) => s.left),
     },
   };
 }

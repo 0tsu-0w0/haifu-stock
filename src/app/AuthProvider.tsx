@@ -1,41 +1,31 @@
-import type { Session } from '@supabase/supabase-js';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getRole, type AuthBackend, type Role } from '../auth/account';
-import { SupabaseAuthBackend } from '../auth/supabaseBackend';
-import { getSupabase, supabaseConfig } from '../sync/supabaseClient';
+import { server, type AuthSession } from '../server';
 import { db } from './db';
 
 interface AuthApi {
-  /** 同期先(Supabase)が設定されているか */
+  /** 同期先のサーバーが設定されているか */
   configured: boolean;
   backend: AuthBackend | null;
   /** 読み込み中は undefined、未ログインは null */
-  session: Session | null | undefined;
+  session: AuthSession | null | undefined;
   role: Role;
   signOut: () => Promise<void>;
 }
 
 const Ctx = createContext<AuthApi | null>(null);
-const backend = supabaseConfig
-  ? new SupabaseAuthBackend(() => getSupabase()!, supabaseConfig.url, supabaseConfig.anonKey)
-  : null;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null | undefined>(supabaseConfig ? undefined : null);
+  const [session, setSession] = useState<AuthSession | null | undefined>(server ? undefined : null);
   const role = useLiveQuery(() => getRole(db), [], 'owner' as Role);
 
   useEffect(() => {
-    const client = getSupabase();
-    if (!client) return;
+    if (!server) return;
     let stop = false;
-    let unsubscribe = () => {};
-    void client.then((c) => {
-      if (stop) return;
-      void c.auth.getSession().then(({ data }) => setSession(data.session));
-      const { data } = c.auth.onAuthStateChange((_event, s) => setSession(s));
-      unsubscribe = () => data.subscription.unsubscribe();
-    }, () => setSession(null)); // ライブラリを読み込めなかったら、ログインしていないものとして端末の中だけで動く
+    // ライブラリを読み込めなかったら、ログインしていないものとして端末の中だけで動く
+    void server.getSession().then((s) => !stop && setSession(s), () => !stop && setSession(null));
+    const unsubscribe = server.onSessionChange((s) => setSession(s));
     return () => {
       stop = true;
       unsubscribe();
@@ -43,13 +33,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthApi>(() => ({
-    configured: !!supabaseConfig,
-    backend,
+    configured: !!server,
+    backend: server?.auth ?? null,
     session,
     role,
     // ログアウトしても端末のデータは消さない(会場ではオフラインでも記録を続けられるように)
     signOut: async () => {
-      await (await getSupabase())?.auth.signOut();
+      await server?.signOut();
     },
   }), [session, role]);
 

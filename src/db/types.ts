@@ -322,6 +322,8 @@ export interface ConsignmentReport extends FromServer {
   note: string | null;
   /** 入れ間違いで取り消した時刻 */
   voided_at: Iso | null;
+  /** 委託先から入金があった日(まだなら null。古い版が作った行にはない) */
+  paid_on?: string | null;
   client_updated_at: Iso;
 }
 

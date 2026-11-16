@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '../app/db';
 import { usePref } from '../app/prefs';
@@ -8,9 +8,10 @@ import { NumberField } from '../components/NumberField';
 import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../components/Toast';
 import type { Item, Location } from '../db/types';
+import { decodeCsv, matchSales, readSalesCsv, type CsvSale } from '../domain/consignCsv';
 import {
-  consigneeState, defaultFee, recordConsignReport, returnFromConsignee, saveConsignee, sendToConsignee,
-  setConsigneeArchived, setConsignReportVoided, type ConsigneeState,
+  consigneeState, defaultFee, markConsigneePaid, recordConsignReport, returnFromConsignee, saveConsignee, sendToConsignee,
+  setConsigneeArchived, setConsignReportPaid, setConsignReportVoided, type ConsigneeState,
 } from '../domain/consignOut';
 import { storageStock } from '../domain/stock';
 import { yen } from '../lib/format';
@@ -49,7 +50,7 @@ export function ConsignPage() {
   const shops = [...data.states.values()].sort((a, b) => (b.lastActivity ?? '').localeCompare(a.lastActivity ?? '') || a.location.name.localeCompare(b.location.name, 'ja'));
   const active = shops.filter((s) => !s.location.archived_at);
   const archived = shops.filter((s) => s.location.archived_at);
-  const total = active.reduce((a, s) => ({ left: a.left + s.left, net: a.net + s.net }), { left: 0, net: 0 });
+  const total = active.reduce((a, s) => ({ left: a.left + s.left, net: a.net + s.net, unpaid: a.unpaid + s.unpaid }), { left: 0, net: 0, unpaid: 0 });
 
   async function attempt(fn: () => Promise<unknown>, done: string) {
     try {
@@ -69,7 +70,7 @@ export function ConsignPage() {
       {active.length > 0 && (
         <div className="metrics">
           <div className="metric"><small>預けている</small><strong className="num">{total.left}部</strong></div>
-          <div className="metric"><small>受け取る金額(累計)</small><strong className="num">{yen(total.net)}</strong></div>
+          <div className="metric"><small>まだ入金されていない</small><strong className="num">{yen(total.unpaid)}</strong><small>受け取る金額の累計 {yen(total.net)}</small></div>
         </div>
       )}
 
@@ -137,6 +138,8 @@ function ShopCard(props: {
   const { s, items, open, onOpen, attempt } = props;
   const [edit, setEdit] = useState(false);
   const [showReports, setShowReports] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [paidOn, setPaidOn] = useState(today());
   const nameOf = (id: string) => items.find((i) => i.id === id)?.name ?? '品目';
   const rows = [...s.items.values()].filter((x) => x.sent > 0).sort((a, b) => b.left - a.left || nameOf(a.itemId).localeCompare(nameOf(b.itemId), 'ja'));
   const ctx = useCtx();
@@ -155,6 +158,28 @@ function ShopCard(props: {
         <span><small className="k">売上</small> <b className="num">{yen(s.sales)}</b></span>
         <span><small className="k">受け取る</small> <b className="num">{yen(s.net)}</b></span>
       </div>
+      {s.unpaid > 0 && (
+        <div className="rowx consign-unpaid">
+          <span>まだ入金されていない <b className="num">{yen(s.unpaid)}</b></span>
+          <button className="sbtn" aria-expanded={paying} onClick={() => setPaying((v) => !v)}>{paying ? '閉じる' : '入金があった'}</button>
+        </div>
+      )}
+      {paying && s.unpaid > 0 && (
+        <form
+          className="consign-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void attempt(() => markConsigneePaid(db, s.location.id, paidOn), `${yen(s.unpaid)} を入金済みにしました`).then((ok) => ok && setPaying(false));
+          }}
+        >
+          <div className="rowx">
+            <label className="k" htmlFor={`pay-${s.location.id}`}>入金の日</label>
+            <input id={`pay-${s.location.id}`} type="date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
+          </div>
+          <button className="btn primary" disabled={!paidOn}>{yen(s.unpaid)} を入金済みにする</button>
+          <p className="note">まだ入金されていない報告を、まとめて入金済みにします。一部だけのときは「これまでの報告」から1件ずつ入れられます。</p>
+        </form>
+      )}
       <div className="chips" role="group" aria-label={`${s.location.name}の記録`}>
         {(['send', 'report', 'return'] as Mode[]).map((m) => (
           <button key={m} className="chip" aria-pressed={open === m} disabled={m !== 'send' && s.left === 0} onClick={() => onOpen(m)}>{MODE_LABEL[m]}</button>
@@ -237,8 +262,16 @@ function Reports({ locationId, nameOf, attempt }: {
         <li key={r.id} className={r.voided_at ? 'archived' : ''}>
           <div className="rowx">
             <span>
-              <b>{r.reported_on}</b> {yen(r.sales_amount)}<small className="k">(手数料 {yen(r.fee_amount)}){r.voided_at ? '・取り消し済み' : ''}</small>
+              <b>{r.reported_on}</b> {yen(r.sales_amount)}<small className="k">(手数料 {yen(r.fee_amount)}){r.voided_at ? '・取り消し済み' : r.paid_on ? `・${r.paid_on} 入金` : '・まだ入金されていない'}</small>
             </span>
+            {!r.voided_at && (
+              <button
+                className="link-btn small-link"
+                onClick={() => void attempt(() => setConsignReportPaid(db, r.id, r.paid_on ? null : today()), r.paid_on ? '入金をまだに戻しました' : `${yen(r.sales_amount - r.fee_amount)} を入金済みにしました`)}
+              >
+                {r.paid_on ? '入金を戻す' : '入金済みにする'}
+              </button>
+            )}
             <button className="link-btn small-link" onClick={() => void attempt(() => setConsignReportVoided(db, r.id, !r.voided_at), r.voided_at ? '報告を戻しました' : '報告を取り消しました')}>
               {r.voided_at ? '戻す' : '取り消す'}
             </button>
@@ -264,6 +297,10 @@ function MoveForm(props: {
   const [fee, setFee] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  // CSV から読んだ行のうち、どの品目か分からなかったもの(F-604)
+  const [loose, setLoose] = useState<CsvSale[]>([]);
+  const [csvMsg, setCsvMsg] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const leftOf = (id: string) => s.items.get(id)?.left ?? 0;
   const list = mode === 'send' ? items.filter((i) => !i.archived_at || leftOf(i.id) > 0) : items.filter((i) => leftOf(i.id) > 0);
@@ -276,6 +313,50 @@ function MoveForm(props: {
   const sales = lines.reduce((a, l) => a + l.qty * l.unitPrice, 0);
   const autoFee = defaultFee(sales, s.location.fee_rate);
   const cap = (id: string, v: number) => (mode === 'send' ? v : Math.min(v, leftOf(id)));
+
+  /** CSV の1行を品目に足す。預けている部数より多い分は入れない */
+  function addSale(itemId: string, sale: { qty: number; unitPrice: number | null }): number {
+    const had = qty.get(itemId) ?? 0;
+    const add = Math.min(sale.qty, Math.max(0, leftOf(itemId) - had));
+    if (add > 0) {
+      setQty((m) => new Map(m).set(itemId, had + add));
+      // すでに入っている分と売値が違うときは、ならした売値にする(売上の合計が変わらないように)
+      const item = list.find((i) => i.id === itemId);
+      if (sale.unitPrice !== null && item) {
+        const blended = Math.round((had * priceOf(item) + add * sale.unitPrice) / (had + add));
+        setPrice((m) => new Map(m).set(itemId, String(blended)));
+      }
+    }
+    return sale.qty - add;
+  }
+
+  async function loadCsv(file: File) {
+    try {
+      const draft = matchSales(readSalesCsv(decodeCsv(await file.arrayBuffer())), list);
+      setQty(new Map());
+      setPrice(new Map());
+      const next = new Map<string, number>();
+      const prices = new Map<string, string>();
+      let over = 0;
+      for (const m of draft.matched) {
+        const add = Math.min(m.qty, leftOf(m.itemId));
+        over += m.qty - add;
+        if (add > 0) next.set(m.itemId, add);
+        if (m.unitPrice !== null) prices.set(m.itemId, String(m.unitPrice));
+      }
+      setQty(next);
+      setPrice(prices);
+      setLoose(draft.unmatched);
+      const got = [...next.values()].reduce((a, n) => a + n, 0);
+      setCsvMsg(`${file.name} から ${draft.matched.length}品目・${got}部を入れました。`
+        + (over > 0 ? `預けている部数より ${over}部多かったので、その分は入れていません(先に「預ける」を入れてください)。` : '')
+        + (draft.unmatched.length > 0 ? `どの品目か分からない行が ${draft.unmatched.length}件あります。下で選んでください。` : '')
+        + '数と売値を確かめてから記録してください。');
+    } catch (e) {
+      setLoose([]);
+      setCsvMsg(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   return (
     <form
@@ -318,6 +399,40 @@ function MoveForm(props: {
           <select id="cs-storage" value={storageId} onChange={(e) => setStorageId(e.target.value)}>
             {storages.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
+        </div>
+      )}
+
+      {mode === 'report' && list.length > 0 && (
+        <div className="consign-csv">
+          <input
+            ref={fileRef} type="file" accept=".csv,.tsv,.txt,text/csv" hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) void loadCsv(f);
+            }}
+          />
+          <button type="button" className="link-btn small-link" onClick={() => fileRef.current?.click()}>販売実績のCSVから入れる</button>
+          {csvMsg && <p className="note" role="status">{csvMsg}</p>}
+          {loose.map((u, n) => (
+            <div className="rowx" key={`${u.name}-${n}`}>
+              <span>{u.name}<small className="k"> {u.qty}部{u.unitPrice !== null ? `×${yen(u.unitPrice)}` : ''}</small></span>
+              <select
+                aria-label={`「${u.name}」の品目`} value=""
+                onChange={(e) => {
+                  const id = e.target.value;
+                  if (!id) return;
+                  const rest = id === '-' ? 0 : addSale(id, u);
+                  setLoose((xs) => xs.filter((_, i) => i !== n));
+                  if (rest > 0) setCsvMsg(`「${u.name}」は預けている部数より ${rest}部多かったので、その分は入れていません。`);
+                }}
+              >
+                <option value="">品目を選ぶ</option>
+                {list.map((i) => <option key={i.id} value={i.id}>{i.name}(預け中 {leftOf(i.id)}部)</option>)}
+                <option value="-">入れない</option>
+              </select>
+            </div>
+          ))}
         </div>
       )}
 

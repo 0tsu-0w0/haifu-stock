@@ -349,6 +349,9 @@ await as(U1, async () => {
     await db.query(`update consignment_reports set voided_at = null, client_updated_at = '2099-01-09T00:00:00Z' where id=$1`, [REP]);
     const r = (await db.query(`select voided_at, server_seq from consignment_reports where id=$1`, [REP])).rows[0];
     ok(r.voided_at !== null && Number(r.server_seq) > 0, '報告の取り消しは後勝ちで、差分同期の番号が振られる');
+    await db.query(`update consignment_reports set paid_on = '2099-02-01', client_updated_at = '2099-01-12T00:00:00Z' where id=$1`, [REP]);
+    const p = (await db.query(`select paid_on::text d from consignment_reports where id=$1`, [REP])).rows[0];
+    ok(p.d === '2099-02-01', '報告に入金の日を入れられる');
     const h = (await db.query(`select sync_heads() h`)).rows[0].h;
     ok(Number(h.consignment_reports) > 0, 'sync_heads に委託の報告が入る');
     await expectError(db.query(`insert into consignment_reports (id, circle_id, location_id, reported_on, sales_amount, fee_amount) values ($1,$2,$3,'2099-01-10',-1,0)`, [id(), C, SHOP]), '売上は0円以上');

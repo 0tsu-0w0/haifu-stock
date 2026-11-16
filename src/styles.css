@@ -677,3 +677,7 @@ details[open] summary { margin-bottom: 6px; }
 .consign-form input:not([type="number"]) { background: var(--surface); }
 .consign-form .two input { height: 44px; border-radius: 10px; border: 1px solid var(--line-2); color: var(--ink); font: inherit; padding: 0 10px; }
 .consign-form > input { height: 44px; border-radius: 10px; border: 1px solid var(--line-2); color: var(--ink); font: inherit; padding: 0 10px; }
+.consign-unpaid { padding: 8px 10px; border-radius: 10px; background: var(--sunk); }
+.consign-csv { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.consign-csv > .link-btn { align-self: flex-start; }
+.consign-csv select, .consign-form .rowx > input[type="date"] { height: 40px; max-width: 60%; border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font: inherit; padding: 0 8px; }

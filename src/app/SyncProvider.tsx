@@ -3,8 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { getMeta } from '../db/local';
 import { TABLE_BY_NAME } from '../db/tables';
 import { syncOnce, type TableError } from '../sync/engine';
-import { getSupabase, supabaseConfig } from '../sync/supabaseClient';
-import { SupabaseRemote } from '../sync/supabaseRemote';
+import { server } from '../server';
 import { useAuth } from './AuthProvider';
 import { db } from './db';
 
@@ -27,7 +26,6 @@ interface SyncApi {
 }
 
 const Ctx = createContext<SyncApi | null>(null);
-let remote: SupabaseRemote | null = null;
 // 同期する間隔(軽量化): 変化があるあいだは20秒ごと、何も変わらなければ倍々に延ばして最長2分。
 // 端末で記録したら、少し待ってすぐ送る。アプリが裏に回っている間は同期しない
 const BASE_MS = 20_000;
@@ -36,7 +34,7 @@ const AFTER_WRITE_MS = 1_500;
 
 export function SyncProvider({ children }: { children: ReactNode }) {
   const pending = useLiveQuery(() => db.outbox.count(), [], 0);
-  const [state, setState] = useState<SyncState>(supabaseConfig ? { kind: 'signed-out' } : { kind: 'local' });
+  const [state, setState] = useState<SyncState>(server ? { kind: 'signed-out' } : { kind: 'local' });
   const failedTables = state.kind === 'partial' ? state.failed.filter((f) => f.phase === 'push').map((f) => f.table) : [];
   const stuck = useLiveQuery(
     () => (failedTables.length ? db.outbox.where('table').anyOf(failedTables).count() : 0),
@@ -48,11 +46,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const quiet = useRef(0);
 
   const syncNow = useCallback(async (): Promise<string> => {
-    const client = await getSupabase();
-    if (!client) return '同期先が設定されていません。記録はこの端末に保存されています';
-    remote ??= new SupabaseRemote(client);
-    const { data } = await client.auth.getSession();
-    if (!data.session) {
+    if (!server) return '同期先が設定されていません。記録はこの端末に保存されています';
+    if (!(await server.getSession())) {
       setState({ kind: 'signed-out' });
       return 'ログインすると同期できます';
     }
@@ -62,7 +57,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }
     setState({ kind: 'syncing' });
     try {
-      const r = await syncOnce(db, remote);
+      const r = await syncOnce(db, await server.remote());
       quiet.current = r.pushed || r.pulled ? 0 : quiet.current + 1;
       const lastSyncedAt = (await getMeta<string>(db, 'last_synced_at')) ?? null;
       if (r.failed.length > 0) {
@@ -81,9 +76,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
   // ログイン・ログアウトしたら、すぐに同期し直す
   const { session } = useAuth();
-  const uid = session?.user.id;
+  const uid = session?.userId;
   useEffect(() => {
-    if (!supabaseConfig || session === undefined) return;
+    if (!server || session === undefined) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
     const loop = async () => {
@@ -118,7 +113,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const grew = pending > lastPending.current;
     lastPending.current = pending;
-    if (!grew || !supabaseConfig) return;
+    if (!grew || !server) return;
     const t = setTimeout(() => {
       quiet.current = 0;
       void syncNow();

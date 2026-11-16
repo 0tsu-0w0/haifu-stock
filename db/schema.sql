@@ -506,6 +506,7 @@ create table consignment_reports (
   fee_amount        int not null check (fee_amount >= 0),
   note              text,
   voided_at         timestamptz,
+  paid_on           date,                          -- 委託先から入金があった日(まだなら null)
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
   client_updated_at timestamptz not null default now(),

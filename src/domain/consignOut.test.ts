@@ -3,7 +3,7 @@ import { freshDb } from '../test/helpers';
 import { addPrintRun, saveItem } from './catalog';
 import {
   consignAnalysis, consigneeState, recordConsignReport, returnFromConsignee, saveConsignee, sendToConsignee,
-  setConsigneeArchived, setConsignReportVoided,
+  markConsigneePaid, setConsigneeArchived, setConsignReportPaid, setConsignReportVoided,
 } from './consignOut';
 import { storageStock } from './stock';
 import { createCircle } from './setup';
@@ -79,9 +79,37 @@ describe('委託に出す(F-601〜603)', () => {
     const states = await consigneeState(db, ctx.circleId);
     const ev = new Map([[a.id, { qty: 20, sales: 16000 }]]);
     const all = consignAnalysis(states, [a], ev);
-    expect(all.totals).toEqual({ eventSales: 16000, shopSales: 4000, shopFee: 1200, shopNet: 2800, shopLeft: 5 });
+    expect(all.totals).toEqual({ eventSales: 16000, shopSales: 4000, shopFee: 1200, shopNet: 2800, shopUnpaid: 2800, shopLeft: 5 });
     expect(all.items[0]).toMatchObject({ eventQty: 20, shopQty: 5 });
     const y2026 = consignAnalysis(states, [a], ev, 2026);
     expect(y2026.shops[0]).toMatchObject({ sold: 2, sales: 1600, fee: 480 });
+  });
+});
+
+describe('委託の入金', () => {
+  it('入金するまでは未入金に数え、まとめて入金済みにできる。取り消した報告は数えない', async () => {
+    const { db, ctx, home, a, shop } = await setup();
+    await sendToConsignee(db, ctx, { to: shop.id, from: home.id, lines: [{ itemId: a.id, qty: 10 }] });
+    const r1 = await recordConsignReport(db, ctx, { locationId: shop.id, reportedOn: '2026-11-30', lines: [{ itemId: a.id, qty: 2, unitPrice: 800 }] });
+    const r2 = await recordConsignReport(db, ctx, { locationId: shop.id, reportedOn: '2026-12-31', lines: [{ itemId: a.id, qty: 1, unitPrice: 800 }] });
+    const r3 = await recordConsignReport(db, ctx, { locationId: shop.id, reportedOn: '2027-01-31', lines: [{ itemId: a.id, qty: 1, unitPrice: 800 }] });
+    const unpaid = async () => (await consigneeState(db, ctx.circleId)).get(shop.id)!.unpaid;
+    expect(await unpaid()).toBe(1120 + 560 + 560);
+
+    await setConsignReportPaid(db, r1.id, '2026-12-10');
+    expect(await unpaid()).toBe(1120);
+    await setConsignReportVoided(db, r3.id, true);
+    expect(await unpaid()).toBe(560);
+    await expect(setConsignReportPaid(db, r3.id, '2027-02-01')).rejects.toThrow('取り消した報告');
+
+    expect(await markConsigneePaid(db, shop.id, '2027-02-10')).toBe(1);
+    expect(await unpaid()).toBe(0);
+    expect((await db.consignment_reports.get(r1.id))!.paid_on).toBe('2026-12-10'); // 先に入れた入金の日は変えない
+    expect((await db.consignment_reports.get(r2.id))!.paid_on).toBe('2027-02-10');
+
+    await setConsignReportPaid(db, r2.id, null);
+    expect(await unpaid()).toBe(560);
+    const all = consignAnalysis(await consigneeState(db, ctx.circleId), [a], new Map());
+    expect(all.totals.shopUnpaid).toBe(560);
   });
 });

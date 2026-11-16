@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { TABLE_BY_NAME } from '../db/tables';
-import type { Remote, Row } from './engine';
+import { TABLE_BY_NAME } from '../../db/tables';
+import type { Remote, Row } from '../../sync/engine';
 
 /** Supabase の無料プランでプロジェクトが一時停止しているとき、サーバーは HTTP 540 を返す(Issue #18) */
 export const PAUSED_STATUS = 540;
