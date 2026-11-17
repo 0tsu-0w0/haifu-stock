@@ -12,6 +12,8 @@ import {
   boughtTogether, dayBreakdown, deviceBreakdown, paymentBreakdown, eventReport, ownerBreakdown, profitTimeline, salesDuration, scopeSnapshot, SLOT_MIN, type ProfitTimeline, type ReportScope, type ReportSlot,
 } from '../domain/report';
 import { DAY_MS, dayIndexOf, dayLabel, daysOf, lastDayOf } from '../domain/eventDays';
+import { eventItemsCsv, fileSafe, movementsCsv, salesCsv } from '../domain/backup';
+import { downloadText, fileStamp } from '../lib/download';
 import { hhmm, yen } from '../lib/format';
 import { useEventData } from './useEventData';
 import { BringReview } from '../components/BringReview';
@@ -249,9 +251,38 @@ export function ReportPage() {
           </>
         )}
         <Link className="sub-link" to={`/analysis?tab=event&event=${eventId}`}>このイベントの損益分岐のグラフを見る</Link>
+
+        <h3 className="section">CSVで書き出す</h3>
+        <EventCsv circleId={data.event.circle_id} eventId={eventId} eventName={data.event.name} />
       </main>
       <EventNav eventId={eventId} current="report" />
     </>
+  );
+}
+
+/** このイベントの分だけをCSVに書き出す(F-707) */
+function EventCsv({ circleId, eventId, eventName }: { circleId: string; eventId: string; eventName: string }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const save = async (kind: string, make: () => Promise<string>) => {
+    setBusy(true);
+    try {
+      downloadText(`haifu-${fileSafe(eventName)}-${kind}-${fileStamp()}.csv`, await make(), 'text/csv');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card">
+      <p className="note">このイベントの分だけを、Excel や Googleスプレッドシートで開ける形で保存します。受託分も含む全体の記録です。全部のイベントをまとめて書き出すときは、設定の「データ」を使います。</p>
+      <div className="csv-list">
+        <button className="sbtn" disabled={busy} onClick={() => void save('items', () => eventItemsCsv(db, eventId))}>品目ごとの集計</button>
+        <button className="sbtn" disabled={busy} onClick={() => void save('sales', () => salesCsv(db, circleId, eventId))}>取引明細</button>
+        <button className="sbtn" disabled={busy} onClick={() => void save('stock', () => movementsCsv(db, circleId, eventId))}>在庫の履歴</button>
+      </div>
+    </div>
   );
 }
 

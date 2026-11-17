@@ -114,10 +114,11 @@ async function lookups(db: HaifuDB, circleId: string) {
   return { itemById, ownerName, eventById: new Map(events.map((e) => [e.id, e])), locById: new Map(locations.map((l) => [l.id, l])) };
 }
 
-/** 取引明細: 1行が取引の1品目。取り消した取引も「取り消し済み」として残す */
-export async function salesCsv(db: HaifuDB, circleId: string): Promise<string> {
+/** 取引明細: 1行が取引の1品目。取り消した取引も「取り消し済み」として残す。eventId を渡すと、そのイベントの分だけ */
+export async function salesCsv(db: HaifuDB, circleId: string, eventId?: string): Promise<string> {
   const { itemById, ownerName, eventById } = await lookups(db, circleId);
-  const txns = (await db.transactions.toArray()).filter((t) => t.circle_id === circleId);
+  const txns = (eventId ? await db.transactions.where('event_id').equals(eventId).toArray() : await db.transactions.toArray())
+    .filter((t) => t.circle_id === circleId);
   const active = activeTxnIds(txns);
   const lines = await db.transaction_lines.where('transaction_id').anyOf(txns.map((t) => t.id)).toArray();
   const txnById = new Map(txns.map((t) => [t.id, t]));
@@ -147,12 +148,13 @@ const REASON_LABEL: Record<MovementReason, string> = {
   return_to_owner: '持ち主へ返却', adjust: '調整',
 };
 
-/** 在庫の履歴: 1行が在庫移動1件(F-205) */
-export async function movementsCsv(db: HaifuDB, circleId: string): Promise<string> {
+/** 在庫の履歴: 1行が在庫移動1件(F-205)。eventId を渡すと、そのイベントに出入りした分だけ */
+export async function movementsCsv(db: HaifuDB, circleId: string, eventId?: string): Promise<string> {
   const { itemById, ownerName, eventById, locById } = await lookups(db, circleId);
-  const txns = (await db.transactions.toArray()).filter((t) => t.circle_id === circleId);
+  const txns = (eventId ? await db.transactions.where('event_id').equals(eventId).toArray() : await db.transactions.toArray())
+    .filter((t) => t.circle_id === circleId);
   const active = activeTxnIds(txns);
-  const moves = (await db.stock_movements.toArray())
+  const moves = (eventId ? await db.stock_movements.where('event_id').equals(eventId).toArray() : await db.stock_movements.toArray())
     .filter((m: Movement) => m.circle_id === circleId)
     .sort((a, b) => a.recorded_at.localeCompare(b.recorded_at));
   const out: (string | number | null)[][] = [['日時', '品目', '持ち主', '部数', '内容', '移動元', '移動先', 'イベント', 'メモ', '取り消し']];
@@ -168,6 +170,25 @@ export async function movementsCsv(db: HaifuDB, circleId: string): Promise<strin
   }
   return toCsv(out);
 }
+
+/** 1つのイベントの品目ごとの集計: 1行が1品目(F-702)。最後の行は合計 */
+export async function eventItemsCsv(db: HaifuDB, eventId: string): Promise<string> {
+  const snap = await loadEventSnapshot(db, eventId);
+  if (!snap) throw new Error('イベントが見つかりません');
+  const r = eventReport(snap);
+  const out: (string | number | null)[][] = [['品目', '持ち主', '持ち込み', '販売', '無償出庫', '残り', '完売した時刻', '消化率(%)', '売上']];
+  for (const x of r.rows) {
+    out.push([
+      x.name, x.ownerName ?? '自分', x.brought, x.sold, x.given, x.remaining,
+      x.soldOutAt ? localTime(x.soldOutAt) : '', x.sellThrough === null ? null : Math.round(x.sellThrough * 1000) / 10, x.amount,
+    ]);
+  }
+  out.push(['合計', '', null, r.qty, r.rows.reduce((a, x) => a + x.given, 0), null, '', null, r.amount]);
+  return toCsv(out);
+}
+
+/** ファイル名に使えない文字を除いたイベント名 */
+export const fileSafe = (name: string) => name.replace(/[\\/:*?"<>|\s]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'event';
 
 /** イベント別の集計: 1行が1イベント(削除したイベントは除く) */
 export async function eventsCsv(db: HaifuDB, circleId: string): Promise<string> {

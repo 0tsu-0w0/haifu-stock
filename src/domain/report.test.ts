@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { getMeta } from '../db/local';
 import { freshDb } from '../test/helpers';
-import { eventsCsv, exportBackup, importBackup, movementsCsv, salesCsv, toCsv } from './backup';
+import { eventItemsCsv, eventsCsv, exportBackup, fileSafe, importBackup, movementsCsv, salesCsv, toCsv } from './backup';
 import { addPrintRun, prepareEvent, recordStocktake, saveEventInfo, saveItem, saveOwner, saveSortOrder } from './catalog';
 import { stockByLocation } from './ledger';
 import { recordGiveaway, recordSale, voidTransaction, type Ctx } from './record';
 import { eventReport } from './report';
-import { createCircle } from './setup';
+import { createCircle, createEvent } from './setup';
 import { loadEventSnapshot } from './snapshot';
 
 const at = (hhmm: string) => () => new Date(`2026-05-01T${hhmm}:00+09:00`);
@@ -122,5 +122,34 @@ describe('バックアップとCSV(F-1002、F-707)', () => {
     expect((await movementsCsv(db, ctx.circleId)).split('\r\n').length).toBeGreaterThan(4);
     const evs = (await eventsCsv(db, ctx.circleId)).split('\r\n');
     expect(evs[1].split(',').slice(0, 4)).toEqual(['2026-05-01', 'コミティア', '1260', '2']);
+  });
+
+  it('イベントごとに、品目ごとの集計・取引明細・在庫の履歴をCSVに書き出す', async () => {
+    const { db, ctx, a, fb, ev } = await setup();
+    await recordSale(db, ctx, { eventId: ev.id, lines: [{ itemId: a.id, qty: 2 }, { itemId: fb.id, qty: 1 }] });
+    // 別のイベントの記録は入らない
+    const other = await createEvent(db, ctx, { name: '別のイベント', heldOn: '2026-06-01' });
+    const home = (await db.locations.filter((l) => l.kind === 'storage').first())!;
+    await prepareEvent(db, ctx, other.id, [{ itemId: a.id, included: true, bring: 3, priceOverride: null }], { storageId: home.id });
+    await recordSale(db, ctx, { eventId: other.id, lines: [{ itemId: a.id, qty: 1 }] });
+
+    const items = (await eventItemsCsv(db, ev.id)).split('\r\n');
+    expect(items[0]).toBe('品目,持ち主,持ち込み,販売,無償出庫,残り,完売した時刻,消化率(%),売上');
+    const rowA = items.find((l) => l.startsWith(`${a.name},自分,`))!.split(',');
+    expect(rowA[3]).toBe('2');
+    expect(items[items.length - 1].startsWith('合計,,,3,')).toBe(true);
+
+    const all = (await salesCsv(db, ctx.circleId)).split('\r\n');
+    const mine = (await salesCsv(db, ctx.circleId, ev.id)).split('\r\n');
+    expect(all).toHaveLength(4);
+    expect(mine).toHaveLength(3);
+    expect(mine.slice(1).every((l) => l.includes('コミティア'))).toBe(true);
+
+    const moves = (await movementsCsv(db, ctx.circleId, ev.id)).split('\r\n');
+    expect(moves.length).toBeGreaterThan(2);
+    expect(moves.slice(1).every((l) => !l.includes('別のイベント'))).toBe(true);
+    expect(moves.length).toBeLessThan((await movementsCsv(db, ctx.circleId)).split('\r\n').length);
+
+    expect(fileSafe('コミティア 150/秋: "特別"')).toBe('コミティア_150_秋_特別');
   });
 });
