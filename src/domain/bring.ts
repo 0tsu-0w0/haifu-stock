@@ -1,5 +1,7 @@
 import { hhmm } from '../lib/format';
-import { decayRates, newBookPlan, type AnalysisData, type ForecastOptions, type Observation } from './analysis';
+import { decayRates, newBookPlan, typeScaleBetween, typeScales, type AnalysisData, type ForecastOptions, type Observation } from './analysis';
+
+export { TYPE_MIN_EVENTS, typeScales } from './analysis';
 
 // 次のイベントの持ち込み数の目安(F-304、F-901、F-902。Issue #28)。
 // 刷り部数の目安と同じ需要の見込み(完売補正・減衰率)を使い、売り切れで機会を逃さないよう余裕を足す
@@ -18,34 +20,6 @@ export interface BringHint {
   reference: boolean;
 }
 
-/** 種別の規模の比べに要る、種別ごとの終わったイベントの数 */
-export const TYPE_MIN_EVENTS = 2;
-
-/**
- * イベント種別ごとの規模(要件 §6.2)。終わったイベントごとに、自分の品目の推定需要を1日あたりで足し、種別ごとに平均する。
- * 終わったイベントが TYPE_MIN_EVENTS 回に満たない種別は出さない
- */
-export function typeScales(data: AnalysisData): Map<string, { perDay: number; events: number }> {
-  const typeOf = new Map(data.events.map((e) => [e.id, e.event_type_id ?? null]));
-  const size = new Map<string, number>();
-  for (const h of data.histories.values()) {
-    for (const o of h.observations) size.set(o.eventId, (size.get(o.eventId) ?? 0) + o.demand / Math.max(o.days, 1));
-  }
-  const byType = new Map<string, number[]>();
-  for (const [eventId, v] of size) {
-    const t = typeOf.get(eventId);
-    if (t) byType.set(t, [...(byType.get(t) ?? []), v]);
-  }
-  const out = new Map<string, { perDay: number; events: number }>();
-  for (const [t, vs] of byType) {
-    if (vs.length >= TYPE_MIN_EVENTS) out.set(t, { perDay: vs.reduce((a, x) => a + x, 0) / vs.length, events: vs.length });
-  }
-  return out;
-}
-
-/** 規模の比は、外れた値で目安が極端にならないよう 1/4〜4倍に収める */
-const clampScale = (x: number) => Math.min(4, Math.max(0.25, x));
-
 /**
  * 自分の品目ごとの持ち込み数の目安。準備しているイベント自身の記録は材料にしない。
  * 実績のない品目は、本なら次の新刊の目安を使い、グッズは出さない
@@ -59,7 +33,6 @@ export function bringHints(
   const nb = newBookPlan(data, opts);
   const typeOf = new Map(data.events.map((e) => [e.id, e.event_type_id ?? null]));
   const scales = targetTypeId ? typeScales(data) : new Map<string, { perDay: number; events: number }>();
-  const target = targetTypeId ? scales.get(targetTypeId) : undefined;
   const out = new Map<string, BringHint>();
   for (const item of data.ownItems) {
     const obs = (data.histories.get(item.id)?.observations ?? []).filter((o) => o.eventId !== eventId);
@@ -68,9 +41,7 @@ export function bringHints(
     const last: Observation | undefined = sameType[sameType.length - 1] ?? obs[obs.length - 1];
     if (last) {
       // 種別が違うときは、種別ごとの規模の比を掛ける。どちらかの種別の材料が足りなければ掛けない
-      const lastType = typeOf.get(last.eventId) ?? null;
-      const from = lastType ? scales.get(lastType) : undefined;
-      const scale = targetTypeId && lastType !== targetTypeId && target && from && from.perDay > 0 ? clampScale(target.perDay / from.perDay) : 1;
+      const scale = typeScaleBetween(scales, typeOf.get(last.eventId) ?? null, targetTypeId);
       // 持ち込みは売り切れのほうが損が大きいので、減衰率は「強気」の値を使う
       // 2日・3日開催は、1日あたりにそろえてから、準備しているイベントの日数を掛ける(Issue #19)
       const expected = (last.demand / Math.max(last.days, 1)) * days * rates.aggressive * scale;

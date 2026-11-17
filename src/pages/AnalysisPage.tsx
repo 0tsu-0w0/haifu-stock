@@ -135,7 +135,11 @@ function Forecast({ data, opts, setOpts }: { data: AnalysisData; opts: ForecastO
             ? `続けて出したときの需要の比 ${rates.samples}件から。控えめ ${rates.conservative.toFixed(2)} / 標準 ${rates.standard.toFixed(2)} / 強気 ${rates.aggressive.toFixed(2)}`
             : `実績がないため既定値 ${opts.defaultDecay} を使っています`}。</li>
           <li>推奨刷り部数 = (予定イベントの予測需要の合計 + 確保したい部数)×(1 + 安全率)− 自宅などの在庫。印刷所の部数の刻みに切り上げます。</li>
-          <li>イベント種別ごとの補正は、イベント種別を入れられるようになってから加えます。</li>
+          <li>
+            予定イベントは、登録してあるこれからのイベントを開催日の早い順に当てはめます
+            {data.upcoming.length > 0 ? `(${data.upcoming.slice(0, opts.plannedEvents).map((e) => e.name).join(' → ')}${data.upcoming.length < opts.plannedEvents ? ' → あとは未登録' : ''})` : '(いまは登録がありません)'}
+            。登録してある回は、開催日数と種別の規模の違いを掛けます(種別は、終わったイベントが2回以上あるものだけ)。登録していない回は、直近と同じ規模として数えます。新刊の目安には、種別の補正は入れていません。
+          </li>
         </ul>
       </details>
     </>
@@ -180,7 +184,13 @@ function ReprintCard({ plan, opts }: { plan: ReprintPlan; opts: ForecastOptions 
             ))}
           </tbody>
         </table>
-        <p className="note">* 完売した時刻から補正した値。標準の予測: {std.perEvent.join(' → ')}(次の{opts.plannedEvents}回)</p>
+        <p className="note">
+          * 完売した時刻から補正した値。標準の予測: {std.perEvent.map((v, k) => {
+            const p = plan.planned[k];
+            const tags = [p.event && p.days > 1 ? `${p.days}日` : '', p.scale !== 1 ? `種別×${Math.round(p.scale * 100) / 100}` : ''].filter(Boolean).join('・');
+            return `${p.event ? `${p.event.name} ` : ''}${v}${tags ? `(${tags})` : ''}`;
+          }).join(' → ')}(次の{opts.plannedEvents}回)
+        </p>
       </details>
       <Link className="sub-link" to={`/items/${plan.item.id}?plan=1`}>印刷所の価格表から、利益が大きい部数を調べる</Link>
     </div>

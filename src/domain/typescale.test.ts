@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EventRow, Item } from '../db/types';
-import { DEFAULT_FORECAST, type AnalysisData, type Observation } from './analysis';
+import { DEFAULT_FORECAST, reprintPlans, type AnalysisData, type Observation } from './analysis';
 import { bringHints, typeScales } from './bring';
 
 // 種別の補正(要件 §6.2)。大規模(BIG)はオンリー(ONLY)の2倍売れるサークルを想定する
@@ -16,7 +16,7 @@ function data(): AnalysisData {
   const b = { id: 'b', name: '既刊B', kind: 'book' } as Item;
   const events = [ev('big1', '2026-01-01', 'BIG'), ev('only1', '2026-02-01', 'ONLY'), ev('big2', '2026-03-01', 'BIG'), ev('only2', '2026-04-01', 'ONLY')];
   return {
-    events, items: [a, b], ownItems: [a, b],
+    events, upcoming: [], items: [a, b], ownItems: [a, b],
     histories: new Map([
       ['a', { item: a, observations: [ob('big1', '2026-01-01', 40), ob('only1', '2026-02-01', 20), ob('big2', '2026-03-01', 40), ob('only2', '2026-04-01', 20)] }],
       // B はオンリーにしか出していない
@@ -49,6 +49,20 @@ describe('イベント種別の補正(§6.2)', () => {
     const big = bringHints(d, undefined, DEFAULT_FORECAST, undefined, 1, 'BIG').get('b')!;
     expect(big.basis).toContain('×1.33');
     expect(big.expected).toBe(Math.round(plain.expected * 40 / 30));
+  });
+
+  it('刷り部数の目安は、登録してあるこれからのイベントの日数と種別に合わせる。登録していない回は直近と同じ規模', () => {
+    const d = data();
+    const opts = { ...DEFAULT_FORECAST, plannedEvents: 2 };
+    const plain = reprintPlans(d, opts).find((p) => p.item.id === 'b')!;
+    d.upcoming = [{ ...ev('next', '2026-06-01', 'BIG'), days: 2 } as never];
+    const plan = reprintPlans(d, opts).find((p) => p.item.id === 'b')!;
+    const [s0, s1] = plain.scenarios[1].perEvent;
+    // 1回目: 2日開催 × 種別の比 40/30。2回目は登録がないので変わらない
+    expect(plan.scenarios[1].perEvent[0]).toBeCloseTo(s0 * 2 * (40 / 30), 1);
+    expect(plan.scenarios[1].perEvent[1]).toBe(s1);
+    expect(plan.planned.map((p) => [p.event?.id ?? null, p.days])).toEqual([['next', 2], [null, 1]]);
+    expect(plan.planned[0].scale).toBeCloseTo(40 / 30);
   });
 
   it('種別の材料が足りなければ補正しない', () => {
