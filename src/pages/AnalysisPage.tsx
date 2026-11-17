@@ -115,8 +115,9 @@ function Forecast({ data, opts, setOpts }: { data: AnalysisData; opts: ForecastO
               <summary>計算の根拠</summary>
               <table className="tbl small">
                 <thead><tr><th>新刊</th><th>初回のイベント</th><th>需要</th><th>重み</th></tr></thead>
-                <tbody>{nb.basis.map((b) => <tr key={b.item.id}><td>{b.item.name}</td><td>{b.eventName}</td><td className="num">{b.demand}</td><td className="num">{b.weight}</td></tr>)}</tbody>
+                <tbody>{nb.basis.map((b) => <tr key={b.item.id}><td>{b.item.name}</td><td>{b.eventName}</td><td className="num">{b.demand}{b.adjusted !== b.demand ? ` → ${b.adjusted}` : ''}</td><td className="num">{b.weight}</td></tr>)}</tbody>
               </table>
+              {nb.debut && <p className="note">初めて出すイベントを、登録してある次のイベント「{nb.debut.name}」として、その開催日数と種別に需要をそろえています(→ のあとがそろえた値)。</p>}
               <p className="note">控えめ = 最も少なかった新刊、標準 = 新しい順に 3:2:1 の加重平均、強気 = 最も多かった新刊。期待度を掛け、2回目以降は既刊の減衰率で減らして、{opts.plannedEvents}回分を合計しています。10部単位に切り上げ。</p>
             </details>
           </div>
@@ -138,7 +139,7 @@ function Forecast({ data, opts, setOpts }: { data: AnalysisData; opts: ForecastO
           <li>
             予定イベントは、登録してあるこれからのイベントを開催日の早い順に当てはめます
             {data.upcoming.length > 0 ? `(${data.upcoming.slice(0, opts.plannedEvents).map((e) => e.name).join(' → ')}${data.upcoming.length < opts.plannedEvents ? ' → あとは未登録' : ''})` : '(いまは登録がありません)'}
-            。登録してある回は、開催日数と種別の規模の違いを掛けます(種別は、終わったイベントが2回以上あるものだけ)。登録していない回は、直近と同じ規模として数えます。新刊の目安には、種別の補正は入れていません。
+            。登録してある回は、開催日数と種別の規模の違いを掛けます(種別は、終わったイベントが2回以上あるものだけ)。登録していない回は、直近と同じ規模として数えます。次の新刊の目安も、次のイベントを初めて出す場として同じようにそろえます。
           </li>
         </ul>
       </details>

@@ -443,13 +443,25 @@ export function reprintPlans(data: AnalysisData, opts: ForecastOptions): Reprint
 
 export interface NewBookPlan {
   /** 材料にした新刊(初めて出したイベントでの推定需要。新しい順) */
-  basis: { item: Item; eventName: string; heldOn: string; demand: number; weight: number }[];
+  basis: { item: Item; eventName: string; heldOn: string; demand: number; weight: number; /** 初めて出すイベントの日数と種別にそろえた需要 */ adjusted: number }[];
   scenarios: { key: ScenarioKey; firstEvent: number; need: number; print: number }[];
+  /** 初めて出すイベントとして当てはめたもの(登録してある次のイベント)。なければ null */
+  debut: EventRow | null;
   reference: boolean;
 }
 
-/** 次の新刊の目安(F-802、要件 §6.4)。直近3冊の、初めて出したイベントでの需要を 3:2:1 で加重平均する */
-export function newBookPlan(data: AnalysisData, opts: ForecastOptions): NewBookPlan | null {
+/** 新刊を初めて出すイベント。日数と種別に、材料の需要をそろえる */
+export interface DebutTarget {
+  days: number;
+  typeId: string | null;
+}
+
+/**
+ * 次の新刊の目安(F-802、要件 §6.4)。直近3冊の、初めて出したイベントでの需要を 3:2:1 で加重平均する。
+ * target を渡さなければ、登録してある次のイベントを初めて出すイベントとして、その日数と種別にそろえる(§6.2)。
+ * 次のイベントの登録がなければ、そろえない
+ */
+export function newBookPlan(data: AnalysisData, opts: ForecastOptions, target?: DebutTarget | null): NewBookPlan | null {
   const firsts = [...data.histories.values()]
     .filter((h) => h.item.kind === 'book' && h.observations.length > 0)
     .map((h) => ({ item: h.item, obs: h.observations[0] }))
@@ -458,21 +470,33 @@ export function newBookPlan(data: AnalysisData, opts: ForecastOptions): NewBookP
   if (firsts.length === 0) return null;
   const weights = [3, 2, 1].slice(0, firsts.length);
   const wsum = weights.reduce((a, w) => a + w, 0);
-  const demands = firsts.map((f) => f.obs.demand);
-  const weighted = firsts.reduce((a, f, i) => a + f.obs.demand * weights[i], 0) / wsum;
+  const debut = target === undefined ? data.upcoming[0] ?? null : null;
+  const to: DebutTarget | null = target ?? (debut ? { days: daysOf(debut), typeId: debut.event_type_id ?? null } : null);
+  const scales = typeScales(data);
+  const typeOf = new Map(data.events.map((e) => [e.id, e.event_type_id ?? null]));
+  const demands = firsts.map((f) => (to
+    ? (f.obs.demand / Math.max(f.obs.days, 1)) * to.days * typeScaleBetween(scales, typeOf.get(f.obs.eventId) ?? null, to.typeId)
+    : f.obs.demand));
+  const weighted = demands.reduce((a, d, i) => a + d * weights[i], 0) / wsum;
   const rates = decayRates(data, opts);
+  // 2回目以降: 登録してあるイベントは、初めて出すイベントに比べた日数と種別の比を掛ける
+  const later = Array.from({ length: opts.plannedEvents }, (_, k) => {
+    const ev = k > 0 && debut ? data.upcoming[k] : undefined;
+    return ev ? (daysOf(ev) / daysOf(debut!)) * typeScaleBetween(scales, debut!.event_type_id ?? null, ev.event_type_id ?? null) : 1;
+  });
   const scenarioBase: Record<ScenarioKey, number> = {
     conservative: Math.min(...demands), standard: weighted, aggressive: Math.max(...demands),
   };
   const scenarios = (['conservative', 'standard', 'aggressive'] as const).map((key) => {
     const first = scenarioBase[key] * opts.expectation;
     const r = rates[key];
-    const need = Array.from({ length: opts.plannedEvents }, (_, k) => first * r ** k).reduce((a, x) => a + x, 0) + opts.reserve;
+    const need = later.map((f, k) => first * r ** k * f).reduce((a, x) => a + x, 0) + opts.reserve;
     return { key, firstEvent: Math.round(first), need: Math.round(need), print: roundUp(Math.ceil(need * (1 + opts.safety)), 10) };
   });
   return {
-    basis: firsts.map((f, i) => ({ item: f.item, eventName: f.obs.eventName, heldOn: f.obs.heldOn, demand: f.obs.demand, weight: weights[i] })),
+    basis: firsts.map((f, i) => ({ item: f.item, eventName: f.obs.eventName, heldOn: f.obs.heldOn, demand: f.obs.demand, weight: weights[i], adjusted: Math.round(demands[i] * 10) / 10 })),
     scenarios,
+    debut,
     reference: firsts.length < 2,
   };
 }

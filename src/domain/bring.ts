@@ -30,7 +30,8 @@ export function bringHints(
   targetTypeId: string | null = null,
 ): Map<string, BringHint> {
   const rates = decayRates(data, opts);
-  const nb = newBookPlan(data, opts);
+  // 新刊は、準備しているイベントの日数と種別にそろえる
+  const nb = newBookPlan(data, opts, { days, typeId: targetTypeId });
   const typeOf = new Map(data.events.map((e) => [e.id, e.event_type_id ?? null]));
   const scales = targetTypeId ? typeScales(data) : new Map<string, { perDay: number; events: number }>();
   const out = new Map<string, BringHint>();
@@ -59,7 +60,7 @@ export function bringHints(
         reference: obs.length < 2 && rates.samples === 0,
       });
     } else if (item.kind === 'book' && nb) {
-      const first = nb.scenarios.find((s) => s.key === 'standard')!.firstEvent * days;
+      const first = nb.scenarios.find((s) => s.key === 'standard')!.firstEvent;
       if (first <= 0) continue;
       out.set(item.id, {
         qty: Math.max(Math.ceil(first * (1 + margin)), 1),
