@@ -131,6 +131,9 @@ function Forecast({ data, opts, setOpts }: { data: AnalysisData; opts: ForecastO
           <li>F(t): {data.curveSource === 'data'
             ? `完売しなかった品目の販売 ${data.curveSamples}部から作りました。`
             : `販売の実績がまだ少ないため(${data.curveSamples}部)、既定の曲線(開始1時間で約4割、2時間で約6.5割、3時間で約8割)を使っています。`}
+            {data.curveTypes.length > 0
+              ? `種別ごとの実績が30部以上ある${data.curveTypes.length}種別は、その種別だけの曲線で補正しています。`
+              : '種別ごとの実績が30部以上たまると、その種別だけの曲線で補正します。'}
             開催時間は、開始時刻から{opts.defaultHours}時間とみなします。</li>
           <li>既刊の減衰率: {rates.samples
             ? `続けて出したときの需要の比 ${rates.samples}件から。控えめ ${rates.conservative.toFixed(2)} / 標準 ${rates.standard.toFixed(2)} / 強気 ${rates.aggressive.toFixed(2)}`

@@ -73,7 +73,12 @@ export interface AnalysisData {
   curve: (t: number) => number;
   curveSource: 'data' | 'default';
   curveSamples: number;
+  /** 種別ごとの曲線を作れた種別(その種別の材料が CURVE_MIN_SAMPLES 部以上)。完売補正は、あればそのイベントの種別の曲線を使う */
+  curveTypes: { typeId: string; samples: number }[];
 }
+
+/** 累積販売曲線を実績から作るのに要る部数(全体でも、種別ごとでも) */
+export const CURVE_MIN_SAMPLES = 30;
 
 /**
  * 1つのイベントの集計(品目ごとの持ち込み・販売・完売の時刻、販売の時刻、品目ごとの売上)。
@@ -218,19 +223,30 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
   });
 
   // 累積販売曲線: 完売しなかった品目の販売が、開催時間のどの時点で起きたか(要件 §6.1)
-  const fractions: { f: number; q: number }[] = [];
+  const fractions: { f: number; q: number; type: string | null }[] = [];
   for (const p of perEvent) {
     if (p.windows.length === 0) continue;
     for (const [t, q, itemId] of p.sales) {
       if (p.summary.get(itemId)?.soldOutAt) continue;
-      fractions.push({ f: activeFractionDays(t, p.windows, p.breaks), q });
+      fractions.push({ f: activeFractionDays(t, p.windows, p.breaks), q, type: p.ev.event_type_id ?? null });
     }
   }
   const samples = fractions.reduce((a, x) => a + x.q, 0);
-  const curveSource: 'data' | 'default' = samples >= 30 ? 'data' : 'default';
+  const curveSource: 'data' | 'default' = samples >= CURVE_MIN_SAMPLES ? 'data' : 'default';
   const curve = curveSource === 'data'
     ? (t: number) => fractions.filter((x) => x.f <= t).reduce((a, x) => a + x.q, 0) / samples
     : defaultCurve;
+  // 種別ごとの曲線(§6.1「同じ種別のイベントで」)。材料が足りる種別だけ作り、足りない種別は全体の曲線を使う
+  const typeCurves = new Map<string, (t: number) => number>();
+  const curveTypes: { typeId: string; samples: number }[] = [];
+  for (const typeId of new Set(fractions.map((x) => x.type))) {
+    if (!typeId) continue;
+    const own = fractions.filter((x) => x.type === typeId);
+    const n = own.reduce((a, x) => a + x.q, 0);
+    if (n < CURVE_MIN_SAMPLES) continue;
+    typeCurves.set(typeId, (t: number) => own.filter((x) => x.f <= t).reduce((a, x) => a + x.q, 0) / n);
+    curveTypes.push({ typeId, samples: n });
+  }
 
   const histories = new Map<string, ItemHistory>();
   for (const item of ownItems) {
@@ -243,7 +259,8 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
       if (s.soldOutAt && p.windows.length > 0) {
         fraction = activeFractionDays(Date.parse(s.soldOutAt), p.windows, p.breaks);
         if (fraction < 1 && s.sold > 0) {
-          demand = Math.min(s.sold / Math.max(curve(fraction), 0.05), s.sold * opts.capFactor);
+          const f = (p.ev.event_type_id && typeCurves.get(p.ev.event_type_id)) || curve;
+          demand = Math.min(s.sold / Math.max(f(fraction), 0.05), s.sold * opts.capFactor);
         }
       }
       demand = Math.round(demand * 10) / 10;
@@ -294,7 +311,7 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
 
   const pastIds = new Set(past.map((e) => e.id));
   const upcoming = events.filter((e) => !e.deleted_at && !pastIds.has(e.id)).sort((a, b) => a.held_on.localeCompare(b.held_on));
-  return { events: events.filter((e) => !e.deleted_at), upcoming, items, ownItems, histories, storageStock, printRuns, productionCosts, soldTotals, soldByYear, curve, curveSource, curveSamples: samples };
+  return { events: events.filter((e) => !e.deleted_at), upcoming, items, ownItems, histories, storageStock, printRuns, productionCosts, soldTotals, soldByYear, curve, curveSource, curveSamples: samples, curveTypes };
 }
 
 const quantile = (xs: number[], q: number) => {

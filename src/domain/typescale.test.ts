@@ -23,7 +23,7 @@ function data(): AnalysisData {
       ['b', { item: b, observations: [ob('only1', '2026-02-01', 10), ob('only2', '2026-04-01', 10)] }],
     ]),
     storageStock: new Map(), printRuns: [], productionCosts: new Map(), soldTotals: new Map(), soldByYear: new Map(),
-    curve: (t) => t, curveSource: 'default', curveSamples: 0,
+    curve: (t) => t, curveSource: 'default', curveSamples: 0, curveTypes: [],
   };
 }
 
