@@ -220,6 +220,18 @@ export interface Device extends FromServer {
   client_updated_at: Iso;
 }
 
+/** 端末ごとの最後の同期(F-500)。各端末が同期を終えるたびに自分の行を書き直す */
+export interface DeviceSync extends FromServer {
+  /** 端末のID(devices.id と同じ) */
+  id: Uuid;
+  circle_id: Uuid;
+  user_id: Uuid;
+  synced_at: Iso;
+  /** 同期を終えた時点で、送れずに残っていた件数 */
+  pending: number;
+  client_updated_at: Iso;
+}
+
 /** 休憩・離席の時間帯(F-411)。ends_at が null の間は休憩中 */
 export interface EventBreak extends FromServer {
   id: Uuid;
@@ -257,6 +269,21 @@ export interface Expense extends FromServer {
   label: string | null;
   planned_amount: number | null;
   actual_amount: number | null;
+  /** 備品を按分した経費(F-310)。ふつうの経費は null(古い行にはない) */
+  equipment_id?: Uuid | null;
+  client_updated_at: Iso;
+}
+
+/** 備品(F-310)。何回も使うものを、見込みの回数で割って使ったイベントの経費にする */
+export interface Equipment extends FromServer {
+  id: Uuid;
+  circle_id: Uuid;
+  name: string;
+  cost: number;
+  /** 見込みの使う回数 */
+  uses: number;
+  bought_on: string | null;
+  archived_at: Iso | null;
   client_updated_at: Iso;
 }
 

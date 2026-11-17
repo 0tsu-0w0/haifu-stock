@@ -1,5 +1,6 @@
-import { usePref } from '../app/prefs';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo, useRef, useState } from 'react';
+import { usePref } from '../app/prefs';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
@@ -14,6 +15,7 @@ import {
   moneyAfterClosing, saveCountFrom, settlementText, type CountRow,
 } from '../domain/closing';
 import type { Ctx } from '../domain/record';
+import { deviceStatuses } from '../domain/devices';
 import { exportLedger, importLedger } from '../sync/file';
 import { hhmm, yen } from '../lib/format';
 import { useEventData } from './useEventData';
@@ -126,15 +128,14 @@ function SyncStep({ data, ctx }: { data: Data; ctx: Ctx }) {
   const { pending, state, syncNow } = useSync();
   const toast = useToast();
   const fileInput = useRef<HTMLInputElement>(null);
-  const others = useMemo(() => {
-    const m = new Map<string, { count: number; last: string }>();
-    for (const t of data.txns) {
-      if (t.device_id === ctx.deviceId) continue;
-      const x = m.get(t.device_id) ?? { count: 0, last: '' };
-      m.set(t.device_id, { count: x.count + 1, last: t.recorded_at > x.last ? t.recorded_at : x.last });
-    }
-    return [...m];
-  }, [data.txns, ctx.deviceId]);
+  const sync = useLiveQuery(async () => ({
+    rows: await db.device_syncs.where('circle_id').equals(ctx.circleId).toArray(),
+    names: new Map((await db.devices.where('circle_id').equals(ctx.circleId).toArray()).map((d) => [d.id, d.name])),
+  }), [ctx.circleId]);
+  const others = useMemo(
+    () => (sync ? deviceStatuses({ txns: data.txns, syncs: sync.rows, names: sync.names, myDeviceId: ctx.deviceId, now: new Date() }) : []),
+    [data.txns, sync, ctx.deviceId],
+  );
 
   async function sendFile() {
     const ledger = await exportLedger(db, data.event.id, ctx.deviceId);
@@ -173,12 +174,21 @@ function SyncStep({ data, ctx }: { data: Data; ctx: Ctx }) {
       <div className="card">
         <b>ほかの端末の記録</b>
         {others.length === 0 && <p className="note">この端末に届いている、ほかの端末の記録はありません。</p>}
-        {others.map(([id, x]) => (
-          <div className="rowx" key={id}>
-            <span>端末 …{id.slice(-6)}</span>
-            <span className="k">{x.count}件・最後 {hhmm(x.last)}</span>
+        {others.map((d) => (
+          <div className={`dev-sync${d.warn ? ' warn' : ''}`} key={d.id}>
+            <div className="rowx">
+              <b>{d.label}</b>
+              <span className="k">{d.count > 0 ? `記録 ${d.count}件・最後 ${hhmm(d.lastRecord!)}` : '記録なし'}</span>
+            </div>
+            <small className={d.warn ? 'warnnote' : 'k'}>
+              {d.syncedAt === null
+                ? '同期した時刻は分かりません(古い版のアプリか、まだ同期していません)'
+                : `最後の同期 ${hhmm(d.syncedAt)}・そのとき未送信 ${d.pending}件`}
+              {d.warn ? `。${d.warn}` : ''}
+            </small>
           </div>
         ))}
+        {others.length > 0 && <p className="note">ほかの端末の同期の様子は、この端末で「同期する」を押すと新しくなります。</p>}
         <p className="note">売り子の端末がまだ送れていないときは、売り子の端末で「記録をファイルで送る」を押し、AirDropなどでこの端末に送って取り込んでください。</p>
         <button className="sbtn" onClick={() => fileInput.current?.click()}>ファイルを取り込む</button>
         <input

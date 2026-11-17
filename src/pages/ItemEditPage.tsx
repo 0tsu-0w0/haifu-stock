@@ -12,12 +12,12 @@ import { PrintPlan } from '../components/PrintPlan';
 import { useToast } from '../components/Toast';
 import type { ItemKind } from '../db/types';
 import { shrinkImage } from '../lib/image';
-import { addPrintRun, deleteItem, productionCost, restoreItem, saveItem, saveOwner, saveProductionCost, setItemArchived, setItemCover } from '../domain/catalog';
+import { addPrintRun, deleteItem, deliverableEvents, productionCost, restoreItem, saveItem, saveOwner, saveProductionCost, setItemArchived, setItemCover } from '../domain/catalog';
 import { COLOR_LABEL, ITEM_COLORS, colorVar } from '../domain/colors';
 import { hasConsignors } from '../domain/consign';
 import { breakEvenQty } from '../domain/ledger';
 import { storageStock } from '../domain/stock';
-import { yen } from '../lib/format';
+import { todayIso, yen } from '../lib/format';
 
 const NEW_OWNER = '__new__';
 
@@ -32,7 +32,7 @@ export function ItemEditPage() {
   const [trackHome] = usePref('trackHome');
   const data = useLiveQuery(async () => {
     if (!ctx) return null;
-    const [item, owners, items, storages, runs, comps, stock, prodCost] = await Promise.all([
+    const [item, owners, items, storages, runs, comps, stock, prodCost, events] = await Promise.all([
       isNew ? undefined : db.items.get(itemId!),
       db.owners.where('circle_id').equals(ctx.circleId).toArray(),
       db.items.where('circle_id').equals(ctx.circleId).filter((i) => !i.archived_at && !i.deleted_at).toArray(),
@@ -41,9 +41,10 @@ export function ItemEditPage() {
       isNew ? [] : db.set_components.where('set_item_id').equals(itemId!).toArray(),
       isNew ? new Map<string, number>() : storageStock(db, ctx.circleId),
       isNew ? 0 : productionCost(db, itemId!),
+      isNew ? [] : deliverableEvents(db, ctx.circleId, todayIso()),
     ]);
     // しまった受託元は選べないようにする(この品目の今の持ち主だけは残す)
-    return { item, owners: owners.filter((o) => !o.archived_at || o.id === item?.owner_id), items, storages, runs, comps, prodCost, stock };
+    return { item, owners: owners.filter((o) => !o.archived_at || o.id === item?.owner_id), items, storages, runs, comps, prodCost, stock, events };
   }, [ctx?.circleId, itemId]);
 
   const [form, setForm] = useState({ name: '', kind: 'book' as ItemKind, price: '', ownerId: '', low: '3', color: null as string | null, issuedOn: '', memo: '' });
@@ -86,6 +87,8 @@ export function ItemEditPage() {
   const printed = data.runs.reduce((a, r) => a + r.qty, 0);
   const activeStorages = data.storages.filter((l) => !l.archived_at);
   const home = activeStorages.find((l) => l.id === runTo) ?? activeStorages[0];
+  // 直接搬入するイベント(F-302)。選んでいなければ保管場所に入れる
+  const runEvent = runTo.startsWith('event:') ? data.events.find((e) => `event:${e.id}` === runTo) : undefined;
 
   async function save() {
     setError('');
@@ -117,10 +120,11 @@ export function ItemEditPage() {
     try {
       await addPrintRun(db, ctx!, {
         itemId: item.id, qty: Number(run.qty || NaN), totalCost: Number(run.cost || NaN),
-        printedOn: run.date || null, printer: run.printer, toLocationId: home.id,
+        printedOn: run.date || null, printer: run.printer, toLocationId: home.id, toEventId: runEvent?.id ?? null,
       });
       setRun({ qty: '', cost: '', date: '', printer: '' });
-      toast(`刷り記録を追加し、${home.name}に入れました`);
+      setRunTo('');
+      toast(runEvent ? `刷り記録を追加し、${runEvent.name}の持ち込みに入れました(直接搬入)` : trackHome ? `刷り記録を追加し、${home.name}に入れました` : '刷り記録を追加しました');
     } catch (e) {
       setRunError(e instanceof Error ? e.message : String(e));
     }
@@ -328,21 +332,23 @@ export function ItemEditPage() {
                 <input id="run-printer" value={run.printer} onChange={(e) => setRun({ ...run, printer: e.target.value })} placeholder="任意" />
               </span>
             </div>
-            {trackHome && activeStorages.length > 1 && (
+            {isOwn && ((trackHome && activeStorages.length > 1) || data.events.length > 0) && (
               <>
-                <label htmlFor="run-to">入れる保管場所</label>
-                <select id="run-to" value={home?.id ?? ''} onChange={(e) => setRunTo(e.target.value)}>
-                  {activeStorages.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                <label htmlFor="run-to">届け先</label>
+                <select id="run-to" value={runEvent ? runTo : home?.id ?? ''} onChange={(e) => setRunTo(e.target.value)}>
+                  {(trackHome ? activeStorages : activeStorages.slice(0, 1)).map((l) => <option key={l.id} value={l.id}>{trackHome ? l.name : '手元(会場には持ち込みで運ぶ)'}</option>)}
+                  {data.events.map((e) => <option key={e.id} value={`event:${e.id}`}>会場に直接: {e.name}({e.held_on})</option>)}
                 </select>
+                {runEvent && <p className="note">印刷所から会場へ直接届く分として、{runEvent.name}の持ち込みに加えます。会場で残った分は、終了処理で持ち帰ります。</p>}
               </>
             )}
             {runError && <p className="error">{runError}</p>}
-            <button className="btn">{trackHome ? `追加して${home?.name ?? '自宅'}に入れる` : '刷り記録を追加'}</button>
+            <button className="btn">{runEvent ? `追加して${runEvent.name}に直接搬入` : trackHome ? `追加して${home?.name ?? '自宅'}に入れる` : '刷り記録を追加'}</button>
           </form>
           <form className="card form" onSubmit={(e) => { e.preventDefault(); void saveProd(); }}>
             <label htmlFor="prod-cost">制作費(円)</label>
             <div className="copy-row">
-              <input id="prod-cost" inputMode="numeric" value={prodValue} onChange={(e) => setProd(e.target.value.replace(/D/g, ''))} placeholder="0" />
+              <input id="prod-cost" inputMode="numeric" value={prodValue} onChange={(e) => setProd(e.target.value.replace(/\D/g, ''))} placeholder="0" />
               <button className="sbtn acc" disabled={prod === null || prod === (data.prodCost > 0 ? String(data.prodCost) : '')}>保存</button>
             </div>
             <small className="k">表紙イラストやデザインの外注費、資料代など、印刷費のほかに払った金額の合計。初版の費用に入り、再版には入りません。自分の作業時間は入れません。</small>

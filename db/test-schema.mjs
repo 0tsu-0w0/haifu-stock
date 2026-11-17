@@ -220,6 +220,27 @@ await as(U2, async () => {
   ok(r.affectedRows === 0, '売り子はサークル主の端末の名前を変えられない');
   await expectError(db.query(`insert into devices (id, circle_id, user_id, name) values ($1,$2,$3,'なりすまし')`, [id(), C, U1]), '売り子はほかの人として端末の名前を作れない');
 });
+// 端末ごとの最後の同期(F-500): 売り子は自分の端末の行だけ書け、サークル主は全部見える
+await as(U2, async () => {
+  await db.query(`insert into device_syncs (id, circle_id, user_id, synced_at, pending, client_updated_at) values ($1,$2,$3,now(),2,'2099-01-01T00:00:00Z')`, [DEV2, C, U2]);
+  await db.query(`insert into device_syncs (id, circle_id, user_id, synced_at, pending, client_updated_at) values ($1,$2,$3,now(),0,'2099-01-02T00:00:00Z')
+                  on conflict (id) do update set pending = excluded.pending, synced_at = excluded.synced_at, client_updated_at = excluded.client_updated_at`, [DEV2, C, U2]);
+  await db.query(`insert into device_syncs (id, circle_id, user_id, synced_at, pending, client_updated_at) values ($1,$2,$3,now(),9,'2098-01-01T00:00:00Z')
+                  on conflict (id) do update set pending = excluded.pending, synced_at = excluded.synced_at, client_updated_at = excluded.client_updated_at`, [DEV2, C, U2]);
+  const r = (await db.query(`select pending, server_seq from device_syncs where id = $1`, [DEV2])).rows[0];
+  ok(r.pending === 0 && Number(r.server_seq) > 0, '売り子は自分の端末の同期の記録を書き直せる(後勝ち)');
+  await expectError(db.query(`insert into device_syncs (id, circle_id, user_id, synced_at) values ($1,$2,$3,now())`, [id(), C, U1]), '売り子はほかの人の端末として書けない');
+  await expectError(db.query(`insert into device_syncs (id, circle_id, user_id, synced_at, pending) values ($1,$2,$3,now(),-1)`, [id(), C, U2]), '未送信の件数は0以上');
+});
+await as(U1, async () => {
+  await db.query(`insert into device_syncs (id, circle_id, user_id, synced_at) values ($1,$2,$3,now())`, [DEV1, C, U1]);
+  const n = (await db.query(`select count(*)::int n from device_syncs`)).rows[0].n;
+  ok(n === 2, 'サークル主は全部の端末の同期の記録が見える');
+});
+await as(U2, async () => {
+  const n = (await db.query(`select count(*)::int n from device_syncs`)).rows[0].n;
+  ok(n === 1, '売り子にはほかの端末の同期の記録は見えない');
+});
 await as(U1, async () => {
   const all = await db.query(`select name from devices order by name`);
   ok(all.rows.length === 2, 'サークル主はサークルの全端末の名前が見える');
@@ -242,7 +263,7 @@ await as(U2, async () => {
 await as(U1, async () => {
   const h = (await db.query(`select sync_heads() as h`)).rows[0].h;
   const max = (await db.query(`select max(server_seq)::int as m from transactions`)).rows[0].m;
-  ok(Object.keys(h).length === 23 && h.transactions === max, 'sync_heads はサークル主に、全部の表の最新の番号を返す');
+  ok(Object.keys(h).length === 25 && h.transactions === max, 'sync_heads はサークル主に、全部の表の最新の番号を返す');
 });
 await as(U2, async () => {
   const h = (await db.query(`select sync_heads() as h`)).rows[0].h;
@@ -366,6 +387,36 @@ await as(U1, async () => {
   await as(U3, async () => {
     await expectError(db.query(`insert into consignment_reports (id, circle_id, location_id, reported_on, sales_amount, fee_amount) values ($1,$2,$3,'2099-01-10',0,0)`, [id(), c3, SHOP]),
       '別のサークルの委託先を指す報告は入れられない');
+  });
+}
+
+// 備品(F-310): サークル主だけが登録し、経費から指せる。売り子には見えない
+{
+  const EQ = id();
+  await as(U1, async () => {
+    await db.query(`insert into equipment (id, circle_id, name, cost, uses, client_updated_at) values ($1,$2,'ブックスタンド',3000,6,'2099-01-01T00:00:00Z')`, [EQ, C]);
+    await db.query(`update equipment set cost = 1, client_updated_at = '2098-01-01T00:00:00Z' where id=$1`, [EQ]);
+    const r = (await db.query(`select cost, server_seq from equipment where id=$1`, [EQ])).rows[0];
+    ok(r.cost === 3000 && Number(r.server_seq) > 0, '備品は後勝ちで、差分同期の番号が振られる');
+    await db.query(`insert into expenses (id, circle_id, event_id, category, label, planned_amount, actual_amount, equipment_id) values ($1,$2,$3,'supplies','ブックスタンド',500,500,$4)`, [id(), C, EV, EQ]);
+    ok(true, '経費から備品を指せる');
+    await expectError(db.query(`insert into equipment (id, circle_id, name, cost, uses) values ($1,$2,'x',100,0)`, [id(), C]), '見込みの回数は1以上');
+    await expectError(db.query(`insert into equipment (id, circle_id, name, cost) values ($1,$2,'x',-1)`, [id(), C]), '備品の金額は0円以上');
+    const h = (await db.query(`select sync_heads() h`)).rows[0].h;
+    ok(Number(h.equipment) > 0, 'sync_heads に備品が入る');
+  });
+  await as(U2, async () => {
+    const n = (await db.query(`select count(*)::int n from equipment`)).rows[0].n;
+    ok(n === 0, '売り子には備品が見えない');
+    await expectError(db.query(`insert into equipment (id, circle_id, name, cost) values ($1,$2,'x',100)`, [id(), C]), '売り子は備品を登録できない');
+  });
+  const U3 = '00000000-0000-0000-0000-0000000000c3';
+  const c3 = (await db.query(`select circle_id from circle_members where user_id=$1`, [U3])).rows[0].circle_id;
+  await as(U3, async () => {
+    const ev3 = id();
+    await db.query(`insert into events (id, circle_id, name, held_on) values ($1,$2,'別のイベント','2099-03-01')`, [ev3, c3]);
+    await expectError(db.query(`insert into expenses (id, circle_id, event_id, category, equipment_id) values ($1,$2,$3,'supplies',$4)`, [id(), c3, ev3, EQ]),
+      '別のサークルの備品を指す経費は入れられない');
   });
 }
 

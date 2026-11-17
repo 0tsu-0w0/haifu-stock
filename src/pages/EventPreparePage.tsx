@@ -5,6 +5,7 @@ import { db } from '../app/db';
 import { usePref } from '../app/prefs';
 import { useCtx } from '../app/useCtx';
 import { ConfirmButton } from '../components/ConfirmButton';
+import { EquipmentUse } from '../components/Equipment';
 import { EventNav } from '../components/EventNav';
 import { FloatSuggest } from '../components/FloatSuggest';
 import { ReservationsCard } from '../components/Reservations';
@@ -14,7 +15,7 @@ import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../components/Toast';
 import type { ExpenseCategory } from '../db/types';
 import {
-  EXPENSE_LABEL, copyFloatAndExpenses, deleteEvent, ensureEventType, eventTypes, planFromEvent, prepareEvent, preparedQty, saveEventInfo, saveExpense, saveFloat, saveSortOrder,
+  EXPENSE_LABEL, copyFloatAndExpenses, deleteEvent, directDelivered, ensureEventType, eventTypes, planFromEvent, prepareEvent, preparedQty, saveEventInfo, saveExpense, saveFloat, saveSortOrder,
   type PrepareLine,
 } from '../domain/catalog';
 import { DENOMINATIONS } from '../domain/closing';
@@ -48,7 +49,7 @@ export function EventPreparePage() {
 
   const data = useLiveQuery(async () => {
     if (!ctx) return null;
-    const [event, items, owners, storages, eventItems, prepared, cash, expenses, closings, stock, events, types] = await Promise.all([
+    const [event, items, owners, storages, eventItems, prepared, cash, expenses, closings, stock, events, types, direct] = await Promise.all([
       isNew ? undefined : db.events.get(eventId!),
       db.items.where('circle_id').equals(ctx.circleId).toArray(),
       db.owners.where('circle_id').equals(ctx.circleId).toArray(),
@@ -61,11 +62,12 @@ export function EventPreparePage() {
       storageStock(db, ctx.circleId),
       db.events.where('circle_id').equals(ctx.circleId).toArray(),
       eventTypes(db, ctx.circleId),
+      isNew ? new Map<string, number>() : directDelivered(db, eventId!),
     ]);
     // コピー元にできるイベント(F-303): 削除していない、ほかのイベント。新しい順
     const others = events.filter((e) => !e.deleted_at && e.id !== eventId).sort((a, b) => b.held_on.localeCompare(a.held_on));
     return {
-      event, items, owners, storages, eventItems, prepared, cash, expenses, others, types,
+      event, items, owners, storages, eventItems, prepared, cash, expenses, others, types, direct,
       closed: closings.some((c) => !c.reopened_at), stock,
     };
   }, [ctx?.circleId, eventId]);
@@ -118,7 +120,8 @@ export function EventPreparePage() {
     [ctx?.circleId, eventId, !!data?.event, data?.closed],
   );
   const evDays = data?.event ? daysOf(data.event) : 1;
-  const hints = useMemo(() => (analysis ? bringHints(analysis, eventId, DEFAULT_FORECAST, undefined, evDays) : new Map()), [analysis, eventId, evDays]);
+  const evType = data?.event?.event_type_id ?? null;
+  const hints = useMemo(() => (analysis ? bringHints(analysis, eventId, DEFAULT_FORECAST, undefined, evDays, evType) : new Map()), [analysis, eventId, evDays, evType]);
 
   if (!ctx || !data) return <main className="page" />;
   if (!isNew && !data.event) return <main className="page"><p>イベントが見つかりません。</p><Link to="/">ホームに戻る</Link></main>;
@@ -363,7 +366,10 @@ export function EventPreparePage() {
                   </label>
                   {l.included && i.kind !== 'set' && (
                     <div className="rowx">
-                      <span className="k">{own ? '持ち込み' : '預かり'}{prepared ? `(いま ${prepared})` : ''}</span>
+                      <span className="k">
+                        {own ? '持ち込み' : '預かり'}{prepared ? `(いま ${prepared})` : ''}
+                        {data.direct.get(i.id) ? <small>・うち直接搬入 {data.direct.get(i.id)}部</small> : null}
+                      </span>
                       <NumberField id={`bring-${i.id}`} label={`${i.name}の${own ? '持ち込み' : '預かり'}数`} value={l.bring} onCommit={(v) => setLine(i.id, { bring: v })} />
                     </div>
                   )}
@@ -459,7 +465,7 @@ export function EventPreparePage() {
             {shownExpenses.length === 0 && <span className="k">まだありません。出展費や交通費を入れると、収支と損益分岐に使います。</span>}
             {shownExpenses.map((e) => (
               <div className="rowx" key={e.id}>
-                <span>{e.label}</span>
+                <span>{e.label}{e.equipment_id && <small className="k"> 備品</small>}</span>
                 <span className="exp-amount">
                   <input
                     className="price-in" inputMode="numeric" aria-label={`${e.label}の金額`} disabled={locked}
@@ -490,7 +496,8 @@ export function EventPreparePage() {
               <input className="price-in" inputMode="numeric" aria-label="金額" placeholder="7000" value={newExp.amount} onChange={(e) => setNewExp({ ...newExp, amount: e.target.value.replace(/\D/g, '') })} />
               <button className="sbtn" disabled={locked}>追加</button>
             </form>
-            <p className="note">金額を空にすると、その経費を消します。印刷費は品目の「刷り記録」に入れます(売れた分が原価として収支に入るので、ここには入れません)。</p>
+            <EquipmentUse ctx={ctx} eventId={eventId!} locked={locked} />
+            <p className="note">金額を空にすると、その経費を消します。備品(設定で登録)は、買った金額を使う回数で割った分を入れます。印刷費は品目の「刷り記録」に入れます(売れた分が原価として収支に入るので、ここには入れません)。</p>
           </div>
         </>
       )}

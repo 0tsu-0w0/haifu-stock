@@ -378,6 +378,10 @@ details[open] summary { margin-bottom: 6px; }
 .name-row input, .owner-add input:not(.price-in) { height: 40px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font: inherit; padding: 0 10px; min-width: 0; }
 .owner-add { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
 .fee-in { width: 56px; }
+.equip-form { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 6px; align-items: center; }
+.equip-form input:not(.price-in) { height: 40px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font: inherit; padding: 0 10px; min-width: 0; }
+.equip-form .price-in:not(.fee-in) { width: 72px; }
+.equip-sub { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .owner-row { display: flex; flex-direction: column; gap: 2px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 .owner-row.archived { opacity: .6; }
 .small-link { align-self: flex-end; font-size: 12px; padding: 2px 4px; }
@@ -419,6 +423,7 @@ details[open] summary { margin-bottom: 6px; }
 .report-tbl td:first-child { white-space: normal; min-width: 7em; }
 .chart .bar { fill: var(--series-1); }
 .chart .bar.on { opacity: .8; }
+.chart .trend-bring { stroke: var(--ink-2); stroke-width: 2; }
 .sold-outs { padding: 2px 4px 0; }
 .slot-table { padding: 4px 4px 0; }
 
@@ -601,8 +606,8 @@ details[open] summary { margin-bottom: 6px; }
 .compare-tbl td:first-child { min-width: 128px; }
 .compare-tbl td:first-child a { color: var(--accent); font-weight: 700; }
 .compare-tbl td:first-child small { display: block; }
-/* タブの数に合わせて並べ、長い名前は2行に折り返す */
-.tabs { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
+/* 4つずつ2段に並べ、長い名前は2行に折り返す */
+.tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .tab { white-space: normal; line-height: 1.25; }
 
 /* 設定: 同期の状態(#17) */
@@ -686,3 +691,6 @@ details[open] summary { margin-bottom: 6px; }
 /* シートを開いているあいだの知らせは、シートの説明に重ならないよう画面の上に出す */
 body:has(.scrim) .toast { bottom: auto; top: calc(12px + env(safe-area-inset-top, 0px)); transform: translate(-50%, -12px); }
 body:has(.scrim) .toast.show { transform: translate(-50%, 0); }
+.dev-sync { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.dev-sync:last-of-type { border-bottom: 0; }
+.dev-sync.warn b { color: var(--warn); }

@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getMeta } from '../db/local';
 import { TABLE_BY_NAME } from '../db/tables';
+import { reportDeviceSync } from '../sync/deviceSync';
 import { syncOnce, type TableError } from '../sync/engine';
 import { server } from '../server';
 import { useAuth } from './AuthProvider';
@@ -57,7 +58,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }
     setState({ kind: 'syncing' });
     try {
-      const r = await syncOnce(db, await server.remote());
+      const remote = await server.remote();
+      const r = await syncOnce(db, remote);
+      // 終了処理でほかの端末から見えるよう、この端末の最後の同期を知らせる(F-500)
+      void reportDeviceSync(db, remote);
       quiet.current = r.pushed || r.pulled ? 0 : quiet.current + 1;
       const lastSyncedAt = (await getMeta<string>(db, 'last_synced_at')) ?? null;
       if (r.failed.length > 0) {

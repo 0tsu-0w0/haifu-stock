@@ -8,6 +8,7 @@ import { useCtx } from '../app/useCtx';
 import { useDeviceNames } from '../app/useDeviceNames';
 import { AccountBar } from '../components/AccountBar';
 import { DataExport } from '../components/DataExport';
+import { EquipmentCard } from '../components/Equipment';
 import { PageHeader } from '../components/PageHeader';
 import { RegisterTour } from '../components/RegisterTour';
 import { SyncStatus } from '../components/SyncStatus';
@@ -114,6 +115,9 @@ export function SettingsPage() {
         </form>
         <p className="note">在庫を置いている場所です(例: 自宅、実家、倉庫)。2つ以上あると、品目の画面の「在庫を移す」で場所どうしを動かせ、持ち込み・刷り記録・終了処理の戻し先で場所を選べます。在庫が残っている場所はしまえません。</p>
       </div>
+
+      <h3 className="section">備品</h3>
+      <EquipmentCard ctx={ctx} />
 
       <h3 className="section">受託元(預かる本の持ち主)</h3>
       <div className="card">

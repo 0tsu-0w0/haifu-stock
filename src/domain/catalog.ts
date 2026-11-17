@@ -2,7 +2,8 @@ import { putAndQueue, type HaifuDB } from '../db/local';
 import type { CashCount, EventItem, EventRow, EventType, Expense, ExpenseCategory, Item, ItemKind, Location, Owner, PriceTier, PrintRun, ProductionCost, SetComponent } from '../db/types';
 import { uuidv7 } from '../lib/uuid';
 import { assertOpen } from './closing';
-import { MAX_DAYS } from './eventDays';
+import { applyEquipment } from './equipment';
+import { MAX_DAYS, addDays, daysOf } from './eventDays';
 import { isItemColor } from './colors';
 import { eventItemSummary } from './ledger';
 import { moveStock, type Ctx } from './record';
@@ -98,7 +99,11 @@ export async function setItemArchived(db: HaifuDB, itemId: string, archived: boo
 /** 刷り記録を追加し、刷った部数を置き場所(ふつうは自宅)に入れる(F-102) */
 export async function addPrintRun(
   db: HaifuDB, ctx: Ctx,
-  input: { itemId: string; qty: number; totalCost: number; printedOn: string | null; printer?: string; toLocationId: string },
+  input: {
+    itemId: string; qty: number; totalCost: number; printedOn: string | null; printer?: string; toLocationId: string;
+    /** 印刷所から会場へ直接届けるイベント(F-302)。入れると toLocationId ではなくイベントに入れ、持ち込みに加える */
+    toEventId?: string | null;
+  },
 ): Promise<PrintRun> {
   if (!Number.isInteger(input.qty) || input.qty <= 0) throw new Error('刷った部数を入れてください');
   if (!Number.isInteger(input.totalCost) || input.totalCost < 0) throw new Error('印刷費は0円以上の整数で入れてください');
@@ -110,14 +115,44 @@ export async function addPrintRun(
     printed_on: input.printedOn, qty: input.qty, total_cost: input.totalCost, printer: input.printer?.trim() || null,
     client_updated_at: stamp(),
   };
-  await db.transaction('rw', ['print_runs', 'stock_movements', 'locations', 'outbox'], async () => {
+  const label = `${run.edition === 1 ? '初版' : `第${run.edition}版`}の刷り上がり`;
+  await db.transaction('rw', ['print_runs', 'stock_movements', 'locations', 'outbox', 'event_items', 'event_closings', 'transactions'], async () => {
+    if (!input.toEventId) {
+      await putAndQueue(db, 'print_runs', run);
+      await moveStock(db, ctx, { itemId: input.itemId, qty: input.qty, from: null, to: input.toLocationId, reason: 'print', printRunId: run.id, note: label });
+      return;
+    }
+    // 直接搬入(F-302): 刷った分をそのままイベントの置き場所に入れ、持ち込みに加える
+    await assertOpen(db, input.toEventId);
+    const loc = await db.locations.where('event_id').equals(input.toEventId).first();
+    if (!loc) throw new Error('イベントの置き場所が見つかりません');
     await putAndQueue(db, 'print_runs', run);
-    await moveStock(db, ctx, {
-      itemId: input.itemId, qty: input.qty, from: null, to: input.toLocationId, reason: 'print', printRunId: run.id,
-      note: `${run.edition === 1 ? '初版' : `第${run.edition}版`}の刷り上がり`,
-    });
+    await moveStock(db, ctx, { itemId: input.itemId, qty: input.qty, from: null, to: loc.id, reason: 'print', printRunId: run.id, note: `${label}(会場に直接搬入)` });
+    const prev = await db.event_items.get([input.toEventId, input.itemId]);
+    const others = await db.event_items.where('event_id').equals(input.toEventId).toArray();
+    const bring = (await preparedQty(db, input.toEventId)).get(input.itemId) ?? input.qty;
+    await putAndQueue(db, 'event_items', {
+      event_id: input.toEventId, item_id: input.itemId, circle_id: ctx.circleId,
+      price_override: prev?.price_override ?? null, planned_qty: bring, suggested_qty: prev?.suggested_qty ?? null,
+      sort_order: prev?.sort_order ?? others.reduce((m, e) => Math.max(m, e.sort_order + 1), 0),
+      removed_at: null, client_updated_at: stamp(),
+    } satisfies EventItem);
   });
   return run;
+}
+
+/**
+ * 刷り上がりを直接届けられるイベント(F-302)。終了処理をしておらず、最終日が今日より前でないもの。開催日の早い順
+ */
+export async function deliverableEvents(db: HaifuDB, circleId: string, today: string): Promise<EventRow[]> {
+  const [events, closings] = await Promise.all([
+    db.events.where('circle_id').equals(circleId).filter((e) => !e.deleted_at).toArray(),
+    db.event_closings.toArray(),
+  ]);
+  const closed = new Set(closings.filter((c) => !c.reopened_at).map((c) => c.event_id));
+  return events
+    .filter((e) => !closed.has(e.id) && addDays(e.held_on, daysOf(e) - 1) >= today)
+    .sort((a, b) => a.held_on.localeCompare(b.held_on));
 }
 
 export async function saveEventInfo(
@@ -205,6 +240,17 @@ export async function preparedQty(db: HaifuDB, eventId: string): Promise<Map<str
       : m.from_location_id === loc.id && (m.reason === 'transfer' || m.reason === 'return_to_owner' || m.reason === 'adjust') ? -m.qty
       : 0;
     if (d) out.set(m.item_id, (out.get(m.item_id) ?? 0) + d);
+  }
+  return out;
+}
+
+/** 印刷所から会場へ直接届いた部数(F-302)。品目ごと */
+export async function directDelivered(db: HaifuDB, eventId: string): Promise<Map<string, number>> {
+  const loc = await db.locations.where('event_id').equals(eventId).first();
+  const out = new Map<string, number>();
+  if (!loc) return out;
+  for (const m of await db.stock_movements.where('event_id').equals(eventId).toArray()) {
+    if (m.reason === 'print' && m.to_location_id === loc.id) out.set(m.item_id, (out.get(m.item_id) ?? 0) + m.qty);
   }
   return out;
 }
@@ -408,13 +454,17 @@ export async function saveExpense(
   for (const v of [input.planned, input.actual]) {
     if (v !== null && (!Number.isInteger(v) || v < 0)) throw new Error('金額は0円以上の整数で入れてください');
   }
-  const exp: Expense = {
-    id: input.id ?? uuidv7(), circle_id: ctx.circleId, event_id: input.eventId, category: input.category,
-    label: input.label?.trim() || EXPENSE_LABEL[input.category], planned_amount: input.planned, actual_amount: input.actual,
-    client_updated_at: stamp(),
-  };
-  await db.transaction('rw', ['expenses', 'outbox'], () => putAndQueue(db, 'expenses', exp));
-  return exp;
+  return db.transaction('rw', ['expenses', 'outbox'], async () => {
+    // 備品の経費は、金額を直しても備品とのつながりを残す(F-310)
+    const before = input.id ? await db.expenses.get(input.id) : undefined;
+    const exp: Expense = {
+      id: input.id ?? uuidv7(), circle_id: ctx.circleId, event_id: input.eventId, category: input.category,
+      label: input.label?.trim() || EXPENSE_LABEL[input.category], planned_amount: input.planned, actual_amount: input.actual,
+      equipment_id: before?.equipment_id ?? null, client_updated_at: stamp(),
+    };
+    await putAndQueue(db, 'expenses', exp);
+    return exp;
+  });
 }
 
 /**
@@ -437,7 +487,7 @@ export async function planFromEvent(db: HaifuDB, fromEventId: string): Promise<P
 export async function copyFloatAndExpenses(
   db: HaifuDB, ctx: Ctx, fromEventId: string, toEventId: string,
 ): Promise<{ float: boolean; expenses: number }> {
-  return db.transaction('rw', ['cash_counts', 'expenses', 'outbox', 'event_closings'], async () => {
+  return db.transaction('rw', ['cash_counts', 'expenses', 'equipment', 'outbox', 'event_closings'], async () => {
     await assertOpen(db, toEventId);
     const [fromCash, toCash, fromExp, toExp] = await Promise.all([
       db.cash_counts.where('event_id').equals(fromEventId).filter((c) => c.phase === 'float' && c.count > 0).toArray(),
@@ -459,6 +509,18 @@ export async function copyFloatAndExpenses(
       for (const e of fromExp) {
         const amount = e.actual_amount ?? e.planned_amount ?? 0;
         if (amount <= 0) continue;
+        if (e.equipment_id) {
+          // 備品は前回と同じ金額ではなく、もう一度按分する。使い切っていれば写さない
+          const eq = await db.equipment.get(e.equipment_id);
+          if (!eq || eq.archived_at) continue;
+          try {
+            await applyEquipment(db, ctx, toEventId, eq.id);
+            expenses++;
+          } catch {
+            // 使い切った備品は写さない
+          }
+          continue;
+        }
         await putAndQueue(db, 'expenses', {
           id: uuidv7(), circle_id: ctx.circleId, event_id: toEventId, category: e.category, label: e.label,
           planned_amount: amount, actual_amount: null, client_updated_at: stamp(),

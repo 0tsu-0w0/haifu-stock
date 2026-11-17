@@ -291,6 +291,22 @@ create table event_breaks (
   server_seq        bigint not null default 0
 );
 
+-- 備品(F-310): 何回も使うブックスタンドやテーブルクロスなど。見込みの回数で割って、使ったイベントの経費にする
+create table equipment (
+  id                uuid primary key,
+  circle_id         uuid not null references circles(id) on delete cascade,
+  name              text not null check (length(trim(name)) > 0),
+  cost              int not null check (cost >= 0),
+  uses              int not null default 5 check (uses between 1 and 1000),  -- 見込みの使う回数
+  bought_on         date,
+  archived_at       timestamptz,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  client_updated_at timestamptz not null default now(),
+  server_seq        bigint not null default 0
+);
+create index equipment_seq on equipment (server_seq);
+
 create table expenses (
   id                uuid primary key default gen_random_uuid(),
   circle_id         uuid not null references circles(id) on delete cascade,
@@ -299,6 +315,7 @@ create table expenses (
   label             text,
   planned_amount    int check (planned_amount >= 0),
   actual_amount     int check (actual_amount >= 0),
+  equipment_id      uuid references equipment(id),  -- 備品を按分した経費(F-310)
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
   client_updated_at timestamptz not null default now(),
@@ -348,6 +365,21 @@ create table devices (
 );
 create index devices_circle on devices (circle_id);
 create index devices_seq on devices (server_seq);
+
+-- 端末ごとの最後の同期(F-500)。各端末が同期を終えるたびに、自分の行を書き直す。
+-- 終了処理で、売り子の端末の記録が届いているかを確かめるのに使う
+create table device_syncs (
+  id                uuid primary key,            -- 端末のID(devices.id と同じ。名前がなくても作る)
+  circle_id         uuid not null references circles(id) on delete cascade,
+  user_id           uuid not null,
+  synced_at         timestamptz not null,
+  pending           int not null default 0 check (pending >= 0),   -- 同期を終えた時点で、送れずに残っていた件数
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  client_updated_at timestamptz not null default now(),
+  server_seq        bigint not null default 0
+);
+create index device_syncs_seq on device_syncs (server_seq);
 
 -- ---------------------------------------------------------------------
 -- 台帳(追記だけ)
@@ -525,7 +557,8 @@ begin
     'circles','circle_members','event_types','owners','items','set_components','print_runs',
     'production_costs','print_price_tiers','events','locations','event_items','event_breaks',
     'expenses','invites','event_staff','devices','reservations','transactions','transaction_lines',
-    'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements','consignment_reports']
+    'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements','consignment_reports',
+    'device_syncs','equipment']
   loop
     execute format('create trigger %I before insert or update on %I for each row execute function app.touch_sync()',
                    t || '_sync', t);
@@ -535,7 +568,7 @@ begin
   foreach t in array array[
     'circles','event_types','owners','items','print_runs','production_costs','print_price_tiers',
     'events','locations','event_items','event_breaks','expenses','cash_counts','closing_counts','devices','reservations',
-    'consignment_reports']
+    'consignment_reports','device_syncs','equipment']
   loop
     execute format('create trigger %I before update on %I for each row execute function app.last_write_wins()',
                    t || '_lww', t);
@@ -634,7 +667,8 @@ create trigger reservations_same_circle before insert or update on reservations
 create trigger event_breaks_same_circle before insert or update on event_breaks
   for each row execute function app.check_same_circle('event_id:events');
 create trigger expenses_same_circle before insert or update on expenses
-  for each row execute function app.check_same_circle('event_id:events');
+  for each row execute function app.check_same_circle('event_id:events', 'equipment_id:equipment');
+create index expenses_equipment on expenses (equipment_id);
 create trigger invites_same_circle before insert or update on invites
   for each row execute function app.check_same_circle('event_id:events');
 create trigger event_staff_same_circle before insert or update on event_staff
@@ -756,7 +790,8 @@ begin
     'circles','circle_members','event_types','owners','items','set_components','print_runs',
     'production_costs','print_price_tiers','events','locations','event_items','event_breaks',
     'expenses','invites','event_staff','devices','reservations','transactions','transaction_lines',
-    'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements','consignment_reports']
+    'stock_movements','cash_counts','closing_counts','event_closings','consignment_settlements','consignment_reports',
+    'device_syncs','equipment']
   loop
     execute format('alter table %I enable row level security', t);
   end loop;
@@ -766,7 +801,7 @@ begin
     'event_types','owners','items','set_components','print_runs','production_costs',
     'print_price_tiers','events','locations','event_items','event_breaks','expenses','invites',
     'event_staff','devices','reservations','cash_counts','closing_counts','event_closings','consignment_settlements',
-    'consignment_reports']
+    'consignment_reports','device_syncs','equipment']
   loop
     execute format('create policy %I on %I for all to authenticated
                       using (app.is_owner(circle_id)) with check (app.is_owner(circle_id))',
@@ -826,6 +861,9 @@ language sql stable security definer set search_path = public as $$
                    and revoked_at is null and expires_at > now())
 $$;
 create policy devices_staff_rw on devices for all to authenticated
+  using (user_id = (select auth.uid()) and app.is_circle_staff(circle_id))
+  with check (user_id = (select auth.uid()) and app.is_circle_staff(circle_id));
+create policy device_syncs_staff_rw on device_syncs for all to authenticated
   using (user_id = (select auth.uid()) and app.is_circle_staff(circle_id))
   with check (user_id = (select auth.uid()) and app.is_circle_staff(circle_id));
 
@@ -1024,7 +1062,9 @@ language sql stable security invoker set search_path = public as $$
     'closing_counts', (select coalesce(max(server_seq), 0) from public.closing_counts),
     'event_closings', (select coalesce(max(server_seq), 0) from public.event_closings),
     'consignment_settlements', (select coalesce(max(server_seq), 0) from public.consignment_settlements),
-    'consignment_reports', (select coalesce(max(server_seq), 0) from public.consignment_reports)
+    'consignment_reports', (select coalesce(max(server_seq), 0) from public.consignment_reports),
+    'device_syncs', (select coalesce(max(server_seq), 0) from public.device_syncs),
+    'equipment', (select coalesce(max(server_seq), 0) from public.equipment)
   )
 $$;
 revoke execute on function public.sync_heads() from public, anon;
