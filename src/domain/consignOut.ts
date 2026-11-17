@@ -74,6 +74,8 @@ export interface ConsigneeState {
   reports: ConsignmentReport[];
   /** 最後に預けた・報告した日 */
   lastActivity: string | null;
+  /** 品目ごとの、初めて預けた日 */
+  firstSent: Map<string, string>;
 }
 
 /** 委託先ごとの、預けた・返ってきた・売れた・残り(F-603) */
@@ -82,7 +84,7 @@ export function summarizeConsignees(
 ): Map<string, ConsigneeState> {
   const out = new Map<string, ConsigneeState>();
   for (const l of locations.filter((x) => x.kind === 'consignee')) {
-    out.set(l.id, { location: l, items: new Map(), sent: 0, returned: 0, sold: 0, left: 0, sales: 0, fee: 0, net: 0, unpaid: 0, reports: [], lastActivity: null });
+    out.set(l.id, { location: l, items: new Map(), sent: 0, returned: 0, sold: 0, left: 0, sales: 0, fee: 0, net: 0, unpaid: 0, reports: [], lastActivity: null, firstSent: new Map() });
   }
   const itemOf = (s: ConsigneeState, itemId: string) => {
     let x = s.items.get(itemId);
@@ -97,7 +99,10 @@ export function summarizeConsignees(
     const from = m.from_location_id ? out.get(m.from_location_id) : undefined;
     if (into) {
       itemOf(into, m.item_id).sent += m.qty;
-      touch(into, m.recorded_at.slice(0, 10));
+      const day = m.recorded_at.slice(0, 10);
+      touch(into, day);
+      const first = into.firstSent.get(m.item_id);
+      if (!first || day < first) into.firstSent.set(m.item_id, day);
     }
     if (from) itemOf(from, m.item_id).returned += m.qty;
   }

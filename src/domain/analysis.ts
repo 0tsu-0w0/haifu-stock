@@ -1,6 +1,7 @@
 import type { HaifuDB } from '../db/local';
 import type { EventClosing, EventRow, Item, Location, Movement, PrintRun, SetComponent, Txn, TxnLine } from '../db/types';
 import { activeTxnIds, eventItemSummary, lineAmount, type ItemAtEvent } from './ledger';
+import { consigneeState, type ConsigneeState } from './consignOut';
 import { locationStock, storageStock as loadStorageStock } from './stock';
 import { activeFractionDays, dayWindows, daysOf, lastDayOf } from './eventDays';
 
@@ -22,11 +23,65 @@ export interface ForecastOptions {
   defaultDecay: number;
   /** 終了時刻が未入力のときの開催時間 */
   defaultHours: number;
+  /** 委託で売れる分を、何か月先まで再版の目安に足すか(0 なら足さない) */
+  consignMonths: number;
 }
 
 export const DEFAULT_FORECAST: ForecastOptions = {
-  plannedEvents: 3, safety: 0.1, reserve: 0, capFactor: 2, expectation: 1, defaultDecay: 0.5, defaultHours: 5,
+  plannedEvents: 3, safety: 0.1, reserve: 0, capFactor: 2, expectation: 1, defaultDecay: 0.5, defaultHours: 5, consignMonths: 6,
 };
+
+/** 委託の売れ方を見る期間(直近1年) */
+const CONSIGN_WINDOW_DAYS = 365;
+const DAY = 86_400_000;
+
+/** 品目ごとの委託の様子(再版の目安で使う) */
+export interface ConsignPace {
+  /** 委託先にいま預けている部数(全委託先の合計) */
+  left: number;
+  /** 直近1年の報告で売れた部数 */
+  sold: number;
+  /** その部数を数えた期間(か月。初めて預けた日か1年前の遅いほうから今日まで。1か月以上) */
+  months: number;
+  /** 1か月あたりに売れた部数 */
+  perMonth: number;
+}
+
+/**
+ * 委託の売れ方(決定事項 #15 のとおり、イベントの需要とは分けて数える)。
+ * 取り消した報告は数えない。預けたことのない品目は入れない
+ */
+export function consignPaces(states: Map<string, ConsigneeState>, today: string): Map<string, ConsignPace> {
+  const now = Date.parse(today);
+  const since = new Date(now - CONSIGN_WINDOW_DAYS * DAY).toISOString().slice(0, 10);
+  const out = new Map<string, { left: number; sold: number; firstSent: string | null }>();
+  for (const s of states.values()) {
+    for (const x of s.items.values()) {
+      const p = out.get(x.itemId) ?? { left: 0, sold: 0, firstSent: null };
+      p.left += Math.max(x.left, 0);
+      out.set(x.itemId, p);
+    }
+    for (const r of s.reports) {
+      if (r.reported_on < since) continue;
+      for (const l of r.lines) {
+        const p = out.get(l.item_id) ?? { left: 0, sold: 0, firstSent: null };
+        p.sold += l.qty;
+        out.set(l.item_id, p);
+      }
+    }
+    for (const [itemId, at] of s.firstSent) {
+      const p = out.get(itemId);
+      if (p && (!p.firstSent || at < p.firstSent)) p.firstSent = at;
+    }
+  }
+  const res = new Map<string, ConsignPace>();
+  for (const [id, p] of out) {
+    const from = Math.max(Date.parse(p.firstSent ?? since), Date.parse(since));
+    const months = Math.max(1, Math.round(((now - from) / DAY / 30.4) * 10) / 10);
+    res.set(id, { left: p.left, sold: p.sold, months, perMonth: Math.round((p.sold / months) * 10) / 10 });
+  }
+  return res;
+}
 
 /** 累積販売曲線の既定値: 序盤に偏る形(開始1時間で約4割、2時間で約6.5割、3時間で約8割) */
 export const defaultCurve = (t: number) => 1 - (1 - Math.min(Math.max(t, 0), 1)) ** 2;
@@ -71,6 +126,8 @@ export interface AnalysisData {
   upcoming: EventRow[];
   /** これからのイベントの置き場所に、もう入っている在庫(持ち込みを反映した分・直接搬入した分)。品目ごと */
   upcomingStock: Map<string, number>;
+  /** 委託の売れ方。品目ごと */
+  consign: Map<string, ConsignPace>;
   /** 累積販売曲線 F(t) と、その作り方 */
   curve: (t: number) => number;
   curveSource: 'data' | 'default';
@@ -322,7 +379,8 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
     const id = k.slice(0, k.indexOf('|'));
     upcomingStock.set(id, (upcomingStock.get(id) ?? 0) + n);
   }
-  return { events: events.filter((e) => !e.deleted_at), upcoming, upcomingStock, items, ownItems, histories, storageStock, printRuns, productionCosts, soldTotals, soldByYear, curve, curveSource, curveSamples: samples, curveTypes };
+  const consign = consignPaces(await consigneeState(db, circleId), today);
+  return { events: events.filter((e) => !e.deleted_at), upcoming, upcomingStock, consign, items, ownItems, histories, storageStock, printRuns, productionCosts, soldTotals, soldByYear, curve, curveSource, curveSamples: samples, curveTypes };
 }
 
 const quantile = (xs: number[], q: number) => {
@@ -421,6 +479,11 @@ export interface ReprintPlan {
   lot: number;
   unitCost: number | null;
   scenarios: Scenario[];
+  /**
+   * 委託で売れる見込み(consignMonths か月分)と、それを委託先に預けている分でまかなえない部数。
+   * 委託先の在庫はイベントには使えないので、手元の在庫とは分けて数える。委託していない品目・consignMonths が0なら null
+   */
+  consign: { pace: ConsignPace; months: number; expected: number; short: number } | null;
   /** 予測した回ごとの、当てはめたイベント。登録していない回は event が null で、直近と同じ規模として扱う */
   planned: { event: EventRow | null; days: number; scale: number }[];
   /** データ不足(同じ品目の実績が2回未満) */
@@ -456,16 +519,24 @@ export function reprintPlans(data: AnalysisData, opts: ForecastOptions): Reprint
     const stock = Math.max((data.storageStock.get(h.item.id) ?? 0) + (data.upcomingStock.get(h.item.id) ?? 0), 0);
     const lot = h.item.print_lot ?? 1;
     const unitCost = unitCostOf(data, h.item.id);
+    // 委託: 売れる見込みのうち、委託先にある分で足りない部数だけを足す(決定事項 #15・#20)
+    const pace = data.consign.get(h.item.id);
+    const consign = pace && opts.consignMonths > 0 && pace.sold > 0
+      ? (() => {
+        const expected = Math.round(pace.perMonth * opts.consignMonths * 10) / 10;
+        return { pace, months: opts.consignMonths, expected, short: Math.max(Math.ceil(expected - pace.left), 0) };
+      })()
+      : null;
     const scenarios = (['conservative', 'standard', 'aggressive'] as const).map((key): Scenario => {
       const r = rates[key];
       const perEvent = factor.map((f, k) => Math.round(base * r ** (k + 1) * f * 10) / 10);
-      const need = perEvent.reduce((a, x) => a + x, 0) + opts.reserve;
+      const need = perEvent.reduce((a, x) => a + x, 0) + opts.reserve + (consign?.short ?? 0);
       const short = Math.ceil(need * (1 + opts.safety)) - stock;
       const print = short > 0 ? roundUp(short, lot) : 0;
       const leftover = Math.max(Math.round(stock + print - need), 0);
       return { key, perEvent, need: Math.round(need), print, leftover, leftoverCost: Math.round(leftover * (unitCost ?? 0)) };
     });
-    out.push({ item: h.item, history: h, stock, base, lot, unitCost, scenarios, planned, reference: h.observations.length < 2 });
+    out.push({ item: h.item, history: h, stock, base, lot, unitCost, scenarios, consign, planned, reference: h.observations.length < 2 });
   }
   return out.sort((a, b) => b.scenarios[1].print - a.scenarios[1].print || a.item.name.localeCompare(b.item.name, 'ja'));
 }

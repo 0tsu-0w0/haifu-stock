@@ -77,6 +77,15 @@ function Forecast({ data, opts, setOpts }: { data: AnalysisData; opts: ForecastO
         </div>
         <label htmlFor="fc-reserve">イベント以外で確保したい部数(通販用など)</label>
         <input id="fc-reserve" inputMode="numeric" value={opts.reserve || ''} placeholder="0" onChange={(e) => set({ reserve: Number(e.target.value.replace(/\D/g, '') || 0) })} />
+        {data.consign.size > 0 && (
+          <>
+            <label htmlFor="fc-consign">委託で売れる分</label>
+            <select id="fc-consign" value={opts.consignMonths} onChange={(e) => set({ consignMonths: Number(e.target.value) })}>
+              <option value={0}>足さない</option>
+              {[3, 6, 12].map((n) => <option key={n} value={n}>{n}か月分を足す</option>)}
+            </select>
+          </>
+        )}
       </div>
 
       {plans.length === 0 && !nb && (
@@ -139,6 +148,7 @@ function Forecast({ data, opts, setOpts }: { data: AnalysisData; opts: ForecastO
             ? `続けて出したときの需要の比 ${rates.samples}件から。控えめ ${rates.conservative.toFixed(2)} / 標準 ${rates.standard.toFixed(2)} / 強気 ${rates.aggressive.toFixed(2)}`
             : `実績がないため既定値 ${opts.defaultDecay} を使っています`}。</li>
           <li>推奨刷り部数 = (予定イベントの予測需要の合計 + 確保したい部数)×(1 + 安全率)− 手元の在庫。手元の在庫は、自宅などの保管場所の分に、これからのイベントへ持ち込み済みの分(直接搬入を含む)を足した数です。印刷所の部数の刻みに切り上げます。</li>
+          <li>委託で売れる分を足すときは、直近1年の委託の報告から1か月あたりの部数を出し、選んだか月分を見込みます。委託先に預けている分はイベントには使えないので、手元の在庫には入れず、委託の見込みから引いて、足りない分だけを必要な部数に足します。</li>
           <li>
             予定イベントは、登録してあるこれからのイベントを開催日の早い順に当てはめます
             {data.upcoming.length > 0 ? `(${data.upcoming.slice(0, opts.plannedEvents).map((e) => e.name).join(' → ')}${data.upcoming.length < opts.plannedEvents ? ' → あとは未登録' : ''})` : '(いまは登録がありません)'}
@@ -167,6 +177,13 @@ function ReprintCard({ plan, opts }: { plan: ReprintPlan; opts: ForecastOptions 
           </div>
         ))}
       </div>
+      {plan.consign && (
+        <p className="note">
+          委託: 直近{plan.consign.pace.months}か月で{plan.consign.pace.sold}部(1か月あたり{plan.consign.pace.perMonth}部)。
+          {plan.consign.months}か月で約{Math.round(plan.consign.expected)}部売れる見込みで、委託先に{plan.consign.pace.left}部あるので、
+          {plan.consign.short > 0 ? `足りない${plan.consign.short}部を必要な部数に足しています。` : '委託先の在庫で足ります。'}
+        </p>
+      )}
       <p className="note">
         {std.print ? `標準では ${std.print}部の再版をおすすめします。` : '在庫で足りる見込みです。'}
         {plan.lot > 1 ? `${plan.lot}部単位に切り上げています。` : ''}
