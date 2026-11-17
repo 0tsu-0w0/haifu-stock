@@ -45,16 +45,18 @@ export function bringHints(
       const scale = typeScaleBetween(scales, typeOf.get(last.eventId) ?? null, targetTypeId);
       // 持ち込みは売り切れのほうが損が大きいので、減衰率は「強気」の値を使う
       // 2日・3日開催は、1日あたりにそろえてから、準備しているイベントの日数を掛ける(Issue #19)
-      const expected = (last.demand / Math.max(last.days, 1)) * days * rates.aggressive * scale;
+      // 同じ種別の実績が何回か前のものなら、そのあとに出した回数の分も減衰させる
+      const steps = obs.length - obs.indexOf(last);
+      const expected = (last.demand / Math.max(last.days, 1)) * days * rates.aggressive ** steps * scale;
       const result = last.soldOutAt
         ? `${hhmm(last.soldOutAt)}に完売${last.corrected ? `(売り切れなければ約${Math.round(last.demand)}部)` : ''}`
         : `${Math.max(last.brought - last.sold, 0)}部残り`;
       // 前回完売したなら、前回の持ち込み数より減らさない
-      const floor = last.soldOutAt && scale >= 1 ? Math.ceil((last.brought / Math.max(last.days, 1)) * days) : 1;
+      const floor = last.soldOutAt && scale >= 1 && steps === 1 ? Math.ceil((last.brought / Math.max(last.days, 1)) * days) : 1;
       out.set(item.id, {
         qty: Math.max(Math.ceil(expected * (1 + margin)), floor),
         expected: Math.round(expected),
-        basis: `${last === obs[obs.length - 1] ? '前回' : '同じ種別の前回'}「${last.eventName}」${last.days > 1 ? `(${last.days}日間)` : ''}で${last.sold}部・${result}`
+        basis: `${steps === 1 ? '前回' : `同じ種別の前回(${steps}回前)`}「${last.eventName}」${last.days > 1 ? `(${last.days}日間)` : ''}で${last.sold}部・${result}`
           + `${days > 1 || last.days > 1 ? `。${days}日分にそろえています` : ''}`
           + `${scale !== 1 ? `。種別の規模の違い(×${Math.round(scale * 100) / 100})を掛けています` : ''}`,
         reference: obs.length < 2 && rates.samples === 0,

@@ -2,7 +2,7 @@ import { putAndQueue, type HaifuDB } from '../db/local';
 import type { CashCount, EventItem, EventRow, EventType, Expense, ExpenseCategory, Item, ItemKind, Location, Owner, PriceTier, PrintRun, ProductionCost, SetComponent } from '../db/types';
 import { uuidv7 } from '../lib/uuid';
 import { assertOpen } from './closing';
-import { applyEquipment } from './equipment';
+import { applyEquipmentIfPossible } from './equipment';
 import { MAX_DAYS, addDays, daysOf } from './eventDays';
 import { isItemColor } from './colors';
 import { eventItemSummary } from './ledger';
@@ -510,15 +510,8 @@ export async function copyFloatAndExpenses(
         const amount = e.actual_amount ?? e.planned_amount ?? 0;
         if (amount <= 0) continue;
         if (e.equipment_id) {
-          // 備品は前回と同じ金額ではなく、もう一度按分する。使い切っていれば写さない
-          const eq = await db.equipment.get(e.equipment_id);
-          if (!eq || eq.archived_at) continue;
-          try {
-            await applyEquipment(db, ctx, toEventId, eq.id);
-            expenses++;
-          } catch {
-            // 使い切った備品は写さない
-          }
+          // 備品は前回と同じ金額ではなく、もう一度按分する。使い切った・しまった備品は写さない
+          if (await applyEquipmentIfPossible(db, ctx, toEventId, e.equipment_id)) expenses++;
           continue;
         }
         await putAndQueue(db, 'expenses', {

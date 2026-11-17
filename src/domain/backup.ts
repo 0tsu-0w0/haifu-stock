@@ -226,14 +226,18 @@ export async function eventsCsv(db: HaifuDB, circleId: string): Promise<string> 
   const events = (await db.events.where('circle_id').equals(circleId).toArray())
     .filter((e) => !e.deleted_at)
     .sort((a, b) => a.held_on.localeCompare(b.held_on));
-  const out: (string | number | null)[][] = [['開催日', 'イベント', '売上', '販売部数', '取引件数', '客単価', '値引き', '自分の売上', '受託の売上', '経費']];
+  const out: (string | number | null)[][] = [[
+    '開催日', 'イベント', '売上', '販売部数', '取引件数', '客単価', '値引き', '自分の売上', '受託の売上', '経費', '原価', '受託手数料', '収支',
+  ]];
   for (const e of events) {
     const snap = await loadEventSnapshot(db, e.id);
     if (!snap) continue;
     const r = eventReport(snap);
     const own = r.rows.filter((x) => !x.ownerName).reduce((a, x) => a + x.amount, 0);
     const expenses = snap.expenses.reduce((a, x) => a + (x.actual_amount ?? x.planned_amount ?? 0), 0);
-    out.push([e.held_on, e.name, r.amount, r.qty, r.txnCount, r.perCustomer, r.discount, own, r.amount - own, expenses]);
+    // 収支は、終了処理・イベントの収支のCSVと同じ計算(自分の分の売上 − 原価 + 受託手数料 − 経費)
+    const m = computeMoney(snap, planCounts(snap));
+    out.push([e.held_on, e.name, r.amount, r.qty, r.txnCount, r.perCustomer, r.discount, own, r.amount - own, expenses, m.cost, m.fee, m.profit]);
   }
   return toCsv(out);
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { freshDb } from '../test/helpers';
 import { copyFloatAndExpenses, saveExpense } from './catalog';
-import { applyEquipment, equipmentStates, nextShareOf, saveEquipment } from './equipment';
+import { applyEquipment, equipmentStates, nextShareOf, saveEquipment, setEquipmentArchived } from './equipment';
 import { createCircle, createEvent } from './setup';
 
 async function setup() {
@@ -64,6 +64,20 @@ describe('備品の按分(F-310)', () => {
     const eqRow = copied.find((e) => e.equipment_id === eq.id)!;
     expect(eqRow.actual_amount).toBe(300);
     expect(equipmentStates([eq], await db.expenses.toArray())[0].used).toBe(2);
+  });
+
+  it('使い切った備品・しまった備品があっても、ほかの経費は写る', async () => {
+    const { db, ctx, ev1, ev2 } = await setup();
+    const done = await saveEquipment(db, ctx, { name: '使い切り', cost: 900, uses: 1 });
+    const put = await saveEquipment(db, ctx, { name: 'しまった', cost: 900, uses: 3 });
+    await applyEquipment(db, ctx, ev1.id, done.id);
+    await applyEquipment(db, ctx, ev1.id, put.id);
+    await setEquipmentArchived(db, put.id, true);
+    await saveExpense(db, ctx, { eventId: ev1.id, category: 'booth_fee', planned: 7000, actual: null });
+    const r = await copyFloatAndExpenses(db, ctx, ev1.id, ev2.id);
+    expect(r.expenses).toBe(1);
+    const copied = await db.expenses.where('event_id').equals(ev2.id).toArray();
+    expect(copied.map((e) => e.label)).toEqual(['出展費']);
   });
 
   it('名前・金額・回数を確かめる', async () => {

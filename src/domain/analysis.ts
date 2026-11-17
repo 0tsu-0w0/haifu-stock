@@ -1,7 +1,7 @@
 import type { HaifuDB } from '../db/local';
 import type { EventClosing, EventRow, Item, Location, Movement, PrintRun, SetComponent, Txn, TxnLine } from '../db/types';
 import { activeTxnIds, eventItemSummary, lineAmount, type ItemAtEvent } from './ledger';
-import { storageStock as loadStorageStock } from './stock';
+import { locationStock, storageStock as loadStorageStock } from './stock';
 import { activeFractionDays, dayWindows, daysOf, lastDayOf } from './eventDays';
 
 // 刷り部数の目安(要件 §6.1〜6.5)と損益分岐(§6.6)。
@@ -69,6 +69,8 @@ export interface AnalysisData {
   soldByYear: Map<number, Map<string, { qty: number; amount: number }>>;
   /** これからのイベント(終わっていないもの。開催日の早い順)。刷り部数の目安で、日数と種別を見る */
   upcoming: EventRow[];
+  /** これからのイベントの置き場所に、もう入っている在庫(持ち込みを反映した分・直接搬入した分)。品目ごと */
+  upcomingStock: Map<string, number>;
   /** 累積販売曲線 F(t) と、その作り方 */
   curve: (t: number) => number;
   curveSource: 'data' | 'default';
@@ -311,7 +313,16 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
 
   const pastIds = new Set(past.map((e) => e.id));
   const upcoming = events.filter((e) => !e.deleted_at && !pastIds.has(e.id)).sort((a, b) => a.held_on.localeCompare(b.held_on));
-  return { events: events.filter((e) => !e.deleted_at), upcoming, items, ownItems, histories, storageStock, printRuns, productionCosts, soldTotals, soldByYear, curve, curveSource, curveSamples: samples, curveTypes };
+  // これからのイベントに持ち込み済みの分は、保管場所にはないが手元にある在庫として数える(再版の目安で引く)
+  const upcomingIds = new Set(upcoming.map((e) => e.id));
+  const upcomingLocs = upcoming.length === 0 ? []
+    : (await db.locations.where('circle_id').equals(circleId).toArray()).filter((l) => l.event_id && upcomingIds.has(l.event_id));
+  const upcomingStock = new Map<string, number>();
+  for (const [k, n] of await locationStock(db, upcomingLocs.map((l) => l.id))) {
+    const id = k.slice(0, k.indexOf('|'));
+    upcomingStock.set(id, (upcomingStock.get(id) ?? 0) + n);
+  }
+  return { events: events.filter((e) => !e.deleted_at), upcoming, upcomingStock, items, ownItems, histories, storageStock, printRuns, productionCosts, soldTotals, soldByYear, curve, curveSource, curveSamples: samples, curveTypes };
 }
 
 const quantile = (xs: number[], q: number) => {
@@ -441,7 +452,8 @@ export function reprintPlans(data: AnalysisData, opts: ForecastOptions): Reprint
         : { event, days: last.days, scale: 1 };
     });
     const factor = planned.map((p) => (p.days / Math.max(last.days, 1)) * p.scale);
-    const stock = Math.max(data.storageStock.get(h.item.id) ?? 0, 0);
+    // 手元の在庫 = 保管場所 + これからのイベントに持ち込み済みの分(直接搬入も含む)
+    const stock = Math.max((data.storageStock.get(h.item.id) ?? 0) + (data.upcomingStock.get(h.item.id) ?? 0), 0);
     const lot = h.item.print_lot ?? 1;
     const unitCost = unitCostOf(data, h.item.id);
     const scenarios = (['conservative', 'standard', 'aggressive'] as const).map((key): Scenario => {

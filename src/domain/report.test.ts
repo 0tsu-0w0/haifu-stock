@@ -123,6 +123,11 @@ describe('バックアップとCSV(F-1002、F-707)', () => {
     expect((await movementsCsv(db, ctx.circleId)).split('\r\n').length).toBeGreaterThan(4);
     const evs = (await eventsCsv(db, ctx.circleId)).split('\r\n');
     expect(evs[1].split(',').slice(0, 4)).toEqual(['2026-05-01', 'コミティア', '1260', '2']);
+    // 原価・受託手数料・収支は、終了処理と同じ計算
+    expect(evs[0].endsWith(',経費,原価,受託手数料,収支')).toBe(true);
+    const snap = (await loadEventSnapshot(db, ev.id))!;
+    const m = computeMoney(snap, planCounts(snap));
+    expect(evs[1].split(',').slice(-3)).toEqual([String(m.cost), String(m.fee), String(m.profit)]);
   });
 
   it('イベントごとに、品目ごとの集計・取引明細・在庫の履歴をCSVに書き出す', async () => {

@@ -138,7 +138,7 @@ function Forecast({ data, opts, setOpts }: { data: AnalysisData; opts: ForecastO
           <li>既刊の減衰率: {rates.samples
             ? `続けて出したときの需要の比 ${rates.samples}件から。控えめ ${rates.conservative.toFixed(2)} / 標準 ${rates.standard.toFixed(2)} / 強気 ${rates.aggressive.toFixed(2)}`
             : `実績がないため既定値 ${opts.defaultDecay} を使っています`}。</li>
-          <li>推奨刷り部数 = (予定イベントの予測需要の合計 + 確保したい部数)×(1 + 安全率)− 自宅などの在庫。印刷所の部数の刻みに切り上げます。</li>
+          <li>推奨刷り部数 = (予定イベントの予測需要の合計 + 確保したい部数)×(1 + 安全率)− 手元の在庫。手元の在庫は、自宅などの保管場所の分に、これからのイベントへ持ち込み済みの分(直接搬入を含む)を足した数です。印刷所の部数の刻みに切り上げます。</li>
           <li>
             予定イベントは、登録してあるこれからのイベントを開催日の早い順に当てはめます
             {data.upcoming.length > 0 ? `(${data.upcoming.slice(0, opts.plannedEvents).map((e) => e.name).join(' → ')}${data.upcoming.length < opts.plannedEvents ? ' → あとは未登録' : ''})` : '(いまは登録がありません)'}
@@ -156,7 +156,7 @@ function ReprintCard({ plan, opts }: { plan: ReprintPlan; opts: ForecastOptions 
     <div className="card">
       <div className="rowx">
         <b>{plan.item.name}</b>
-        <span className="k">在庫 {plan.stock}部・直近の需要 {plan.base}</span>
+        <span className="k">手元の在庫 {plan.stock}部・直近の需要 {plan.base}</span>
       </div>
       <div className="scen">
         {plan.scenarios.map((s) => (

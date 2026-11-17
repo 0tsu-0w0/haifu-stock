@@ -59,3 +59,18 @@ describe('直接搬入(F-302)', () => {
     expect(list.some((e) => e.id === past.id)).toBe(false);
   });
 });
+
+describe('再版の目安の在庫(直接搬入)', () => {
+  it('これからのイベントに直接搬入した分は、手元の在庫として数える', async () => {
+    const { db, ctx, home, a, ev } = await setup();
+    await addPrintRun(db, ctx, { itemId: a.id, qty: 30, totalCost: 15000, printedOn: null, toLocationId: home.id, toEventId: ev.id });
+    const { loadAnalysis } = await import('./analysis');
+    // ev の開催日(2026-12-01)が今日より前の環境でも数えられるよう、先の日付のイベントにも入れておく
+    const far = await createEvent(db, ctx, { name: '先のイベント', heldOn: '2099-01-01' });
+    await addPrintRun(db, ctx, { itemId: a.id, qty: 20, totalCost: 10000, printedOn: null, toLocationId: home.id, toEventId: far.id });
+    const data = await loadAnalysis(db, ctx.circleId);
+    expect(data.upcoming.some((e) => e.id === far.id)).toBe(true);
+    expect(data.upcomingStock.get(a.id)).toBeGreaterThanOrEqual(20);
+    expect(data.storageStock.get(a.id) ?? 0).toBe(0);
+  });
+});
