@@ -12,7 +12,7 @@ import {
   boughtTogether, dayBreakdown, deviceBreakdown, paymentBreakdown, eventReport, ownerBreakdown, profitTimeline, salesDuration, scopeSnapshot, SLOT_MIN, type ProfitTimeline, type ReportScope, type ReportSlot,
 } from '../domain/report';
 import { DAY_MS, dayIndexOf, dayLabel, daysOf, lastDayOf } from '../domain/eventDays';
-import { eventItemsCsv, fileSafe, movementsCsv, salesCsv } from '../domain/backup';
+import { eventItemsCsv, eventMoneyCsv, fileSafe, movementsCsv, salesCsv } from '../domain/backup';
 import { downloadText, fileStamp } from '../lib/download';
 import { hhmm, yen } from '../lib/format';
 import { useEventData } from './useEventData';
@@ -279,6 +279,7 @@ function EventCsv({ circleId, eventId, eventName }: { circleId: string; eventId:
       <p className="note">このイベントの分だけを、Excel や Googleスプレッドシートで開ける形で保存します。受託分も含む全体の記録です。全部のイベントをまとめて書き出すときは、設定の「データ」を使います。</p>
       <div className="csv-list">
         <button className="sbtn" disabled={busy} onClick={() => void save('items', () => eventItemsCsv(db, eventId))}>品目ごとの集計</button>
+        <button className="sbtn" disabled={busy} onClick={() => void save('money', () => eventMoneyCsv(db, eventId))}>収支</button>
         <button className="sbtn" disabled={busy} onClick={() => void save('sales', () => salesCsv(db, circleId, eventId))}>取引明細</button>
         <button className="sbtn" disabled={busy} onClick={() => void save('stock', () => movementsCsv(db, circleId, eventId))}>在庫の履歴</button>
       </div>

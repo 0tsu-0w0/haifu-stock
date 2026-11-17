@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { getMeta } from '../db/local';
 import { freshDb } from '../test/helpers';
-import { eventItemsCsv, eventsCsv, exportBackup, fileSafe, importBackup, movementsCsv, salesCsv, toCsv } from './backup';
-import { addPrintRun, prepareEvent, recordStocktake, saveEventInfo, saveItem, saveOwner, saveSortOrder } from './catalog';
+import { eventItemsCsv, eventMoneyCsv, eventsCsv, exportBackup, fileSafe, importBackup, movementsCsv, salesCsv, toCsv } from './backup';
+import { addPrintRun, prepareEvent, recordStocktake, saveEventInfo, saveExpense, saveItem, saveOwner, saveSortOrder } from './catalog';
+import { computeMoney, planCounts } from './closing';
 import { stockByLocation } from './ledger';
 import { recordGiveaway, recordSale, voidTransaction, type Ctx } from './record';
 import { eventReport } from './report';
@@ -151,5 +152,17 @@ describe('バックアップとCSV(F-1002、F-707)', () => {
     expect(moves.length).toBeLessThan((await movementsCsv(db, ctx.circleId)).split('\r\n').length);
 
     expect(fileSafe('コミティア 150/秋: "特別"')).toBe('コミティア_150_秋_特別');
+
+    // 収支: 経費の内訳と収支、受託元ごとの精算が出る。金額は終了処理と同じ計算
+    await saveExpense(db, ctx, { eventId: ev.id, category: 'booth_fee', planned: 7000, actual: null });
+    const snap = (await loadEventSnapshot(db, ev.id))!;
+    const m = computeMoney(snap, planCounts(snap));
+    const money = (await eventMoneyCsv(db, ev.id)).split('\r\n');
+    expect(money[0]).toBe('区分,内容,金額');
+    expect(money).toContain(`売上,全体,${m.total}`);
+    expect(money).toContain('経費,出展費,7000');
+    expect(money).toContain('経費,合計,7000');
+    expect(money.find((l) => l.startsWith('収支,'))!.endsWith(`,${m.profit}`)).toBe(true);
+    expect(money.some((l) => l.startsWith('受託の精算,サークルB: 支払う金額,'))).toBe(true);
   });
 });

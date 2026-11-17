@@ -1,6 +1,7 @@
 import { getMeta, setMeta, type HaifuDB } from '../db/local';
 import { TABLES, outboxKey } from '../db/tables';
 import type { GiveawayKind, Item, Movement, MovementReason, Owner } from '../db/types';
+import { computeMoney, planCounts } from './closing';
 import { GIVE_LABEL } from './history';
 import { activeTxnIds, lineAmount } from './ledger';
 import { eventReport } from './report';
@@ -184,6 +185,36 @@ export async function eventItemsCsv(db: HaifuDB, eventId: string): Promise<strin
     ]);
   }
   out.push(['合計', '', null, r.qty, r.rows.reduce((a, x) => a + x.given, 0), null, '', null, r.amount]);
+  return toCsv(out);
+}
+
+/**
+ * 1つのイベントの収支(F-704): 売上・原価・受託手数料・経費の内訳・収支を、1行ずつ出す。
+ * 受託があれば、受託元ごとの精算(売上・手数料・支払う金額)を続けて出す。金額は終了処理・分析の「イベントの損益」と同じ計算
+ */
+export async function eventMoneyCsv(db: HaifuDB, eventId: string): Promise<string> {
+  const snap = await loadEventSnapshot(db, eventId);
+  if (!snap) throw new Error('イベントが見つかりません');
+  const m = computeMoney(snap, planCounts(snap));
+  const out: (string | number | null)[][] = [['区分', '内容', '金額']];
+  out.push(['売上', '全体', m.total]);
+  if (m.settlements.length > 0) {
+    out.push(['売上', '自分の分', m.own]);
+    out.push(['売上', '受託の分', m.consigned]);
+    out.push(['収入', '受託手数料', m.fee]);
+  }
+  out.push(['費用', '売れた分の原価(印刷費)', m.cost]);
+  for (const e of snap.expenses) {
+    const amount = e.actual_amount ?? e.planned_amount ?? 0;
+    if (amount > 0) out.push(['経費', e.label ?? '', amount]);
+  }
+  out.push(['経費', '合計', m.expenses]);
+  out.push(['収支', m.settlements.length > 0 ? '自分の分の売上 − 原価 + 受託手数料 − 経費' : '売上 − 原価 − 経費', m.profit]);
+  for (const s of m.settlements) {
+    out.push(['受託の精算', `${s.name}: 売上(${s.soldQty}部)`, s.amount]);
+    out.push(['受託の精算', `${s.name}: 手数料(${Math.round(s.feeRate * 1000) / 10}%)`, s.fee]);
+    out.push(['受託の精算', `${s.name}: 支払う金額`, s.payout]);
+  }
   return toCsv(out);
 }
 
