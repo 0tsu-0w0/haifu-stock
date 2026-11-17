@@ -16,10 +16,10 @@ export function AccountBar() {
       </div>
     );
   }
-  const who = session.user.is_anonymous ? '売り子として参加中' : session.user.email;
+  const who = session.anonymous ? '売り子として参加中' : session.email;
   return (
     <div className="account">
-      <span className="k">{who}{role === 'owner' && !session.user.is_anonymous ? '(サークル主)' : ''}</span>
+      <span className="k">{who}{role === 'owner' && !session.anonymous ? '(サークル主)' : ''}</span>
       <button
         className="sbtn"
         onClick={async () => {

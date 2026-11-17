@@ -185,3 +185,23 @@ export async function eventsCsv(db: HaifuDB, circleId: string): Promise<string> 
   }
   return toCsv(out);
 }
+
+/** 委託の報告: 1行が報告の1品目(F-602)。手数料と入金の日は、報告ごとに同じ値が入る */
+export async function consignCsv(db: HaifuDB, circleId: string): Promise<string> {
+  const { itemById, locById } = await lookups(db, circleId);
+  const reports = (await db.consignment_reports.where('circle_id').equals(circleId).toArray())
+    .sort((a, b) => a.reported_on.localeCompare(b.reported_on));
+  const out: (string | number | null)[][] = [
+    ['報告の日', '委託先', '取り消し', '品目', '部数', '売値', '金額', '報告の売上', '報告の手数料', '報告の受け取る金額', '入金の日', 'メモ', '報告ID'],
+  ];
+  for (const r of reports) {
+    for (const l of r.lines) {
+      out.push([
+        r.reported_on, locById.get(r.location_id)?.name ?? '', r.voided_at ? '取り消し済み' : '',
+        itemById.get(l.item_id)?.name ?? '', l.qty, l.unit_price, l.qty * l.unit_price,
+        r.sales_amount, r.fee_amount, r.sales_amount - r.fee_amount, r.paid_on ?? '', r.note ?? '', r.id,
+      ]);
+    }
+  }
+  return toCsv(out);
+}

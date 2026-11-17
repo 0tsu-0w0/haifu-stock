@@ -30,7 +30,10 @@ export function SyncPill() {
     label = `未送信 ${pending}件`;
     tone = 'wait';
   } else {
-    label = '同期済み';
+    // 最後に同期した時刻を出す(F-408)。今日なら時刻、前の日なら日付
+    const at = state.kind === 'idle' && state.lastSyncedAt ? new Date(state.lastSyncedAt) : null;
+    const hm = at ? `${at.getHours()}:${String(at.getMinutes()).padStart(2, '0')}` : '';
+    label = !at ? '同期済み' : at.toDateString() === new Date().toDateString() ? `同期済み ${hm}` : `同期済み ${at.getMonth() + 1}/${at.getDate()}`;
     tone = 'ok';
   }
 

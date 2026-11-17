@@ -2,8 +2,10 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { db } from '../app/db';
+import { usePref } from '../app/prefs';
 import { useCtx } from '../app/useCtx';
 import { ConfirmButton } from '../components/ConfirmButton';
+import { EquipmentUse } from '../components/Equipment';
 import { EventNav } from '../components/EventNav';
 import { FloatSuggest } from '../components/FloatSuggest';
 import { ReservationsCard } from '../components/Reservations';
@@ -13,7 +15,7 @@ import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../components/Toast';
 import type { ExpenseCategory } from '../db/types';
 import {
-  EXPENSE_LABEL, copyFloatAndExpenses, deleteEvent, ensureEventType, eventTypes, planFromEvent, prepareEvent, preparedQty, saveEventInfo, saveExpense, saveFloat, saveSortOrder,
+  EXPENSE_LABEL, copyFloatAndExpenses, deleteEvent, directDelivered, ensureEventType, eventTypes, planFromEvent, prepareEvent, preparedQty, saveEventInfo, saveExpense, saveFloat, saveSortOrder,
   type PrepareLine,
 } from '../domain/catalog';
 import { DENOMINATIONS } from '../domain/closing';
@@ -47,7 +49,7 @@ export function EventPreparePage() {
 
   const data = useLiveQuery(async () => {
     if (!ctx) return null;
-    const [event, items, owners, storages, eventItems, prepared, cash, expenses, closings, stock, events, types] = await Promise.all([
+    const [event, items, owners, storages, eventItems, prepared, cash, expenses, closings, stock, events, types, direct] = await Promise.all([
       isNew ? undefined : db.events.get(eventId!),
       db.items.where('circle_id').equals(ctx.circleId).toArray(),
       db.owners.where('circle_id').equals(ctx.circleId).toArray(),
@@ -60,11 +62,12 @@ export function EventPreparePage() {
       storageStock(db, ctx.circleId),
       db.events.where('circle_id').equals(ctx.circleId).toArray(),
       eventTypes(db, ctx.circleId),
+      isNew ? new Map<string, number>() : directDelivered(db, eventId!),
     ]);
     // コピー元にできるイベント(F-303): 削除していない、ほかのイベント。新しい順
     const others = events.filter((e) => !e.deleted_at && e.id !== eventId).sort((a, b) => b.held_on.localeCompare(a.held_on));
     return {
-      event, items, owners, storages, eventItems, prepared, cash, expenses, others, types,
+      event, items, owners, storages, eventItems, prepared, cash, expenses, others, types, direct,
       closed: closings.some((c) => !c.reopened_at), stock,
     };
   }, [ctx?.circleId, eventId]);
@@ -111,12 +114,14 @@ export function EventPreparePage() {
   }, [data]);
 
   // 持ち込み数の目安(F-304、F-901、F-902。Issue #28)。過去の記録を全部読むので、準備できるイベントのときだけ読む
+  const [trackHome] = usePref('trackHome');
   const analysis = useLiveQuery(
     () => (ctx && eventId && data?.event && !data.closed ? loadAnalysis(db, ctx.circleId, DEFAULT_FORECAST) : undefined),
     [ctx?.circleId, eventId, !!data?.event, data?.closed],
   );
   const evDays = data?.event ? daysOf(data.event) : 1;
-  const hints = useMemo(() => (analysis ? bringHints(analysis, eventId, DEFAULT_FORECAST, undefined, evDays) : new Map()), [analysis, eventId, evDays]);
+  const evType = data?.event?.event_type_id ?? null;
+  const hints = useMemo(() => (analysis ? bringHints(analysis, eventId, DEFAULT_FORECAST, undefined, evDays, evType) : new Map()), [analysis, eventId, evDays, evType]);
 
   if (!ctx || !data) return <main className="page" />;
   if (!isNew && !data.event) return <main className="page"><p>イベントが見つかりません。</p><Link to="/">ホームに戻る</Link></main>;
@@ -210,6 +215,7 @@ export function EventPreparePage() {
     const h = hints.get(id);
     if (!h) return null;
     const avail = (home ? data.stock.get(`${id}|${home.id}`) ?? 0 : 0) + (data.prepared.get(id) ?? 0);
+    if (!trackHome) return { ...h, capped: null };
     return { ...h, qty: Math.min(h.qty, Math.max(avail, 0)), capped: h.qty > avail ? avail : null };
   };
   const hinted = ordered.filter((i) => lineOf(i.id).included && i.kind !== 'set' && hintFor(i.id) && lineOf(i.id).bring !== hintFor(i.id)!.qty);
@@ -324,7 +330,7 @@ export function EventPreparePage() {
           {data.items.length === 0 && (
             <div className="card"><p className="note">品目がまだありません。</p><Link className="btn center" to="/items/new">品目を追加</Link></div>
           )}
-          {!locked && activeStorages.length > 1 && (
+          {!locked && trackHome && activeStorages.length > 1 && (
             <div className="card copy-prev">
               <label className="k" htmlFor="prep-src">持ち出す保管場所</label>
               <select id="prep-src" value={home?.id ?? ''} onChange={(e) => setSrcId(e.target.value)}>
@@ -354,13 +360,16 @@ export function EventPreparePage() {
                       <b>{i.name}</b>
                       <small className="k">
                         {yen(i.price)}{o && !own ? `・受託: ${o.name}` : ''}
-                        {i.kind === 'set' ? '・構成品の数で決まる' : own ? `・${home?.name ?? '自宅'}に ${atHome}部` : ''}
+                        {i.kind === 'set' ? '・構成品の数で決まる' : own && trackHome ? `・${home?.name ?? '自宅'}に ${atHome}部` : ''}
                       </small>
                     </span>
                   </label>
                   {l.included && i.kind !== 'set' && (
                     <div className="rowx">
-                      <span className="k">{own ? '持ち込み' : '預かり'}{prepared ? `(いま ${prepared})` : ''}</span>
+                      <span className="k">
+                        {own ? '持ち込み' : '預かり'}{prepared ? `(いま ${prepared})` : ''}
+                        {data.direct.get(i.id) ? <small>・うち直接搬入 {data.direct.get(i.id)}部</small> : null}
+                      </span>
                       <NumberField id={`bring-${i.id}`} label={`${i.name}の${own ? '持ち込み' : '預かり'}数`} value={l.bring} onCommit={(v) => setLine(i.id, { bring: v })} />
                     </div>
                   )}
@@ -389,7 +398,7 @@ export function EventPreparePage() {
                       />
                     </div>
                   )}
-                  {own && l.included && i.kind !== 'set' && l.bring - prepared > atHome && (
+                  {trackHome && own && l.included && i.kind !== 'set' && l.bring - prepared > atHome && (
                     <p className="msg">{home?.name ?? '自宅'}の在庫より多く持ち込もうとしています。刷り記録が未入力でないか確かめてください。</p>
                   )}
                 </div>
@@ -405,7 +414,8 @@ export function EventPreparePage() {
           <button className="btn primary" disabled={busy || locked || !changed} onClick={() => void applyBring()}>
             {changed ? '持ち込みを反映する' : '持ち込みは反映済みです'}
           </button>
-          <p className="note">反映すると、{hasConsignors(data.owners) ? <>自分の品目は{home?.name ?? '自宅'}からイベントへ、受託品は預かりとして</> : <>{home?.name ?? '自宅'}からイベントへ</>}在庫が動きます。あとで数を変えると、差の分だけ動きます。</p>
+          {trackHome ? <p className="note">反映すると、{hasConsignors(data.owners) ? <>自分の品目は{home?.name ?? '自宅'}からイベントへ、受託品は預かりとして</> : <>{home?.name ?? '自宅'}からイベントへ</>}在庫が動きます。あとで数を変えると、差の分だけ動きます。</p>
+            : <p className="note">反映すると、レジで売れる数が決まります。あとで数を変えても直せます。</p>}
 
           <h3 id="prep-resv" className="section">取り置き</h3>
           <ReservationsCard
@@ -455,7 +465,7 @@ export function EventPreparePage() {
             {shownExpenses.length === 0 && <span className="k">まだありません。出展費や交通費を入れると、収支と損益分岐に使います。</span>}
             {shownExpenses.map((e) => (
               <div className="rowx" key={e.id}>
-                <span>{e.label}</span>
+                <span>{e.label}{e.equipment_id && <small className="k"> 備品</small>}</span>
                 <span className="exp-amount">
                   <input
                     className="price-in" inputMode="numeric" aria-label={`${e.label}の金額`} disabled={locked}
@@ -486,7 +496,8 @@ export function EventPreparePage() {
               <input className="price-in" inputMode="numeric" aria-label="金額" placeholder="7000" value={newExp.amount} onChange={(e) => setNewExp({ ...newExp, amount: e.target.value.replace(/\D/g, '') })} />
               <button className="sbtn" disabled={locked}>追加</button>
             </form>
-            <p className="note">金額を空にすると、その経費を消します。印刷費は品目の「刷り記録」に入れます(売れた分が原価として収支に入るので、ここには入れません)。</p>
+            <EquipmentUse ctx={ctx} eventId={eventId!} locked={locked} />
+            <p className="note">金額を空にすると、その経費を消します。備品(設定で登録)は、買った金額を使う回数で割った分を入れます。印刷費は品目の「刷り記録」に入れます(売れた分が原価として収支に入るので、ここには入れません)。</p>
           </div>
         </>
       )}

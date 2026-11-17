@@ -22,7 +22,7 @@ export function InvitePage() {
   const [invites, setInvites] = useState<InviteRow[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const loggedIn = !!session && !session.user.is_anonymous;
+  const loggedIn = !!session && !session.anonymous;
 
   const refresh = async () => {
     if (!backend || !loggedIn) return;

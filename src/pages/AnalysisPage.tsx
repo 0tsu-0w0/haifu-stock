@@ -1,9 +1,12 @@
+import { consignByItem, consigneeState } from '../domain/consignOut';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { db } from '../app/db';
 import { useCtx } from '../app/useCtx';
+import { ConsignAnalysisView } from '../components/ConsignAnalysis';
 import { EventCompare } from '../components/EventCompare';
+import { ItemTrendView } from '../components/ItemTrend';
 import { YearSummaryView } from '../components/YearSummary';
 import { LineChart } from '../components/LineChart';
 import { PageHeader } from '../components/PageHeader';
@@ -17,8 +20,8 @@ import { loadEventSnapshot } from '../domain/snapshot';
 import { hhmm, yen } from '../lib/format';
 import { eventHasConsignment } from '../domain/consign';
 
-type Tab = 'forecast' | 'item' | 'event' | 'compare' | 'year';
-const TABS: [Tab, string][] = [['forecast', '刷り部数'], ['item', '頒布物の損益'], ['event', 'イベントの損益'], ['compare', 'イベントの比較'], ['year', '年間の集計']];
+type Tab = 'forecast' | 'item' | 'trend' | 'event' | 'compare' | 'consign' | 'year';
+const TABS: [Tab, string][] = [['forecast', '刷り部数'], ['item', '頒布物の損益'], ['trend', '推移'], ['event', 'イベントの損益'], ['compare', 'イベントの比較'], ['consign', '委託'], ['year', '年間の集計']];
 const man = (n: number) => (Math.abs(n) >= 10000 ? `${Math.round(n / 1000) / 10}万` : n.toLocaleString('ja-JP'));
 
 // 分析: 刷り部数の目安(F-801〜806)と損益分岐のグラフ(F-1101〜1103、F-1110)
@@ -40,8 +43,10 @@ export function AnalysisPage() {
       {!data ? <p className="note">計算しています…</p>
         : tab === 'compare' ? <EventCompare circleId={ctx!.circleId} />
         : tab === 'year' ? <YearSummaryView circleId={ctx!.circleId} />
+        : tab === 'consign' ? <ConsignAnalysisView circleId={ctx!.circleId} data={data} />
         : tab === 'forecast' ? <Forecast data={data} opts={opts} setOpts={setOpts} />
-        : tab === 'item' ? <ItemBreakEvens data={data} selected={params.get('item')} onSelect={(id) => setParams({ tab: 'item', item: id }, { replace: true })} />
+        : tab === 'trend' ? <ItemTrendView data={data} selected={params.get('item')} onSelect={(id) => setParams({ tab: 'trend', item: id }, { replace: true })} />
+        : tab === 'item' ? <ItemBreakEvens circleId={ctx!.circleId} data={data} selected={params.get('item')} onSelect={(id) => setParams({ tab: 'item', item: id }, { replace: true })} />
         : <EventBreakEven data={data} selected={params.get('event')} onSelect={(id) => setParams({ tab: 'event', event: id }, { replace: true })} />}
     </main>
   );
@@ -110,8 +115,9 @@ function Forecast({ data, opts, setOpts }: { data: AnalysisData; opts: ForecastO
               <summary>計算の根拠</summary>
               <table className="tbl small">
                 <thead><tr><th>新刊</th><th>初回のイベント</th><th>需要</th><th>重み</th></tr></thead>
-                <tbody>{nb.basis.map((b) => <tr key={b.item.id}><td>{b.item.name}</td><td>{b.eventName}</td><td className="num">{b.demand}</td><td className="num">{b.weight}</td></tr>)}</tbody>
+                <tbody>{nb.basis.map((b) => <tr key={b.item.id}><td>{b.item.name}</td><td>{b.eventName}</td><td className="num">{b.demand}{b.adjusted !== b.demand ? ` → ${b.adjusted}` : ''}</td><td className="num">{b.weight}</td></tr>)}</tbody>
               </table>
+              {nb.debut && <p className="note">初めて出すイベントを、登録してある次のイベント「{nb.debut.name}」として、その開催日数と種別に需要をそろえています(→ のあとがそろえた値)。</p>}
               <p className="note">控えめ = 最も少なかった新刊、標準 = 新しい順に 3:2:1 の加重平均、強気 = 最も多かった新刊。期待度を掛け、2回目以降は既刊の減衰率で減らして、{opts.plannedEvents}回分を合計しています。10部単位に切り上げ。</p>
             </details>
           </div>
@@ -130,7 +136,11 @@ function Forecast({ data, opts, setOpts }: { data: AnalysisData; opts: ForecastO
             ? `続けて出したときの需要の比 ${rates.samples}件から。控えめ ${rates.conservative.toFixed(2)} / 標準 ${rates.standard.toFixed(2)} / 強気 ${rates.aggressive.toFixed(2)}`
             : `実績がないため既定値 ${opts.defaultDecay} を使っています`}。</li>
           <li>推奨刷り部数 = (予定イベントの予測需要の合計 + 確保したい部数)×(1 + 安全率)− 自宅などの在庫。印刷所の部数の刻みに切り上げます。</li>
-          <li>イベント種別ごとの補正は、イベント種別を入れられるようになってから加えます。</li>
+          <li>
+            予定イベントは、登録してあるこれからのイベントを開催日の早い順に当てはめます
+            {data.upcoming.length > 0 ? `(${data.upcoming.slice(0, opts.plannedEvents).map((e) => e.name).join(' → ')}${data.upcoming.length < opts.plannedEvents ? ' → あとは未登録' : ''})` : '(いまは登録がありません)'}
+            。登録してある回は、開催日数と種別の規模の違いを掛けます(種別は、終わったイベントが2回以上あるものだけ)。登録していない回は、直近と同じ規模として数えます。次の新刊の目安も、次のイベントを初めて出す場として同じようにそろえます。
+          </li>
         </ul>
       </details>
     </>
@@ -175,14 +185,22 @@ function ReprintCard({ plan, opts }: { plan: ReprintPlan; opts: ForecastOptions 
             ))}
           </tbody>
         </table>
-        <p className="note">* 完売した時刻から補正した値。標準の予測: {std.perEvent.join(' → ')}(次の{opts.plannedEvents}回)</p>
+        <p className="note">
+          * 完売した時刻から補正した値。標準の予測: {std.perEvent.map((v, k) => {
+            const p = plan.planned[k];
+            const tags = [p.event && p.days > 1 ? `${p.days}日` : '', p.scale !== 1 ? `種別×${Math.round(p.scale * 100) / 100}` : ''].filter(Boolean).join('・');
+            return `${p.event ? `${p.event.name} ` : ''}${v}${tags ? `(${tags})` : ''}`;
+          }).join(' → ')}(次の{opts.plannedEvents}回)
+        </p>
       </details>
       <Link className="sub-link" to={`/items/${plan.item.id}?plan=1`}>印刷所の価格表から、利益が大きい部数を調べる</Link>
     </div>
   );
 }
 
-function ItemBreakEvens({ data, selected, onSelect }: { data: AnalysisData; selected: string | null; onSelect: (id: string) => void }) {
+function ItemBreakEvens({ circleId, data, selected, onSelect }: { circleId: string; data: AnalysisData; selected: string | null; onSelect: (id: string) => void }) {
+  // 委託で売れた分(損益分岐には入れず、並べて出す。決定事項 #15)
+  const shop = useLiveQuery(async () => consignByItem(await consigneeState(db, circleId)), [circleId]);
   const list = useMemo(() => data.ownItems.filter((i) => !i.archived_at).map((i) => itemBreakEven(data, i)), [data]);
   const [edition, setEdition] = useState<number | undefined>(undefined);
   // 価格を変えたときの試算(F-1106)。null は試算していない
@@ -231,6 +249,16 @@ function ItemBreakEvens({ data, selected, onSelect }: { data: AnalysisData; sele
               <strong className="num">{recovered ? `${be}部目で回収` : `あと${Math.max(be - cur.soldQty, 0)}部`}</strong>
             </div>
           </div>
+          {ed === undefined && (shop?.get(cur.item.id)?.qty ?? 0) > 0 && (() => {
+            const c = shop!.get(cur.item.id)!;
+            const rest = cur.fixedCost - cur.soldAmount - c.net;
+            return (
+              <p className="note">
+                このほかに、委託で {c.qty}部売れ、手数料を引いて {yen(c.net)} を受け取ります(上の損益分岐とグラフは、イベントの販売だけで数えています)。
+                委託の分も合わせると、{rest <= 0 ? `費用を回収して ${yen(-rest)} の黒字です。` : `回収まであと ${yen(rest)} です。`}
+              </p>
+            );
+          })()}
           <LineChart
             title={`${cur.item.name}${ed === undefined ? '' : ed === editions[0] ? '(初版)' : `(第${ed}版)`} の損益分岐`}
             xMax={xMax}

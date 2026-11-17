@@ -8,6 +8,7 @@ import { useCtx } from '../app/useCtx';
 import { useDeviceNames } from '../app/useDeviceNames';
 import { AccountBar } from '../components/AccountBar';
 import { DataExport } from '../components/DataExport';
+import { EquipmentCard } from '../components/Equipment';
 import { PageHeader } from '../components/PageHeader';
 import { RegisterTour } from '../components/RegisterTour';
 import { SyncStatus } from '../components/SyncStatus';
@@ -115,6 +116,9 @@ export function SettingsPage() {
         <p className="note">在庫を置いている場所です(例: 自宅、実家、倉庫)。2つ以上あると、品目の画面の「在庫を移す」で場所どうしを動かせ、持ち込み・刷り記録・終了処理の戻し先で場所を選べます。在庫が残っている場所はしまえません。</p>
       </div>
 
+      <h3 className="section">備品</h3>
+      <EquipmentCard ctx={ctx} />
+
       <h3 className="section">受託元(預かる本の持ち主)</h3>
       <div className="card">
         {consign.length === 0 && <p className="note">ほかのサークルの本を預かって売る(受託)ときに、ここで受託元を追加します。追加するまで、品目の持ち主・精算・受託手数料の欄は出ません。</p>}
@@ -220,6 +224,7 @@ function DisplaySettings({ owner }: { owner: boolean }) {
   const [soldOutLast, setSoldOutLast] = usePref('soldOutLast');
   const [lastOneRed, setLastOneRed] = usePref('lastOneRed');
   const [regCovers, setRegCovers] = usePref('regCovers');
+  const [trackHome, setTrackHome] = usePref('trackHome');
   const [payMethods, setPayMethods] = usePayMethods();
   const [haptics, setHaptics] = usePref('haptics');
   const [tour, setTour] = useState(false);
@@ -295,6 +300,15 @@ function DisplaySettings({ owner }: { owner: boolean }) {
           <small className="k">オフ(おすすめ)のときは、タップした品目をカートに入れ、「決済」を押して記録します。オンにすると、タップした瞬間に1部ずつ記録し、まとめ買いは「カート」から入れます。</small>
         </span>
       </label>
+      {owner && (
+        <label className="check">
+          <input type="checkbox" checked={trackHome} onChange={(e) => setTrackHome(e.target.checked)} />
+          <span>
+            <b>家の在庫を数える</b>
+            <small className="k">オンにすると、品目の画面に保管場所の在庫・棚卸し・在庫を移すが出て、持ち込みのときに家の在庫と比べます。オフ(既定)のときは出しません。記録はどちらでも残ります。</small>
+          </span>
+        </label>
+      )}
       {owner && (
         <label className="check">
           <input type="checkbox" checked={showBE} onChange={(e) => setShowBE(e.target.checked)} />

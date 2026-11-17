@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type {
-  CashCount, Circle, ClosingCount, ConsignmentSettlement, Device, EventBreak, EventClosing, EventItem, EventRow, EventType, Expense,
+  CashCount, Circle, ClosingCount, ConsignmentReport, ConsignmentSettlement, Device, DeviceSync, Equipment, EventBreak, EventClosing, EventItem, EventRow, EventType, Expense,
   Item, Location, LooseRow, MetaEntry,
   Movement, OutboxEntry, Owner, PriceTier, PrintRun, Reservation, SetComponent, Txn, TxnLine,
 } from './types';
@@ -12,6 +12,7 @@ export class HaifuDB extends Dexie {
   event_types!: Table<EventType, string>;
   owners!: Table<Owner, string>;
   devices!: Table<Device, string>;
+  device_syncs!: Table<DeviceSync, string>;
   items!: Table<Item, string>;
   set_components!: Table<SetComponent, [string, string]>;
   print_runs!: Table<PrintRun, string>;
@@ -22,6 +23,7 @@ export class HaifuDB extends Dexie {
   event_items!: Table<EventItem, [string, string]>;
   reservations!: Table<Reservation, string>;
   event_breaks!: Table<EventBreak, string>;
+  equipment!: Table<Equipment, string>;
   expenses!: Table<Expense, string>;
   cash_counts!: Table<CashCount, [string, string, number]>;
   transactions!: Table<Txn, string>;
@@ -30,6 +32,7 @@ export class HaifuDB extends Dexie {
   closing_counts!: Table<ClosingCount, [string, string]>;
   event_closings!: Table<EventClosing, string>;
   consignment_settlements!: Table<ConsignmentSettlement, string>;
+  consignment_reports!: Table<ConsignmentReport, string>;
   outbox!: Table<OutboxEntry, number>;
   meta!: Table<MetaEntry, string>;
 
@@ -37,7 +40,9 @@ export class HaifuDB extends Dexie {
     super(name);
     // 2: 端末の名前(devices)を追加 / 3: 取り置き(reservations)を追加 / 4: 使っていなかった event_devices を消す
     // 5: 在庫の動きに置き場所の索引を足す(保管場所の在庫を、関係する行だけ読んで出すため)
-    this.version(5).stores({ ...dexieStores(), event_devices: null });
+    // 6: 委託先からの報告(consignment_reports)を追加 / 7: 端末ごとの最後の同期(device_syncs)を追加
+    // 8: 備品(equipment)と、経費から備品を引く索引を追加
+    this.version(8).stores({ ...dexieStores(), event_devices: null });
   }
 }
 

@@ -39,6 +39,10 @@ export interface Item extends FromServer {
   color?: string | null;
   /** 表紙画像(小さくした data URL。Issue #36)。なしは null */
   cover?: string | null;
+  /** 発行日(初版を出した日)。なしは null */
+  issued_on?: string | null;
+  /** 仕様など、自分用のメモ(判型・ページ数・印刷所など) */
+  memo?: string | null;
   archived_at: Iso | null;
   /** 削除した時刻(表示から消す。記録は残す) */
   deleted_at?: Iso | null;
@@ -121,6 +125,8 @@ export interface Location extends FromServer {
   kind: LocationKind;
   name: string;
   event_id: Uuid | null;
+  /** 委託先(kind = 'consignee')の手数料率。古いデータや保管場所にはない */
+  fee_rate?: number | null;
   archived_at: Iso | null;
   client_updated_at: Iso;
 }
@@ -214,6 +220,18 @@ export interface Device extends FromServer {
   client_updated_at: Iso;
 }
 
+/** 端末ごとの最後の同期(F-500)。各端末が同期を終えるたびに自分の行を書き直す */
+export interface DeviceSync extends FromServer {
+  /** 端末のID(devices.id と同じ) */
+  id: Uuid;
+  circle_id: Uuid;
+  user_id: Uuid;
+  synced_at: Iso;
+  /** 同期を終えた時点で、送れずに残っていた件数 */
+  pending: number;
+  client_updated_at: Iso;
+}
+
 /** 休憩・離席の時間帯(F-411)。ends_at が null の間は休憩中 */
 export interface EventBreak extends FromServer {
   id: Uuid;
@@ -251,6 +269,21 @@ export interface Expense extends FromServer {
   label: string | null;
   planned_amount: number | null;
   actual_amount: number | null;
+  /** 備品を按分した経費(F-310)。ふつうの経費は null(古い行にはない) */
+  equipment_id?: Uuid | null;
+  client_updated_at: Iso;
+}
+
+/** 備品(F-310)。何回も使うものを、見込みの回数で割って使ったイベントの経費にする */
+export interface Equipment extends FromServer {
+  id: Uuid;
+  circle_id: Uuid;
+  name: string;
+  cost: number;
+  /** 見込みの使う回数 */
+  uses: number;
+  bought_on: string | null;
+  archived_at: Iso | null;
   client_updated_at: Iso;
 }
 
@@ -303,6 +336,26 @@ export interface ConsignmentSettlement extends FromServer {
   payout_amount: number;
   returned_qty: number;
   lines: { item_id: Uuid; name: string; sold_qty: number; amount: number; returned_qty: number }[];
+}
+
+/** 委託先(書店・ほかのサークル)からの販売の報告(F-602)。売れた分はここで持ち、在庫移動にはしない */
+export interface ConsignmentReport extends FromServer {
+  id: Uuid;
+  circle_id: Uuid;
+  /** 委託先(locations.kind = 'consignee') */
+  location_id: Uuid;
+  /** 報告の日(精算書の日付など) */
+  reported_on: string;
+  lines: { item_id: Uuid; qty: number; unit_price: number }[];
+  sales_amount: number;
+  /** 委託先に引かれる手数料 */
+  fee_amount: number;
+  note: string | null;
+  /** 入れ間違いで取り消した時刻 */
+  voided_at: Iso | null;
+  /** 委託先から入金があった日(まだなら null。古い版が作った行にはない) */
+  paid_on?: string | null;
+  client_updated_at: Iso;
 }
 
 // まだ画面で使っていないテーブル

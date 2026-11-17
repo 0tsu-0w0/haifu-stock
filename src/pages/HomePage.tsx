@@ -1,3 +1,4 @@
+import { ConsignHomeCard } from '../components/ConsignGlance';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -107,9 +108,11 @@ export function HomePage() {
         <div className="home-actions">
           <Link className="btn center" to="/events/new">イベントを作る</Link>
           <Link className="btn center" to="/items">品目</Link>
+          <Link className="btn center" to="/consign">委託</Link>
           <Link className="btn center" to="/analysis">分析</Link>
         </div>
       )}
+      {owner && ctx && <ConsignHomeCard circleId={ctx.circleId} />}
 
       {events && events.length === 0 && !owner && (
         <div className="card"><p>イベントを受け取っています。少し待っても出ないときは、上の同期の表示を押してください。</p></div>

@@ -31,6 +31,7 @@ function retry<T>(load: () => Promise<T>): Promise<T> {
 // ホーム・レジ・最初の設定以外の画面は、開いたときに読み込む(最初の起動を軽くする)。
 // PWA は全部を端末に保存しているので、オフラインでも開ける
 const AnalysisPage = lazy(() => retry(() => import('./pages/AnalysisPage').then((m) => ({ default: m.AnalysisPage }))));
+const ConsignPage = lazy(() => retry(() => import('./pages/ConsignPage').then((m) => ({ default: m.ConsignPage }))));
 const ClosingPage = lazy(() => retry(() => import('./pages/ClosingPage').then((m) => ({ default: m.ClosingPage }))));
 const EventPreparePage = lazy(() => retry(() => import('./pages/EventPreparePage').then((m) => ({ default: m.EventPreparePage }))));
 const HistoryPage = lazy(() => retry(() => import('./pages/HistoryPage').then((m) => ({ default: m.HistoryPage }))));
@@ -66,6 +67,7 @@ function Routed() {
           <Route path="/events/:eventId/prepare" element={<EventPreparePage />} />
           <Route path="/items" element={<ItemsPage />} />
           <Route path="/analysis" element={<AnalysisPage />} />
+          <Route path="/consign" element={<ConsignPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/stocktake" element={<StocktakePage />} />
           <Route path="/items/move" element={<MoveStockPage />} />

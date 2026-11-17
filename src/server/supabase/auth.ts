@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { AuthBackend, CircleChoice, InviteRow } from './account';
+import type { AuthBackend, CircleChoice, InviteRow } from '../../auth/account';
 
 // Supabase Auth を使った実装。エラーは画面にそのまま出せる日本語に置き換える
 

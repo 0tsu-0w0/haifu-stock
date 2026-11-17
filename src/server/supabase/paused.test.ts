@@ -1,9 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, expect, it } from 'vitest';
-import { freshDb } from '../test/helpers';
-import { createCircle } from '../domain/setup';
-import { syncOnce, SyncFailedError } from './engine';
-import { PAUSED_MESSAGE, SupabaseRemote } from './supabaseRemote';
+import { freshDb } from '../../test/helpers';
+import { createCircle } from '../../domain/setup';
+import { syncOnce, SyncFailedError } from '../../sync/engine';
+import { PAUSED_MESSAGE, SupabaseRemote } from './remote';
 
 /** どの問い合わせにも同じ応答を返す、Supabase の client の代わり */
 function fakeClient(res: { data: unknown; error: unknown; status: number }): SupabaseClient {

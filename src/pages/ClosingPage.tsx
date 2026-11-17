@@ -1,4 +1,6 @@
+import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo, useRef, useState } from 'react';
+import { usePref } from '../app/prefs';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../app/AuthProvider';
 import { db } from '../app/db';
@@ -13,6 +15,7 @@ import {
   moneyAfterClosing, saveCountFrom, settlementText, type CountRow,
 } from '../domain/closing';
 import type { Ctx } from '../domain/record';
+import { deviceStatuses } from '../domain/devices';
 import { exportLedger, importLedger } from '../sync/file';
 import { hhmm, yen } from '../lib/format';
 import { useEventData } from './useEventData';
@@ -125,15 +128,14 @@ function SyncStep({ data, ctx }: { data: Data; ctx: Ctx }) {
   const { pending, state, syncNow } = useSync();
   const toast = useToast();
   const fileInput = useRef<HTMLInputElement>(null);
-  const others = useMemo(() => {
-    const m = new Map<string, { count: number; last: string }>();
-    for (const t of data.txns) {
-      if (t.device_id === ctx.deviceId) continue;
-      const x = m.get(t.device_id) ?? { count: 0, last: '' };
-      m.set(t.device_id, { count: x.count + 1, last: t.recorded_at > x.last ? t.recorded_at : x.last });
-    }
-    return [...m];
-  }, [data.txns, ctx.deviceId]);
+  const sync = useLiveQuery(async () => ({
+    rows: await db.device_syncs.where('circle_id').equals(ctx.circleId).toArray(),
+    names: new Map((await db.devices.where('circle_id').equals(ctx.circleId).toArray()).map((d) => [d.id, d.name])),
+  }), [ctx.circleId]);
+  const others = useMemo(
+    () => (sync ? deviceStatuses({ txns: data.txns, syncs: sync.rows, names: sync.names, myDeviceId: ctx.deviceId, now: new Date() }) : []),
+    [data.txns, sync, ctx.deviceId],
+  );
 
   async function sendFile() {
     const ledger = await exportLedger(db, data.event.id, ctx.deviceId);
@@ -172,12 +174,21 @@ function SyncStep({ data, ctx }: { data: Data; ctx: Ctx }) {
       <div className="card">
         <b>ほかの端末の記録</b>
         {others.length === 0 && <p className="note">この端末に届いている、ほかの端末の記録はありません。</p>}
-        {others.map(([id, x]) => (
-          <div className="rowx" key={id}>
-            <span>端末 …{id.slice(-6)}</span>
-            <span className="k">{x.count}件・最後 {hhmm(x.last)}</span>
+        {others.map((d) => (
+          <div className={`dev-sync${d.warn ? ' warn' : ''}`} key={d.id}>
+            <div className="rowx">
+              <b>{d.label}</b>
+              <span className="k">{d.count > 0 ? `記録 ${d.count}件・最後 ${hhmm(d.lastRecord!)}` : '記録なし'}</span>
+            </div>
+            <small className={d.warn ? 'warnnote' : 'k'}>
+              {d.syncedAt === null
+                ? '同期した時刻は分かりません(古い版のアプリか、まだ同期していません)'
+                : `最後の同期 ${hhmm(d.syncedAt)}・そのとき未送信 ${d.pending}件`}
+              {d.warn ? `。${d.warn}` : ''}
+            </small>
           </div>
         ))}
+        {others.length > 0 && <p className="note">ほかの端末の同期の様子は、この端末で「同期する」を押すと新しくなります。</p>}
         <p className="note">売り子の端末がまだ送れていないときは、売り子の端末で「記録をファイルで送る」を押し、AirDropなどでこの端末に送って取り込んでください。</p>
         <button className="sbtn" onClick={() => fileInput.current?.click()}>ファイルを取り込む</button>
         <input
@@ -327,6 +338,8 @@ function CashStep({ data, ctx, rows, money }: { data: Data; ctx: Ctx; rows: Coun
 function SettleStep(props: {
   data: Data; rows: CountRow[]; money: ReturnType<typeof computeMoney>; returnTo: string | null; setDest: (id: string) => void;
 }) {
+  // 家の在庫を数えないときは、残りの戻し先を聞かない(戻し先は最初の保管場所のまま)
+  const [trackHome] = usePref('trackHome');
   const { data, rows, money, returnTo, setDest } = props;
   const toast = useToast();
   const [fallback, setFallback] = useState<{ owner: string; text: string } | null>(null);
@@ -374,16 +387,20 @@ function SettleStep(props: {
         </div>
       ))}
 
-      <h3>{consign ? '自分の分の持ち帰り' : '持ち帰り'}</h3>
-      <div className="card">
-        <div className="rowx">
-          <label htmlFor="dest">残り <b className="num">{ownLeft}</b>部の戻し先</label>
-          <select id="dest" value={returnTo ?? ''} onChange={(e) => setDest(e.target.value)}>
-            {data.storages.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
+      {(trackHome || consign) && <h3>{consign ? '自分の分の持ち帰り' : '持ち帰り'}</h3>}
+      {(trackHome || consign) && (
+        <div className="card">
+          {trackHome ? (
+            <div className="rowx">
+              <label htmlFor="dest">残り <b className="num">{ownLeft}</b>部の戻し先</label>
+              <select id="dest" value={returnTo ?? ''} onChange={(e) => setDest(e.target.value)}>
+                {data.storages.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            </div>
+          ) : <p>残り <b className="num">{ownLeft}</b>部を持ち帰ります。</p>}
+          {consign && <p className="note">受託分の残りは持ち主に返却します。</p>}
         </div>
-        {consign && <p className="note">受託分の残りは持ち主に返却します。</p>}
-      </div>
+      )}
 
       <h3>{consign ? 'このイベントの収支(自分の分)' : 'このイベントの収支'}</h3>
       <div className="card">
@@ -403,6 +420,7 @@ function SettleStep(props: {
 }
 
 function DoneView({ data, ctx, onReopened }: { data: Data; ctx: Ctx; onReopened: () => void }) {
+  const [trackHome] = usePref('trackHome');
   const c = data.closing!;
   const toast = useToast();
   const [fallback, setFallback] = useState<{ owner: string; text: string } | null>(null);
@@ -480,7 +498,7 @@ function DoneView({ data, ctx, onReopened }: { data: Data; ctx: Ctx; onReopened:
           </div>
         ))}
       </div>
-      <p className="lead">自分の分の残りは「{data.storages.find((l) => l.id === c.return_location_id)?.name ?? '戻し先'}」に戻しました。</p>
+      {trackHome && <p className="lead">自分の分の残りは「{data.storages.find((l) => l.id === c.return_location_id)?.name ?? '戻し先'}」に戻しました。</p>}
       <Link className="btn center" to={`/events/${data.event.id}/report`}>このイベントのレポートを見る</Link>
       <Link className="sub-link" to={`/analysis?tab=event&event=${data.event.id}`}>このイベントの損益分岐のグラフを見る</Link>
       <ReopenCard ctx={ctx} eventId={data.event.id} onReopened={onReopened} />
