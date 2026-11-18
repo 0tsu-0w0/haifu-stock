@@ -33,7 +33,7 @@ export function bringHints(
   // 新刊は、準備しているイベントの日数と種別にそろえる
   const nb = newBookPlan(data, opts, { days, typeId: targetTypeId });
   const typeOf = new Map(data.events.map((e) => [e.id, e.event_type_id ?? null]));
-  const scales = targetTypeId ? typeScales(data) : new Map<string, { perDay: number; events: number }>();
+  const scales = typeScales(data);
   const out = new Map<string, BringHint>();
   for (const item of data.ownItems) {
     const obs = (data.histories.get(item.id)?.observations ?? []).filter((o) => o.eventId !== eventId);

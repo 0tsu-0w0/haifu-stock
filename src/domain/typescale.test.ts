@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { EventRow, Item } from '../db/types';
 import { DEFAULT_FORECAST, decayRates, newBookPlan, reprintPlans, type AnalysisData, type Observation } from './analysis';
-import { bringHints, typeScales } from './bring';
+import { bringHints } from './bring';
+import { typeScaleBetween, typeScales } from './analysis';
 
 // 種別の補正(要件 §6.2)。大規模(BIG)はオンリー(ONLY)の2倍売れるサークルを想定する
 
@@ -28,10 +29,17 @@ function data(): AnalysisData {
 }
 
 describe('イベント種別の補正(§6.2)', () => {
-  it('種別ごとの規模は、終わったイベントの1日あたりの需要の合計を平均する', () => {
+  it('種別の規模の比は、両方の種別に出した品目どうしで比べる(品目の数の違いに左右されない)', () => {
     const s = typeScales(data());
-    expect(s.get('BIG')).toEqual({ perDay: 40, events: 2 });
-    expect(s.get('ONLY')).toEqual({ perDay: 30, events: 2 });
+    expect(s.events).toEqual(new Map([['BIG', 2], ['ONLY', 2]]));
+    // A は大規模で40、オンリーで20。B はオンリーにしか出していないので比べには使わない
+    expect(typeScaleBetween(s, 'ONLY', 'BIG')).toBe(2);
+    expect(typeScaleBetween(s, 'BIG', 'ONLY')).toBe(0.5);
+    // オンリーに品目を増やしても、比は変わらない(イベントごとの合計で比べていたときは変わっていた)
+    const d = data();
+    const extra = { id: 'x', name: '新グッズ', kind: 'goods' } as Item;
+    d.histories.set('x', { item: extra, observations: [ob('only1', '2026-02-01', 30), ob('only2', '2026-04-01', 30)] });
+    expect(typeScaleBetween(typeScales(d), 'ONLY', 'BIG')).toBe(2);
   });
 
   it('同じ種別の実績があれば、それを優先する', () => {
@@ -50,8 +58,11 @@ describe('イベント種別の補正(§6.2)', () => {
     const d = data();
     const plain = bringHints(d, undefined, DEFAULT_FORECAST).get('b')!;
     const big = bringHints(d, undefined, DEFAULT_FORECAST, undefined, 1, 'BIG').get('b')!;
-    expect(big.basis).toContain('×1.33');
-    expect(big.expected).toBe(Math.round(plain.expected * 40 / 30));
+    expect(big.basis).toContain('×2');
+    // B の直近(オンリーで10部)× 強気の減衰率 × 規模の比2
+    const r = decayRates(d, DEFAULT_FORECAST).aggressive;
+    expect(plain.expected).toBe(Math.round(10 * r));
+    expect(big.expected).toBe(Math.round(10 * r * 2));
   });
 
   it('刷り部数の目安は、登録してあるこれからのイベントの日数と種別に合わせる。登録していない回は直近と同じ規模', () => {
@@ -62,10 +73,10 @@ describe('イベント種別の補正(§6.2)', () => {
     const plan = reprintPlans(d, opts).find((p) => p.item.id === 'b')!;
     const [s0, s1] = plain.scenarios[1].perEvent;
     // 1回目: 2日開催 × 種別の比 40/30。2回目は登録がないので変わらない
-    expect(plan.scenarios[1].perEvent[0]).toBeCloseTo(s0 * 2 * (40 / 30), 1);
+    expect(plan.scenarios[1].perEvent[0]).toBeCloseTo(s0 * 2 * 2, 1);
     expect(plan.scenarios[1].perEvent[1]).toBe(s1);
     expect(plan.planned.map((p) => [p.event?.id ?? null, p.days])).toEqual([['next', 2], [null, 1]]);
-    expect(plan.planned[0].scale).toBeCloseTo(40 / 30);
+    expect(plan.planned[0].scale).toBe(2);
     // これからのイベントに持ち込み済みの分は、手元の在庫として引く
     d.upcomingStock = new Map([['b', 7]]);
     d.storageStock = new Map([['b', 3]]);
@@ -81,9 +92,9 @@ describe('イベント種別の補正(§6.2)', () => {
     d.upcoming = [{ ...ev('next', '2026-06-01', 'BIG'), days: 2 } as never];
     const plan = newBookPlan(d, DEFAULT_FORECAST)!;
     expect(plan.debut?.id).toBe('next');
-    // B: 10 × 2日 × 40/30 = 26.7、A: 40 × 2日 = 80
-    expect(plan.basis.map((b) => b.adjusted)).toEqual([26.7, 80]);
-    expect(plan.scenarios.find((s) => s.key === 'standard')!.firstEvent).toBe(Math.round((10 * 2 * (40 / 30) * 3 + 80 * 2) / 5));
+    // B: 10 × 2日 × 2 = 40、A: 40 × 2日 = 80
+    expect(plan.basis.map((b) => b.adjusted)).toEqual([40, 80]);
+    expect(plan.scenarios.find((s) => s.key === 'standard')!.firstEvent).toBe(Math.round((40 * 3 + 80 * 2) / 5));
     // 持ち込みの目安は、準備しているイベントを渡すので、次のイベントの登録には左右されない
     const c = { id: 'c', name: '新刊C', kind: 'book' } as Item;
     d.ownItems.push(c);

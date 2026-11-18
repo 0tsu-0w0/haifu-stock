@@ -401,40 +401,56 @@ export interface DecayRates {
 /** 種別の規模の比べに要る、種別ごとの終わったイベントの数 */
 export const TYPE_MIN_EVENTS = 2;
 
+/** 種別の比べの材料(要件 §6.2) */
+export interface TypeScales {
+  /** 終わったイベントが TYPE_MIN_EVENTS 回以上ある種別と、その回数 */
+  events: Map<string, number>;
+  /** 品目ごと・種別ごとの、1日あたりの推定需要の平均 */
+  itemMeans: Map<string, Map<string, number>>;
+}
+
 /**
- * イベント種別ごとの規模(要件 §6.2)。終わったイベントごとに、自分の品目の推定需要を1日あたりで足し、種別ごとに平均する。
- * 終わったイベントが TYPE_MIN_EVENTS 回に満たない種別は出さない
+ * イベント種別ごとの材料を集める。規模の比は、同じ品目どうしで比べる(typeScaleBetween)。
+ * イベントごとの需要の合計で比べると、品目が増えた時期のイベントほど大きく出てしまうため
  */
-export function typeScales(data: AnalysisData): Map<string, { perDay: number; events: number }> {
+export function typeScales(data: AnalysisData): TypeScales {
   const typeOf = new Map(data.events.map((e) => [e.id, e.event_type_id ?? null]));
-  const size = new Map<string, number>();
+  const eventsByType = new Map<string, Set<string>>();
+  const sums = new Map<string, Map<string, { sum: number; n: number }>>();
   for (const h of data.histories.values()) {
-    for (const o of h.observations) size.set(o.eventId, (size.get(o.eventId) ?? 0) + o.demand / Math.max(o.days, 1));
+    for (const o of h.observations) {
+      const t = typeOf.get(o.eventId);
+      if (!t) continue;
+      if (!eventsByType.has(t)) eventsByType.set(t, new Set());
+      eventsByType.get(t)!.add(o.eventId);
+      const byType = sums.get(h.item.id) ?? new Map<string, { sum: number; n: number }>();
+      const x = byType.get(t) ?? { sum: 0, n: 0 };
+      byType.set(t, { sum: x.sum + o.demand / Math.max(o.days, 1), n: x.n + 1 });
+      sums.set(h.item.id, byType);
+    }
   }
-  const byType = new Map<string, number[]>();
-  for (const [eventId, v] of size) {
-    const t = typeOf.get(eventId);
-    if (t) byType.set(t, [...(byType.get(t) ?? []), v]);
-  }
-  const out = new Map<string, { perDay: number; events: number }>();
-  for (const [t, vs] of byType) {
-    if (vs.length >= TYPE_MIN_EVENTS) out.set(t, { perDay: vs.reduce((a, x) => a + x, 0) / vs.length, events: vs.length });
-  }
-  return out;
+  const events = new Map([...eventsByType].filter(([, ids]) => ids.size >= TYPE_MIN_EVENTS).map(([t, ids]) => [t, ids.size]));
+  const itemMeans = new Map([...sums].map(([id, byType]) => [id, new Map([...byType].map(([t, x]) => [t, x.sum / x.n]))]));
+  return { events, itemMeans };
 }
 
 /**
  * 種別 from の実績を、種別 to のイベントに当てはめるときに掛ける比(§6.2)。
- * 同じ種別・種別なし・どちらかの材料が足りないときは 1。外れた値で目安が極端にならないよう 1/4〜4倍に収める
+ * 両方の種別に出したことのある品目ごとに「to での1日あたりの需要 ÷ from での」を出し、その中央値を使う。
+ * 同じ種別・種別なし・どちらかの種別の終わったイベントが足りない・両方に出した品目がないときは 1。
+ * 外れた値で目安が極端にならないよう 1/4〜4倍に収める
  */
-export function typeScaleBetween(scales: Map<string, { perDay: number; events: number }>, from: string | null, to: string | null): number {
-  if (!from || !to || from === to) return 1;
-  const f = scales.get(from);
-  const t = scales.get(to);
-  if (!f || !t || f.perDay <= 0) return 1;
-  return Math.min(4, Math.max(0.25, t.perDay / f.perDay));
+export function typeScaleBetween(scales: TypeScales, from: string | null, to: string | null): number {
+  if (!from || !to || from === to || !scales.events.has(from) || !scales.events.has(to)) return 1;
+  const ratios: number[] = [];
+  for (const means of scales.itemMeans.values()) {
+    const f = means.get(from);
+    const t = means.get(to);
+    if (f !== undefined && t !== undefined && f > 0) ratios.push(t / f);
+  }
+  if (ratios.length === 0) return 1;
+  return Math.min(4, Math.max(0.25, quantile(ratios, 0.5)));
 }
-
 
 /** 既刊の減衰率: 同じ品目を続けて出したときの需要の比(要件 §6.3) */
 export function decayRates(data: AnalysisData, opts: ForecastOptions): DecayRates {
