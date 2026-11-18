@@ -17,7 +17,7 @@ function data(): AnalysisData {
   const b = { id: 'b', name: '既刊B', kind: 'book' } as Item;
   const events = [ev('big1', '2026-01-01', 'BIG'), ev('only1', '2026-02-01', 'ONLY'), ev('big2', '2026-03-01', 'BIG'), ev('only2', '2026-04-01', 'ONLY')];
   return {
-    events, upcoming: [], upcomingStock: new Map(), consign: new Map(), items: [a, b], ownItems: [a, b],
+    events, upcoming: [], upcomingStock: new Map(), consign: new Map(), consignedHistories: new Map(), owners: [], items: [a, b], ownItems: [a, b],
     histories: new Map([
       ['a', { item: a, observations: [ob('big1', '2026-01-01', 40), ob('only1', '2026-02-01', 20), ob('big2', '2026-03-01', 40), ob('only2', '2026-04-01', 20)] }],
       // B はオンリーにしか出していない

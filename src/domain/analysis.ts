@@ -1,5 +1,5 @@
 import type { HaifuDB } from '../db/local';
-import type { EventClosing, EventRow, Item, Location, Movement, PrintRun, SetComponent, Txn, TxnLine } from '../db/types';
+import type { EventClosing, EventRow, Item, Location, Movement, Owner, PrintRun, SetComponent, Txn, TxnLine } from '../db/types';
 import { activeTxnIds, eventItemSummary, lineAmount, type ItemAtEvent } from './ledger';
 import { consigneeState, type ConsigneeState } from './consignOut';
 import { locationStock, storageStock as loadStorageStock } from './stock';
@@ -114,6 +114,10 @@ export interface AnalysisData {
   ownItems: Item[];
   /** 品目ごとの、過去のイベントでの観測(古い順) */
   histories: Map<string, ItemHistory>;
+  /** 受託品(ほかのサークルの品目)の、過去のイベントでの観測。刷り部数・損益の目安には使わず、「推移」で持ち主ごとに見るためだけに持つ(F-708) */
+  consignedHistories: Map<string, ItemHistory>;
+  /** 持ち主(自分と受託元) */
+  owners: Owner[];
   /** 保管場所(自宅など)にある在庫 */
   storageStock: Map<string, number>;
   printRuns: PrintRun[];
@@ -308,7 +312,9 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
   }
 
   const histories = new Map<string, ItemHistory>();
-  for (const item of ownItems) {
+  const consignedHistories = new Map<string, ItemHistory>();
+  const consignedItems = items.filter((i) => !selfIds.has(i.owner_id) && i.kind !== 'set' && !i.deleted_at);
+  for (const item of [...ownItems, ...consignedItems]) {
     const observations: Observation[] = [];
     for (const p of perEvent) {
       const s = p.summary.get(item.id);
@@ -328,8 +334,10 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
         soldOutAt: s.soldOutAt, soldOutFraction: fraction, demand, corrected: demand > s.sold, days: daysOf(p.ev),
       });
     }
-    histories.set(item.id, { item, observations });
+    (selfIds.has(item.owner_id) ? histories : consignedHistories).set(item.id, { item, observations });
   }
+  // 受託品は、出したイベントのあるものだけ残す
+  for (const [id, h] of consignedHistories) if (h.observations.length === 0) consignedHistories.delete(id);
 
   const productionCosts = new Map<string, number>();
   for (const c of prodCosts) {
@@ -380,7 +388,7 @@ export async function loadAnalysis(db: HaifuDB, circleId: string, opts: Forecast
     upcomingStock.set(id, (upcomingStock.get(id) ?? 0) + n);
   }
   const consign = consignPaces(await consigneeState(db, circleId), today);
-  return { events: events.filter((e) => !e.deleted_at), upcoming, upcomingStock, consign, items, ownItems, histories, storageStock, printRuns, productionCosts, soldTotals, soldByYear, curve, curveSource, curveSamples: samples, curveTypes };
+  return { events: events.filter((e) => !e.deleted_at), upcoming, upcomingStock, consign, items, ownItems, histories, consignedHistories, owners, storageStock, printRuns, productionCosts, soldTotals, soldByYear, curve, curveSource, curveSamples: samples, curveTypes };
 }
 
 const quantile = (xs: number[], q: number) => {

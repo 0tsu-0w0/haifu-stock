@@ -7,23 +7,52 @@ import { ChartSave } from './ChartSave';
 
 const pct = (r: number) => `${Math.round(r * 100)}%`;
 
-export function ItemTrendView({ data, selected, onSelect }: { data: AnalysisData; selected: string | null; onSelect: (id: string) => void }) {
+/** 見る範囲(F-708)。'self' は自分の品目、ほかは受託元の持ち主ID */
+type TrendScope = 'all' | 'self' | string;
+
+export function ItemTrendView({ data, selected, onSelect, scope = 'all', onScope }: {
+  data: AnalysisData; selected: string | null; onSelect: (id: string) => void;
+  scope?: TrendScope; onScope?: (s: TrendScope) => void;
+}) {
+  // 受託品を出したことのある受託元
+  const consignors = useMemo(() => {
+    const ids = new Set([...data.consignedHistories.values()].map((h) => h.item.owner_id));
+    return data.owners.filter((o) => !o.is_self && ids.has(o.id));
+  }, [data]);
+  const sc: TrendScope = scope === 'all' || scope === 'self' || consignors.some((o) => o.id === scope) ? scope : 'all';
+  const shown = useMemo(() => {
+    const own = [...data.histories.values()];
+    const others = [...data.consignedHistories.values()];
+    return sc === 'self' ? own : sc === 'all' ? [...own, ...others] : others.filter((h) => h.item.owner_id === sc);
+  }, [data, sc]);
   // 2回以上出したものを先に、初めて出した日の新しい順
-  const list = useMemo(() => [...data.histories.values()]
+  const list = useMemo(() => shown
     .filter((h) => h.observations.length > 0 && !h.item.deleted_at)
     .sort((a, b) => Number(b.observations.length > 1) - Number(a.observations.length > 1)
-      || b.observations[0].heldOn.localeCompare(a.observations[0].heldOn)), [data]);
-  const decay = useMemo(() => decayByAppearance(data.histories.values()), [data]);
+      || b.observations[0].heldOn.localeCompare(a.observations[0].heldOn)), [shown]);
+  const decay = useMemo(() => decayByAppearance(shown), [shown]);
+  const ownerName = (id: string) => consignors.find((o) => o.id === id)?.name;
+  const scopeBar = consignors.length > 0 && onScope && (
+    <div className="chips" role="radiogroup" aria-label="見る範囲">
+      {([['all', '全体'], ['self', '自分の分'], ...consignors.map((o) => [o.id, o.name])] as [string, string][]).map(([k, label]) => (
+        <button key={k} className="chip" role="radio" aria-checked={sc === k} aria-pressed={sc === k} onClick={() => onScope(k)}>{label}</button>
+      ))}
+    </div>
+  );
   const h = list.find((x) => x.item.id === selected) ?? list[0];
-  if (!h) return <div className="card"><p className="note">終了したイベントの記録がたまると、頒布物ごとの売れ方の推移を出します。</p></div>;
+  if (!h) return <>{scopeBar}<div className="card"><p className="note">終了したイベントの記録がたまると、頒布物ごとの売れ方の推移を出します。</p></div></>;
   const rows = itemTrend(h);
   const last = rows[rows.length - 1];
 
   return (
     <>
+      {scopeBar}
       <label className="label-like" htmlFor="trend-item">頒布物</label>
       <select id="trend-item" value={h.item.id} onChange={(e) => onSelect(e.target.value)}>
-        {list.map((x) => <option key={x.item.id} value={x.item.id}>{x.item.name}({x.observations.length}回)</option>)}
+        {list.map((x) => {
+          const owner = ownerName(x.item.owner_id);
+          return <option key={x.item.id} value={x.item.id}>{x.item.name}{owner && sc === 'all' ? `・受託: ${owner}` : ''}({x.observations.length}回)</option>;
+        })}
       </select>
 
       <TrendBars rows={rows} name={h.item.name} />
@@ -72,7 +101,10 @@ export function ItemTrendView({ data, selected, onSelect }: { data: AnalysisData
               </tbody>
             </table>
           </div>
-          <p className="note">自分の頒布物すべてについて、n回目に出したイベントの1日あたりの需要を、初めて出したイベントと比べた中央値です。数が少ない回は、当てにしすぎないでください。</p>
+          <p className="note">
+            {sc === 'all' ? '受託品も含む頒布物すべて' : sc === 'self' ? '自分の頒布物すべて' : `${ownerName(sc)}の頒布物すべて`}について、n回目に出したイベントの1日あたりの需要を、初めて出したイベントと比べた中央値です。数が少ない回は、当てにしすぎないでください。
+            {consignors.length > 0 && sc !== 'self' ? '刷り部数の目安に使う落ち方は、自分の頒布物だけで出しています。' : ''}
+          </p>
         </>
       )}
     </>

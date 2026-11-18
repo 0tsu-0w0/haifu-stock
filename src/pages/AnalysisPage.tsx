@@ -45,7 +45,13 @@ export function AnalysisPage() {
         : tab === 'year' ? <YearSummaryView circleId={ctx!.circleId} />
         : tab === 'consign' ? <ConsignAnalysisView circleId={ctx!.circleId} data={data} />
         : tab === 'forecast' ? <Forecast data={data} opts={opts} setOpts={setOpts} />
-        : tab === 'trend' ? <ItemTrendView data={data} selected={params.get('item')} onSelect={(id) => setParams({ tab: 'trend', item: id }, { replace: true })} />
+        : tab === 'trend' ? (
+          <ItemTrendView
+            data={data} selected={params.get('item')} scope={params.get('scope') ?? 'all'}
+            onSelect={(id) => setParams({ tab: 'trend', item: id, ...(params.get('scope') ? { scope: params.get('scope')! } : {}) }, { replace: true })}
+            onScope={(s) => setParams(s === 'all' ? { tab: 'trend' } : { tab: 'trend', scope: s }, { replace: true })}
+          />
+        )
         : tab === 'item' ? <ItemBreakEvens circleId={ctx!.circleId} data={data} selected={params.get('item')} onSelect={(id) => setParams({ tab: 'item', item: id }, { replace: true })} />
         : <EventBreakEven data={data} selected={params.get('event')} onSelect={(id) => setParams({ tab: 'event', event: id }, { replace: true })} />}
     </main>
