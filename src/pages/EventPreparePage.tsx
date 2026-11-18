@@ -215,8 +215,13 @@ export function EventPreparePage() {
     const h = hints.get(id);
     if (!h) return null;
     const avail = (home ? data.stock.get(`${id}|${home.id}`) ?? 0 : 0) + (data.prepared.get(id) ?? 0);
-    if (!trackHome) return { ...h, capped: null };
-    return { ...h, qty: Math.min(h.qty, Math.max(avail, 0)), capped: h.qty > avail ? avail : null };
+    if (!trackHome) return { ...h, capped: null, short: null };
+    // 完売見込み(F-902): すべての保管場所の在庫と反映済みの数を足しても、見込み(余裕を足す前)に届かない
+    const total = data.storages.filter((l) => !l.archived_at).reduce((a, l) => a + (data.stock.get(`${id}|${l.id}`) ?? 0), 0) + (data.prepared.get(id) ?? 0);
+    return {
+      ...h, qty: Math.min(h.qty, Math.max(avail, 0)), capped: h.qty > avail ? avail : null,
+      short: total < h.expected ? { total: Math.max(total, 0), expected: h.expected } : null,
+    };
   };
   const hinted = ordered.filter((i) => lineOf(i.id).included && i.kind !== 'set' && hintFor(i.id) && lineOf(i.id).bring !== hintFor(i.id)!.qty);
   function applyAllHints() {
@@ -384,6 +389,12 @@ export function EventPreparePage() {
                         </span>
                         {l.bring !== h.qty && (
                           <button className="link-btn small-link" aria-label={`${i.name}の持ち込み数に目安の${h.qty}部を入れる`} onClick={() => setLine(i.id, { bring: h.qty })}>入れる</button>
+                        )}
+                        {h.short && (
+                          <p className="msg soldout-warn">
+                            完売見込み: 在庫が全部で{h.short.total}部で、見込みの{h.short.expected}部に足りません。
+                            <Link to={`/analysis?tab=forecast`}>再版を検討する</Link>
+                          </p>
                         )}
                       </div>
                     );

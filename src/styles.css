@@ -637,6 +637,9 @@ details[open] summary { margin-bottom: 6px; }
 .bring-hint { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--ink-2); }
 .bring-hint b { color: var(--ink); }
 .bring-hint small { display: block; font-size: 12px; line-height: 1.5; }
+.bring-hint { flex-wrap: wrap; }
+.bring-hint .soldout-warn { flex-basis: 100%; }
+.soldout-warn a { color: var(--accent); font-weight: 700; margin-left: 4px; }
 .bring-all { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 
 /* 2日・3日開催の日付の範囲(Issue #19) */
